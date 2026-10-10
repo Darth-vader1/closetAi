@@ -9,13 +9,13 @@ A digital wardrobe and personal stylist. Users photograph their clothes, track l
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Foundation: auth, onboarding, app shell, schema + RLS, design system | **Done** |
-| 2 | Wardrobe: uploads, AI tagging, laundry dashboard | Not started |
+| 2 | Wardrobe: uploads, AI tagging, laundry dashboard | **Done** |
 | 3 | Outfit engine and Outfit Studio | Not started |
 | 4 | AI Stylist and calendar | Not started |
 | 5 | Daily/weekly emails and cron | Not started |
 | 6 | Final verification and deployment docs | Not started |
 
-Wardrobe, Laundry, Studio, Stylist, Calendar and Settings pages currently say which phase they belong to. They contain no fake data.
+Studio, Stylist, Calendar and Settings pages currently say which phase they belong to. They contain no fake data.
 
 ## Local setup
 
@@ -63,6 +63,31 @@ Email verification and password reset links return to `/auth/callback` (PKCE). I
 
 Keep **Confirm email** enabled so new accounts must verify their address.
 
+## AI (Gemini)
+
+AI is optional. Without it, every flow works with manual entry.
+
+```bash
+# .env.local
+AI_PROVIDER=gemini
+AI_API_KEY=...            # Google AI Studio key (server-only)
+AI_VISION_MODEL=...       # a current Gemini model that accepts images
+AI_TEXT_MODEL=            # optional, defaults to AI_VISION_MODEL
+```
+
+- Model IDs are configuration, not code. Pick current ones from Google's model list; a "flash-lite" tier is the cheapest for photo tagging.
+- `AI_PROVIDER=mock` returns clearly labelled development samples (it never looks at the photo) and is refused in production.
+- Photo analysis is rate-limited to 60 calls per user per hour (`src/lib/ai/rate-limit.ts`).
+- The model's output is validated against a strict schema and only ever fills a review form. Nothing is saved until the user confirms. Material and brand are deliberately never suggested.
+- **Fashion trends:** a model's built-in knowledge stops at its training cutoff. For current trends, the styling phases will use Gemini's Google Search grounding tool; photo tagging does not need it.
+
+## Wardrobe flow
+
+1. **Add clothes** (`/wardrobe/new`): photos are resized in the browser (max 1600px JPEG, which also strips EXIF/GPS), uploaded through `/api/wardrobe/upload` (auth, same-origin, size and magic-byte checks) into the user's private folder, optionally analysed via `/api/ai/analyse`, then reviewed and saved one garment at a time.
+2. **Browse** (`/wardrobe`): search, filter, sort, favourites, pagination. Filters live in the URL.
+3. **Item page** (`/wardrobe/[id]`): edit details, change laundry status, delete (removes the photo too).
+4. **Laundry** (`/laundry`): grouped by status with quick actions. `last_washed_at` changes only through "Mark washed & clean".
+
 ## Commands
 
 ```bash
@@ -91,6 +116,12 @@ npm run build       # production build
 - Auth errors are translated to safe messages; password-reset requests never reveal whether an email has an account.
 - Security headers set in `next.config.ts`.
 - Private storage bucket with per-user folder policies.
+
+## Phase 2 notes
+
+- Photos a user uploads but then removes are deleted immediately. If the browser is closed mid-batch, unsaved uploads can be left behind in storage. A cleanup job is planned with the scheduled workflows in Phase 5.
+- "Mark as worn" on the item page only sets the WORN status. `last_worn_at` and wear counts are written when an outfit is confirmed as worn (Phase 3).
+- Not verified here: real Gemini calls, and Supabase Storage/RLS through the live API. The upload and review UI was tested in headless Chromium with mocked network responses; the database rules were tested on embedded Postgres.
 
 ## Known limitations
 

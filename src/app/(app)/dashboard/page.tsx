@@ -43,7 +43,7 @@ export default async function DashboardPage() {
           title="Your wardrobe is empty"
           action={
             <Button asChild>
-              <Link href="/wardrobe">Add your first garment</Link>
+              <Link href="/wardrobe/new">Add your first garment</Link>
             </Button>
           }
         >

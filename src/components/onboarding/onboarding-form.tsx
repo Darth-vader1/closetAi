@@ -5,28 +5,13 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { completeOnboardingAction, skipOnboardingAction } from "@/app/onboarding/actions";
 import { Button } from "@/components/ui/button";
+import { Chip, toggleValue as toggle } from "@/components/ui/chip";
 import { Alert } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
 import { COLOUR_OPTIONS, OCCASION_OPTIONS, STYLE_OPTIONS, WEEKDAYS } from "@/lib/profile/options";
 import { listTimeZones } from "@/lib/scheduling/timezone";
-import { cn } from "@/lib/utils/cn";
+import { optionalStringFromSelect } from "@/lib/validation/wardrobe";
 import { onboardingSchema, type OnboardingData, type OnboardingInput } from "@/lib/validation/onboarding";
-
-function Chip({ selected, onToggle, children }: { selected: boolean; onToggle: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onToggle}
-      className={cn(
-        "min-h-10 rounded-full border px-4 text-sm font-medium transition-colors",
-        selected ? "border-accent bg-accent-soft text-accent" : "border-border-strong bg-surface text-foreground hover:bg-surface-muted",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 // Browser-only list of timezones, read through useSyncExternalStore so server and client markup agree
 // during hydration (the server snapshot is empty, then React switches to the real list).
@@ -35,10 +20,6 @@ const NO_ZONES: string[] = [];
 let cachedZones: string[] | null = null;
 const getClientZones = () => (cachedZones ??= listTimeZones());
 const getServerZones = () => NO_ZONES;
-
-function toggle<T>(list: T[], value: T): T[] {
-  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
-}
 
 export function OnboardingForm({ initialName }: { initialName: string }) {
   const [pending, startTransition] = useTransition();
@@ -100,7 +81,7 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
         <Field id="preferredStyle" label="Preferred style" hint="Optional. Helps rank outfit ideas." error={errors.preferredStyle?.message}>
           <Select
             id="preferredStyle"
-            {...form.register("preferredStyle", { setValueAs: (v: string) => (v === "" ? null : v) })}
+            {...form.register("preferredStyle", { setValueAs: optionalStringFromSelect })}
           >
             <option value="">No preference</option>
             {STYLE_OPTIONS.map((s) => (

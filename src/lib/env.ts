@@ -62,17 +62,45 @@ export function getAppUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
 }
 
-export function getAiEnv() {
-  return parse(
-    "AI provider",
-    z.object({
-      AI_PROVIDER: z.enum(["anthropic", "openai", "mock"]),
-      AI_API_KEY: nonEmpty,
-      AI_VISION_MODEL: nonEmpty,
-      AI_TEXT_MODEL: nonEmpty,
-    }),
-    process.env,
-  );
+/**
+ * AI provider configuration.
+ *  - AI_PROVIDER=gemini  : real calls. Needs AI_API_KEY and AI_VISION_MODEL (AI_TEXT_MODEL defaults to it).
+ *  - AI_PROVIDER=mock    : clearly labelled development sample data. Refused in production.
+ *  - anything else/unset : AI is simply unavailable and the app falls back to manual entry.
+ */
+export type AiConfig =
+  | { provider: "gemini"; apiKey: string; visionModel: string; textModel: string }
+  | { provider: "mock" };
+
+export type AiConfigResult = { ok: true; config: AiConfig } | { ok: false; reason: string };
+
+export function resolveAiConfig(source: Record<string, string | undefined> = process.env): AiConfigResult {
+  const provider = (source.AI_PROVIDER ?? "").trim().toLowerCase();
+  if (!provider) return { ok: false, reason: "AI isn't configured on this deployment." };
+
+  if (provider === "mock") {
+    if (source.NODE_ENV === "production") {
+      return { ok: false, reason: "The mock AI provider is for development only and is disabled in production." };
+    }
+    return { ok: true, config: { provider: "mock" } };
+  }
+
+  if (provider === "gemini") {
+    const missing = ["AI_API_KEY", "AI_VISION_MODEL"].filter((k) => !source[k]?.trim());
+    if (missing.length > 0) return { ok: false, reason: new ConfigError("AI provider", missing).message };
+    const visionModel = source.AI_VISION_MODEL!.trim();
+    return {
+      ok: true,
+      config: {
+        provider: "gemini",
+        apiKey: source.AI_API_KEY!.trim(),
+        visionModel,
+        textModel: source.AI_TEXT_MODEL?.trim() || visionModel,
+      },
+    };
+  }
+
+  return { ok: false, reason: `Unknown AI_PROVIDER "${provider}". Supported values: gemini, mock.` };
 }
 
 export function getEmailEnv() {

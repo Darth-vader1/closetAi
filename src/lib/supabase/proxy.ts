@@ -50,6 +50,12 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   const signedIn = Boolean(data?.claims?.sub);
 
   if (!signedIn && !isPublicPath(pathname)) {
+    // API callers (fetch/XHR) need a status code they can act on, not an HTML redirect.
+    if (pathname.startsWith("/api/")) {
+      const unauthorised = NextResponse.json({ error: "Please sign in again." }, { status: 401, headers: { "Cache-Control": "no-store" } });
+      for (const cookie of response.cookies.getAll()) unauthorised.cookies.set(cookie);
+      return unauthorised;
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";

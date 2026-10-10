@@ -42,3 +42,42 @@ describe("countByStatus", () => {
     expect(counts.DRYING).toBe(0);
   });
 });
+
+import { statusActions } from "@/lib/wardrobe/status";
+
+describe("statusActions", () => {
+  it("defines actions for every status, each with exactly one primary", () => {
+    for (const status of LAUNDRY_STATUSES) {
+      const actions = statusActions(status);
+      expect(actions.length).toBeGreaterThan(0);
+      expect(actions.filter((a) => a.primary)).toHaveLength(1);
+    }
+  });
+
+  it("never offers a no-op transition", () => {
+    for (const status of LAUNDRY_STATUSES) {
+      expect(statusActions(status).some((a) => a.to === status)).toBe(false);
+    }
+  });
+
+  it("only confirms a wash when returning an item to CLEAN", () => {
+    for (const status of LAUNDRY_STATUSES) {
+      for (const a of statusActions(status)) {
+        if (a.confirmWashed) expect(a.to).toBe("CLEAN");
+      }
+    }
+  });
+
+  it("does not count WORN or UNAVAILABLE items as washed when marked clean", () => {
+    for (const status of ["WORN", "UNAVAILABLE"] as const) {
+      const clean = statusActions(status).find((a) => a.to === "CLEAN");
+      expect(clean?.confirmWashed).toBe(false);
+    }
+  });
+
+  it("lets every wash-cycle status be completed with a confirmed wash", () => {
+    for (const status of ["DIRTY", "IN_LAUNDRY", "WASHING", "DRYING"] as const) {
+      expect(statusActions(status).some((a) => a.to === "CLEAN" && a.confirmWashed)).toBe(true);
+    }
+  });
+});

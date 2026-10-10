@@ -45,3 +45,50 @@ export function countByStatus(items: ReadonlyArray<{ status: LaundryStatus }>): 
   for (const item of items) counts[item.status] += 1;
   return counts;
 }
+
+export interface StatusAction {
+  label: string;
+  to: LaundryStatus;
+  /** True only for actions where the user is confirming a wash is complete. Sets last_washed_at. */
+  confirmWashed: boolean;
+  /** The main suggested next step, shown as the primary button. */
+  primary?: boolean;
+}
+
+const MARK_WASHED: StatusAction = { label: "Mark washed & clean", to: "CLEAN", confirmWashed: true };
+
+/**
+ * Quick actions offered for a garment in a given status. "Washed" is only ever claimed through an
+ * explicit action the user takes; returning a WORN or UNAVAILABLE item to CLEAN does not count as a wash.
+ */
+export function statusActions(status: LaundryStatus): StatusAction[] {
+  switch (status) {
+    case "CLEAN":
+      return [
+        { label: "Mark as worn", to: "WORN", confirmWashed: false, primary: true },
+        { label: "Needs washing", to: "DIRTY", confirmWashed: false },
+      ];
+    case "WORN":
+      return [
+        { label: "Needs washing", to: "DIRTY", confirmWashed: false, primary: true },
+        { label: "Mark clean", to: "CLEAN", confirmWashed: false },
+      ];
+    case "DIRTY":
+      return [
+        { label: "Add to laundry queue", to: "IN_LAUNDRY", confirmWashed: false, primary: true },
+        { label: "Start washing", to: "WASHING", confirmWashed: false },
+        MARK_WASHED,
+      ];
+    case "IN_LAUNDRY":
+      return [{ label: "Start washing", to: "WASHING", confirmWashed: false, primary: true }, MARK_WASHED];
+    case "WASHING":
+      return [{ label: "Move to drying", to: "DRYING", confirmWashed: false, primary: true }, MARK_WASHED];
+    case "DRYING":
+      return [{ ...MARK_WASHED, primary: true }];
+    case "UNAVAILABLE":
+      return [
+        { label: "Mark clean", to: "CLEAN", confirmWashed: false, primary: true },
+        { label: "Needs washing", to: "DIRTY", confirmWashed: false },
+      ];
+  }
+}
