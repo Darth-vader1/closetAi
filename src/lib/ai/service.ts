@@ -37,7 +37,7 @@ export async function analyseClothingImage(
     provider = availability.provider;
   }
 
-  const MAX_ATTEMPTS = 2;
+  const MAX_ATTEMPTS = 1;
   let lastMessage = "The AI service couldn't analyse this photo.";
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -64,6 +64,7 @@ export async function analyseClothingImage(
         if (!err.retryable) break;
       } else {
         logger.error("ai.unexpected_error", { provider: provider.name, attempt, err });
+        lastMessage = err instanceof Error ? err.message : "The AI service encountered an unexpected error.";
         break;
       }
     }

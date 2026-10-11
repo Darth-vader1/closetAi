@@ -10,7 +10,7 @@ A digital wardrobe and personal stylist. Users photograph their clothes, track l
 | --- | --- | --- |
 | 1 | Foundation: auth, onboarding, app shell, schema + RLS, design system | **Done** |
 | 2 | Wardrobe: uploads, AI tagging, laundry dashboard | **Done** |
-| 3 | Outfit engine and Outfit Studio | Not started |
+| 3 | Outfit engine and Outfit Studio | **Done** |
 | 4 | AI Stylist and calendar | Not started |
 | 5 | Daily/weekly emails and cron | Not started |
 | 6 | Final verification and deployment docs | Not started |

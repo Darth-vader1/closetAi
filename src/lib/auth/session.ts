@@ -31,7 +31,7 @@ export async function requireUser(): Promise<SessionUser> {
 export interface Profile {
   id: string;
   display_name: string | null;
-  preferred_style: string | null;
+  preferred_style: string | string[] | null;
   favourite_colours: string[];
   common_occasions: string[];
   location: string | null;

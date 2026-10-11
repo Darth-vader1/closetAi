@@ -33,12 +33,7 @@ $$;
 create table public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   display_name text check (display_name is null or char_length(display_name) between 1 and 80),
-  preferred_style text check (
-    preferred_style is null or preferred_style in (
-      'casual', 'smart_casual', 'formal', 'minimalist', 'streetwear',
-      'sporty', 'business_casual', 'traditional', 'other'
-    )
-  ),
+  preferred_style text[] not null default '{}',
   favourite_colours text[] not null default '{}',
   common_occasions text[] not null default '{}',
   location text check (location is null or char_length(location) <= 120),
@@ -117,6 +112,7 @@ create table public.outfits (
   style_description text check (style_description is null or char_length(style_description) <= 400),
   explanation text check (explanation is null or char_length(explanation) <= 800),
   styling_tip text check (styling_tip is null or char_length(styling_tip) <= 400),
+  photo_path text check (photo_path is null or char_length(photo_path) <= 300),
   source public.outfit_source not null default 'MANUAL',
   is_favourite boolean not null default false,
   created_at timestamptz not null default now(),

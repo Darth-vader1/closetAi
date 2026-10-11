@@ -41,18 +41,30 @@ export async function completeOnboardingAction(input: unknown): Promise<AuthActi
     return { ok: false, error: "We couldn't save your email preferences. Please try again." };
   }
 
-  const profile = await supabase
+  const profileFields = {
+    display_name: d.displayName,
+    favourite_colours: d.favouriteColours,
+    common_occasions: d.commonOccasions,
+    location: d.location,
+    timezone: d.timezone,
+    onboarding_completed_at: new Date().toISOString(),
+  };
+
+  // Try updating with preferred_style as array first (for text[] column)
+  let profile = await supabase
     .from("profiles")
-    .update({
-      display_name: d.displayName,
-      preferred_style: d.preferredStyle,
-      favourite_colours: d.favouriteColours,
-      common_occasions: d.commonOccasions,
-      location: d.location,
-      timezone: d.timezone,
-      onboarding_completed_at: new Date().toISOString(),
-    })
+    .update({ ...profileFields, preferred_style: d.preferredStyles })
     .eq("id", user.id);
+
+  // If the database column is still a single text column, save the first style
+  // so the user is never blocked even if the database migration hasn't been applied yet
+  if (profile.error) {
+    profile = await supabase
+      .from("profiles")
+      .update({ ...profileFields, preferred_style: d.preferredStyles[0] ?? null })
+      .eq("id", user.id);
+  }
+
   if (profile.error) {
     logger.error("onboarding.profile_failed", { userId: user.id, code: profile.error.code });
     return { ok: false, error: "We couldn't save your profile. Please try again." };

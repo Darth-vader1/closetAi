@@ -7,6 +7,12 @@ import type { NextConfig } from "next";
  * prerender. Revisit if public marketing pages need component-level caching.
  */
 const nextConfig: NextConfig = {
+  allowedDevOrigins: [
+    "skinking-emeline-unappareled.ngrok-free.dev",
+    "*.ngrok-free.dev",
+    "*.ngrok.app",
+    "*.ngrok-free.app",
+  ],
   cacheComponents: false,
   partialPrefetching: false,
   turbopack: {

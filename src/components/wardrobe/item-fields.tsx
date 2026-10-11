@@ -67,8 +67,8 @@ export function ItemFieldsForm({ form, idPrefix, highlight = [] }: { form: ItemF
         </Field>
       </div>
 
-      <Field id={id("material")} label="Material" hint="Optional. Only fill this in if you know it; photos can't tell us." error={errors.material?.message}>
-        <Input id={id("material")} {...form.register("material")} />
+      <Field id={id("material")} label="Material" hint="e.g. cotton, denim, wool, linen, polyester, silk." error={errors.material?.message}>
+        <Input id={id("material")} aria-invalid={!!errors.material} {...form.register("material")} />
       </Field>
 
       <ChipGroup

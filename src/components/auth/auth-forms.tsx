@@ -86,7 +86,7 @@ export function SignUpForm() {
   );
 
   return (
-    <form onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
+    <form method="post" onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
       <FormMessages error={formError} success={success} />
       <Field id="displayName" label="What should we call you?" error={errors.displayName?.message}>
         <Input id="displayName" autoComplete="given-name" aria-invalid={!!errors.displayName} {...form.register("displayName")} />
@@ -125,7 +125,7 @@ export function LoginForm({ next, notice }: { next?: string; notice?: string | n
   );
 
   return (
-    <form onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
+    <form method="post" onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
       {notice ? <Alert tone="warning">{notice}</Alert> : null}
       <FormMessages error={formError} success={success} />
       <Field id="email" label="Email" error={errors.email?.message}>
@@ -164,7 +164,7 @@ export function ForgotPasswordForm() {
   );
 
   return (
-    <form onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
+    <form method="post" onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
       <FormMessages error={formError} success={success} />
       <Field id="email" label="Email" error={errors.email?.message}>
         <Input id="email" type="email" autoComplete="email" inputMode="email" aria-invalid={!!errors.email} {...form.register("email")} />
@@ -193,7 +193,7 @@ export function ResetPasswordForm() {
   );
 
   return (
-    <form onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
+    <form method="post" onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
       <FormMessages error={formError} success={success} />
       <Field id="password" label="New password" hint="At least 8 characters." error={errors.password?.message}>
         <Input id="password" type="password" autoComplete="new-password" aria-invalid={!!errors.password} {...form.register("password")} />

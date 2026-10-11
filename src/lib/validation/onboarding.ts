@@ -7,7 +7,7 @@ const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a time like
 
 export const onboardingSchema = z.object({
   displayName: z.string().trim().min(1, "Tell us what to call you.").max(80),
-  preferredStyle: z.enum(STYLE_VALUES).nullable(),
+  preferredStyles: z.array(z.enum(STYLE_VALUES)).default([]),
   favouriteColours: z.array(z.enum(COLOUR_OPTIONS)).max(8, "Pick up to 8 colours."),
   commonOccasions: z
     .array(z.string())

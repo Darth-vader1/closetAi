@@ -30,7 +30,7 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
     resolver: zodResolver(onboardingSchema),
     defaultValues: {
       displayName: initialName,
-      preferredStyle: null,
+      preferredStyles: [],
       favouriteColours: [],
       commonOccasions: [],
       location: "",
@@ -70,7 +70,7 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
   };
 
   return (
-    <form onSubmit={form.handleSubmit((values) => run(() => completeOnboardingAction(values)))} className="space-y-8" noValidate>
+    <form method="post" onSubmit={form.handleSubmit((values) => run(() => completeOnboardingAction(values)))} className="space-y-8" noValidate>
       {formError ? <Alert tone="danger">{formError}</Alert> : null}
 
       <section className="space-y-5" aria-labelledby="about-heading">
@@ -78,17 +78,29 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
         <Field id="displayName" label="Display name" error={errors.displayName?.message}>
           <Input id="displayName" autoComplete="given-name" aria-invalid={!!errors.displayName} {...form.register("displayName")} />
         </Field>
-        <Field id="preferredStyle" label="Preferred style" hint="Optional. Helps rank outfit ideas." error={errors.preferredStyle?.message}>
-          <Select
-            id="preferredStyle"
-            {...form.register("preferredStyle", { setValueAs: optionalStringFromSelect })}
-          >
-            <option value="">No preference</option>
-            {STYLE_OPTIONS.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </Select>
-        </Field>
+
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">Preferred styles <span className="font-normal text-muted">(optional)</span></legend>
+          <p className="text-xs text-muted">Pick any styles that represent you. Helps rank outfit ideas.</p>
+          <Controller
+            control={form.control}
+            name="preferredStyles"
+            render={({ field }) => (
+              <div className="flex flex-wrap gap-2">
+                {STYLE_OPTIONS.map((s) => (
+                  <Chip
+                    key={s.value}
+                    selected={field.value.includes(s.value)}
+                    onToggle={() => field.onChange(toggle(field.value, s.value))}
+                  >
+                    {s.label}
+                  </Chip>
+                ))}
+              </div>
+            )}
+          />
+          {errors.preferredStyles?.message ? <p role="alert" className="text-sm text-danger">{errors.preferredStyles.message}</p> : null}
+        </fieldset>
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Favourite colours <span className="font-normal text-muted">(optional)</span></legend>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, CheckCircle2, ImagePlus, Loader2, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
+import { Camera, CheckCircle2, ImagePlus, Loader2, RefreshCw, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { discardUploadAction, saveItemAction } from "@/app/(app)/wardrobe/actions";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, Card } from "@/components/ui/card";
 import { emptyItemValues, ItemFieldsForm } from "@/components/wardrobe/item-fields";
 import { itemFieldsSchema, type ItemFields, type ItemFieldsInput } from "@/lib/validation/wardrobe";
+import { removeImageBackground } from "@/lib/wardrobe/studio-canvas";
 import {
   analysePhoto,
   createLimiter,
@@ -38,6 +39,10 @@ interface Entry {
   aiNote: string | null;
   error: string | null;
   savedId: string | null;
+  originalPreviewUrl?: string;
+  originalPath?: string | null;
+  isCutout?: boolean;
+  processingCutout?: boolean;
 }
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
@@ -51,6 +56,7 @@ function suggestionToValues(s: ClothingSuggestion): ItemFieldsInput {
     primaryColour: s.primaryColour as ItemFieldsInput["primaryColour"],
     secondaryColours: s.secondaryColours as ItemFieldsInput["secondaryColours"],
     pattern: s.pattern as ItemFieldsInput["pattern"],
+    material: s.material ?? "",
     style: s.style as ItemFieldsInput["style"],
     occasions: s.occasions,
     seasons: s.seasons as ItemFieldsInput["seasons"],
@@ -66,7 +72,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
 
   const controllers = useRef(new Map<string, AbortController>());
   const entriesRef = useRef<Entry[]>([]);
-  const limiter = useRef(createLimiter(2));
+  const limiter = useRef(createLimiter(1));
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
 
@@ -91,8 +97,8 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           ),
         );
       } else {
-        const note = result.status === "unavailable" ? result.reason : result.message;
-        patch(id, { analysing: false, aiNote: `${note} You can fill in the details yourself.` });
+        const note = result.status === "unavailable" ? `${result.reason} You can fill in the details yourself.` : result.message;
+        patch(id, { analysing: false, aiNote: note });
       }
     },
     [patch],
@@ -112,6 +118,8 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           if (withAi) {
             patch(entry.id, { stage: "analysing" });
             await runAnalysis(entry.id, path, controller.signal);
+            // Brief pause between batch items so free-tier rate limits aren't overwhelmed
+            await new Promise((res) => setTimeout(res, 1500));
           }
           patch(entry.id, { stage: "review" });
         } catch (err) {
@@ -193,6 +201,48 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       return result;
     },
     [patch, router],
+  );
+
+  const toggleCutout = useCallback(
+    async (entry: Entry) => {
+      if (entry.isCutout) {
+        if (entry.originalPreviewUrl && entry.originalPath) {
+          patch(entry.id, {
+            previewUrl: entry.originalPreviewUrl,
+            path: entry.originalPath,
+            isCutout: false,
+          });
+        }
+        return;
+      }
+
+      try {
+        patch(entry.id, { processingCutout: true });
+        const processedBlob = await removeImageBackground(entry.previewUrl, {
+          tolerance: 32,
+          background: "clean-white",
+          addShadow: true,
+        });
+        const controller = new AbortController();
+        const newPath = await uploadPhoto(processedBlob, {
+          signal: controller.signal,
+          onProgress: () => {},
+        });
+        const newPreviewUrl = URL.createObjectURL(processedBlob);
+        patch(entry.id, {
+          originalPreviewUrl: entry.previewUrl,
+          originalPath: entry.path,
+          previewUrl: newPreviewUrl,
+          path: newPath,
+          isCutout: true,
+          processingCutout: false,
+        });
+      } catch (err) {
+        console.error("Background cutout failed:", err);
+        patch(entry.id, { processingCutout: false });
+      }
+    },
+    [patch],
   );
 
   // Warn before leaving with photos that were never saved.
@@ -292,7 +342,20 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       <ul className="space-y-4" aria-label="Photos being added">
         {entries.map((entry) => (
           <li key={entry.id}>
-            <EntryCard entry={entry} aiAvailable={aiAvailable} onRemove={removeEntry} onRetry={retry} onSave={save} onAnalyse={(e) => e.path && void runAnalysis(e.id, e.path, controllers.current.get(e.id)!.signal)} />
+            <EntryCard
+              entry={entry}
+              aiAvailable={aiAvailable}
+              onRemove={removeEntry}
+              onRetry={retry}
+              onSave={save}
+              onToggleCutout={toggleCutout}
+              onAnalyse={(e) => {
+                if (!e.path) return;
+                const fresh = new AbortController();
+                controllers.current.set(e.id, fresh);
+                void runAnalysis(e.id, e.path, fresh.signal);
+              }}
+            />
           </li>
         ))}
       </ul>
@@ -307,6 +370,7 @@ function EntryCard({
   onRetry,
   onSave,
   onAnalyse,
+  onToggleCutout,
 }: {
   entry: Entry;
   aiAvailable: boolean;
@@ -314,6 +378,7 @@ function EntryCard({
   onRetry: (entry: Entry) => void;
   onSave: (id: string, values: ItemFields) => Promise<{ ok: boolean; error?: string; fieldErrors?: Record<string, string> }>;
   onAnalyse: (entry: Entry) => void;
+  onToggleCutout: (entry: Entry) => void;
 }) {
   const busy = entry.stage === "preparing" || entry.stage === "uploading" || entry.stage === "analysing";
   const label = { preparing: "Preparing photo…", uploading: "Uploading…", analysing: "Analysing with AI…" }[entry.stage as "preparing" | "uploading" | "analysing"];
@@ -328,6 +393,24 @@ function EntryCard({
             <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-success px-2.5 py-1 text-xs font-medium text-white">
               <CheckCircle2 className="size-3" aria-hidden /> Saved
             </span>
+          ) : null}
+
+          {/* Studio Cutout / Background Removal button */}
+          {entry.stage === "review" ? (
+            <div className="mt-2.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full text-xs"
+                disabled={entry.processingCutout}
+                loading={entry.processingCutout}
+                onClick={() => onToggleCutout(entry)}
+              >
+                {!entry.processingCutout ? <Wand2 className="size-3.5" aria-hidden /> : null}
+                {entry.isCutout ? "Revert BG" : "Studio Cutout"}
+              </Button>
+            </div>
           ) : null}
         </div>
 
