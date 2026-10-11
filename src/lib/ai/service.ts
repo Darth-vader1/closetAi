@@ -1,6 +1,8 @@
 import { createGeminiProvider } from "@/lib/ai/gemini";
+import { createMistralProvider } from "@/lib/ai/mistral";
 import { createMockProvider } from "@/lib/ai/mock";
 import { CLOTHING_SYSTEM_PROMPT, clothingAnalysisJsonSchema, clothingAnalysisSchema, type ClothingSuggestion } from "@/lib/ai/schemas";
+import { STYLIST_JSON_SCHEMA, STYLIST_SYSTEM_PROMPT, stylistResponseSchema, type StylistResponse } from "@/lib/ai/stylist-schemas";
 import { AiProviderError, type AiImage, type AiProvider } from "@/lib/ai/types";
 import { resolveAiConfig } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -13,6 +15,7 @@ export function getAiProvider(source?: Record<string, string | undefined>): AiAv
   if (!resolved.ok) return { available: false, reason: resolved.reason };
   const { config } = resolved;
   if (config.provider === "mock") return { available: true, provider: createMockProvider() };
+  if (config.provider === "mistral") return { available: true, provider: createMistralProvider(config) };
   return { available: true, provider: createGeminiProvider(config) };
 }
 
@@ -51,10 +54,18 @@ export async function analyseClothingImage(
         jsonSchema: clothingAnalysisJsonSchema,
         signal: options.signal,
       });
+
+      console.log(`\n🤖 [AI RAW OUTPUT (${provider.name})]`);
+      console.dir(raw, { depth: null, colors: true });
+
       const parsed = clothingAnalysisSchema.safeParse(raw);
       if (parsed.success) {
+        console.log(`✨ [AI PARSED RESULT (${provider.name})]`);
+        console.dir(parsed.data, { depth: null, colors: true });
         return { status: "ok", suggestion: parsed.data, provider: provider.name, isMock: provider.isMock };
       }
+
+      console.warn("⚠️ [AI SCHEMA ISSUES]:", parsed.error.issues);
       logger.warn("ai.analysis_invalid_output", { provider: provider.name, attempt, issues: parsed.error.issues.length });
       lastMessage = "The AI returned details we couldn't use.";
     } catch (err) {
@@ -73,3 +84,11 @@ export async function analyseClothingImage(
 
   return { status: "failed", message: `${lastMessage} You can enter the details yourself.` };
 }
+
+export {
+  generateStylistRecommendations,
+  type StylistRequestOptions,
+  type StylistResult,
+} from "@/lib/ai/stylist";
+
+

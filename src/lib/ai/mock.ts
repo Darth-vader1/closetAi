@@ -24,8 +24,23 @@ export function createMockProvider(): AiProvider {
     name: "mock",
     isMock: true,
     async generateJson(req: AiJsonRequest): Promise<unknown> {
+      if (req.task === "stylist_recommendation") {
+        return {
+          outfits: [
+            {
+              name: "Clean Everyday Minimalist",
+              occasion: "Casual",
+              item_ids: [],
+              style_description: "A relaxed, well-balanced look for any day.",
+              explanation: "Classic pairing of versatile basics with clean color harmony.",
+              styling_tip: "Keep the silhouette neat with a simple tuck or rolled cuffs.",
+            },
+          ],
+          overall_advice: "Great clean pieces for a crisp look.",
+        };
+      }
       if (req.task !== "clothing_analysis" || !req.image) {
-        throw new AiProviderError("The mock provider only supports clothing analysis.", false);
+        throw new AiProviderError("The mock provider only supports clothing analysis and stylist recommendations.", false);
       }
       return { ...pick(req.image.bytes), confidence: 0.5, uncertain_fields: ["category", "primary_colour"] };
     },

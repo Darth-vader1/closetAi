@@ -89,6 +89,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       patch(id, { analysing: true, aiNote: null });
       const result = await analysePhoto(path, signal);
       if (result.status === "ok") {
+        console.log("🤖 [AI Suggestion]:", result.suggestion);
         setEntries((list) =>
           list.map((e) =>
             e.id === id
@@ -97,6 +98,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           ),
         );
       } else {
+        console.warn("⚠️ [AI Analysis Issue]:", result);
         const note = result.status === "unavailable" ? `${result.reason} You can fill in the details yourself.` : result.message;
         patch(id, { analysing: false, aiNote: note });
       }

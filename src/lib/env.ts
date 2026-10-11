@@ -69,7 +69,8 @@ export function getAppUrl(): string {
  *  - anything else/unset : AI is simply unavailable and the app falls back to manual entry.
  */
 export type AiConfig =
-  | { provider: "gemini"; apiKey: string; visionModel: string; textModel: string }
+  | { provider: "gemini"; apiKey: string; apiKeys: string[]; visionModel: string; textModel: string }
+  | { provider: "mistral"; apiKey: string; apiKeys: string[]; visionModel: string; textModel: string }
   | { provider: "mock" };
 
 export type AiConfigResult = { ok: true; config: AiConfig } | { ok: false; reason: string };
@@ -85,22 +86,41 @@ export function resolveAiConfig(source: Record<string, string | undefined> = pro
     return { ok: true, config: { provider: "mock" } };
   }
 
+  if (provider === "mistral") {
+    const rawKey = (source.MISTRAL_API_KEY || source.AI_API_KEY || "").trim();
+    if (!rawKey) return { ok: false, reason: new ConfigError("Mistral AI provider", ["MISTRAL_API_KEY"]).message };
+    const rawKeys = rawKey.split(",").map((k) => k.trim()).filter(Boolean);
+    const visionModel = (source.AI_VISION_MODEL || "pixtral-12b-2409").trim();
+    return {
+      ok: true,
+      config: {
+        provider: "mistral",
+        apiKey: rawKeys[0],
+        apiKeys: rawKeys,
+        visionModel,
+        textModel: (source.AI_TEXT_MODEL || "mistral-small-latest").trim(),
+      },
+    };
+  }
+
   if (provider === "gemini") {
     const missing = ["AI_API_KEY", "AI_VISION_MODEL"].filter((k) => !source[k]?.trim());
     if (missing.length > 0) return { ok: false, reason: new ConfigError("AI provider", missing).message };
+    const rawKeys = source.AI_API_KEY!.split(",").map((k) => k.trim()).filter(Boolean);
     const visionModel = source.AI_VISION_MODEL!.trim();
     return {
       ok: true,
       config: {
         provider: "gemini",
-        apiKey: source.AI_API_KEY!.trim(),
+        apiKey: rawKeys[0],
+        apiKeys: rawKeys,
         visionModel,
         textModel: source.AI_TEXT_MODEL?.trim() || visionModel,
       },
     };
   }
 
-  return { ok: false, reason: `Unknown AI_PROVIDER "${provider}". Supported values: gemini, mock.` };
+  return { ok: false, reason: `Unknown AI_PROVIDER "${provider}". Supported values: gemini, mistral, mock.` };
 }
 
 export function getEmailEnv() {

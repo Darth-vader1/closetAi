@@ -1,14 +1,36 @@
 import type { Metadata } from "next";
-import { NotBuiltYet } from "@/components/layout/not-built-yet";
-import { requireUser } from "@/lib/auth/session";
+import { PageHeader } from "@/components/layout/page-header";
+import { StylistClient } from "@/components/stylist/stylist-client";
+import { getProfile, requireUser } from "@/lib/auth/session";
+import { createClient } from "@/lib/supabase/server";
 
-export const metadata: Metadata = { title: "AI Stylist" };
+export const metadata: Metadata = {
+  title: "AI Stylist · ClosetAI",
+  description: "Ask for custom outfit ideas and styling advice grounded in your real wardrobe.",
+};
 
 export default async function StylistPage() {
-  await requireUser();
+  const user = await requireUser();
+  const profile = await getProfile();
+  const supabase = await createClient();
+
+  // Count clean items available for styling
+  const { count: cleanCount } = await supabase
+    .from("wardrobe_items")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .in("status", profile?.rewear_worn_items ? ["CLEAN", "WORN_ONCE"] : ["CLEAN"]);
+
   return (
-    <NotBuiltYet title="AI Stylist" description="Ask for outfit ideas in plain language." phase="Phase 4">
-      The stylist will be grounded in your real wardrobe and laundry status, so it comes after the outfit engine.
-    </NotBuiltYet>
+    <>
+      <PageHeader
+        title="AI Stylist"
+        description="Describe any occasion, vibe, or weather. The stylist curates complete looks from clothes that are ready to wear."
+      />
+      <StylistClient
+        initialCleanCount={cleanCount ?? 0}
+        userStylePreferences={profile?.style_preferences ?? []}
+      />
+    </>
   );
 }

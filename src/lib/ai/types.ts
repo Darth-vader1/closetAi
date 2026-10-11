@@ -3,7 +3,7 @@
  * touch the database and never decide what is trusted. Everything they return is `unknown` until
  * the service layer validates it against a Zod schema.
  */
-export type AiTask = "clothing_analysis";
+export type AiTask = "clothing_analysis" | "stylist_recommendation";
 
 export interface AiImage {
   bytes: Uint8Array;
@@ -23,7 +23,7 @@ export interface AiJsonRequest {
 }
 
 export interface AiProvider {
-  readonly name: "gemini" | "mock";
+  readonly name: "gemini" | "mistral" | "mock";
   /** True for development sample data that did NOT come from a real model. */
   readonly isMock: boolean;
   generateJson(request: AiJsonRequest): Promise<unknown>;
