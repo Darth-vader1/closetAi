@@ -44,12 +44,12 @@ describe("onboardingSchema", () => {
     expect(parsed.preferredStyles).toEqual([]);
   });
 
-  it.each([
+  it.each< [string, Record<string, unknown>] >([
     ["bad timezone", { timezone: "Nowhere/City" }],
     ["bad time of day", { dailyTime: "25:00" }],
     ["bad weekday", { weeklyDay: 7 }],
-    ["unknown style", { preferredStyles: ["gothic" as any] }],
-    ["unknown colour", { favouriteColours: ["ultraviolet" as any] }],
+    ["unknown style", { preferredStyles: ["gothic"] }],
+    ["unknown colour", { favouriteColours: ["ultraviolet"] }],
     ["unknown occasion", { commonOccasions: ["heist"] }],
     ["empty name", { displayName: "   " }],
   ])("rejects %s", (_label, override) => {

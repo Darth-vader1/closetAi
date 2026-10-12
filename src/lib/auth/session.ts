@@ -41,6 +41,8 @@ export interface Profile {
   onboarding_completed_at: string | null;
 }
 
+import { logger } from "@/lib/logger";
+
 export const getProfile = cache(async (): Promise<Profile | null> => {
   const user = await getSessionUser();
   if (!user) return null;
@@ -53,15 +55,22 @@ export const getProfile = cache(async (): Promise<Profile | null> => {
     .eq("id", user.id)
     .maybeSingle();
   if (error) {
-    // If gender column is not yet present, query without gender
-    const { data: fallbackData } = await supabase
-      .from("profiles")
-      .select(
-        "id, display_name, preferred_style, favourite_colours, common_occasions, location, timezone, rewear_worn_items, onboarding_completed_at",
-      )
-      .eq("id", user.id)
-      .maybeSingle();
-    return fallbackData;
+    if (error.code === "42703" || error.code === "PGRST204" || error.message?.includes("gender")) {
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("profiles")
+        .select(
+          "id, display_name, preferred_style, favourite_colours, common_occasions, location, timezone, rewear_worn_items, onboarding_completed_at",
+        )
+        .eq("id", user.id)
+        .maybeSingle();
+      if (fallbackError) {
+        logger.error("auth.get_profile_failed", { userId: user.id, error: fallbackError });
+        return null;
+      }
+      return fallbackData;
+    }
+    logger.error("auth.get_profile_failed", { userId: user.id, error });
+    return null;
   }
   return data;
 });

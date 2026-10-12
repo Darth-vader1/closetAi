@@ -171,11 +171,61 @@ export async function listOutfitPlans(
   const { data, error } = await q;
   if (error || !data) return [];
 
-  return data.map((row: any) => {
+  type PlanOutfitItemLink = {
+    position: number;
+    wardrobe_items: {
+      id: string;
+      name: string;
+      category: string;
+      subcategory: string | null;
+      primary_colour: string | null;
+      secondary_colours: string[] | null;
+      pattern: string | null;
+      material: string | null;
+      style: string | null;
+      occasions: string[] | null;
+      seasons: string[] | null;
+      warmth_level: number | null;
+      image_path: string;
+      status: string;
+      is_favourite: boolean;
+      ai_analysed: boolean;
+      wear_count: number;
+      last_worn_at: string | null;
+      last_washed_at: string | null;
+      created_at: string;
+    };
+  };
+
+  type PlanRowRaw = {
+    id: string;
+    user_id: string;
+    outfit_id: string;
+    planned_for: string;
+    status: PlannedOutfitRow["status"];
+    worn_at?: string | null;
+    outfits: {
+      id: string;
+      user_id: string;
+      name: string;
+      occasion: string | null;
+      style_description: string | null;
+      explanation: string | null;
+      styling_tip: string | null;
+      photo_path?: string | null;
+      source: OutfitWithItems["source"];
+      is_favourite: boolean;
+      created_at: string;
+      outfit_items?: PlanOutfitItemLink[];
+    } | null;
+  };
+
+  return (data as unknown as PlanRowRaw[]).map((row) => {
     const o = row.outfits;
     const items = (o?.outfit_items ?? [])
-      .sort((a: any, b: any) => a.position - b.position)
-      .map((l: any) => {
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((l) => {
         const item = l.wardrobe_items;
         return {
           id: item.id,

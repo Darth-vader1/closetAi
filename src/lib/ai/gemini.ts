@@ -190,7 +190,7 @@ function toProviderError(err: unknown, signal: AbortSignal): AiProviderError {
     lower.includes("api_key_invalid") ||
     lower.includes("api key not valid")
   ) {
-    return new AiProviderError(`AI configuration error: ${msg.slice(0, 150)}`, false);
+    return new AiProviderError("The AI service rejected the request due to a configuration or authentication error.", false);
   }
-  return new AiProviderError(msg.length > 0 ? msg.slice(0, 150) : "The AI service had a temporary problem.", true);
+  return new AiProviderError("The AI service had a temporary problem.", true);
 }

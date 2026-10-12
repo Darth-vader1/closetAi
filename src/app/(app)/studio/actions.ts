@@ -44,7 +44,8 @@ export async function saveOutfitAction(input: unknown): Promise<ActionResult<{ i
 
   // Gracefully fallback if photo_path column doesn't exist yet
   if (insertResult.error && insertResult.error.message.includes("photo_path")) {
-    const { photo_path, ...withoutPhoto } = outfitRow;
+    const { photo_path: _unusedPhotoPath, ...withoutPhoto } = outfitRow;
+    void _unusedPhotoPath;
     insertResult = await supabase.from("outfits").insert(withoutPhoto).select("id").single();
   }
 

@@ -102,6 +102,6 @@ export async function generateStylistRecommendations(
       return { status: "failed", message: err.message };
     }
     logger.error("ai.stylist_unexpected_error", { err });
-    return { status: "failed", message: err instanceof Error ? err.message : "The stylist encountered an unexpected error." };
+    return { status: "failed", message: "The stylist encountered an unexpected error." };
   }
 }

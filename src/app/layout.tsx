@@ -3,25 +3,35 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/fraunces";
 import "./globals.css";
 
-function resolveMetadataBase(): URL {
-  const raw =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    (process.env.VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
-      : process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL.trim()}`
-      : "https://closet-ai-official.vercel.app");
+const PRODUCTION_URL = "https://closet-ai-official.vercel.app";
 
-  try {
-    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-    return new URL(withProtocol);
-  } catch {
-    return new URL("https://closet-ai-official.vercel.app");
+function resolveAppOrigin(): string {
+  const candidates = [
+    process.env.NEXT_PUBLIC_APP_URL?.trim(),
+    process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
+      : undefined,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL.trim()}` : undefined,
+  ];
+
+  for (const raw of candidates) {
+    if (!raw || raw.includes("localhost") || raw.includes("127.0.0.1")) continue;
+    try {
+      const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+      return new URL(withProtocol).origin;
+    } catch {
+      continue;
+    }
   }
+
+  return PRODUCTION_URL;
 }
 
+const APP_ORIGIN = resolveAppOrigin();
+const OG_IMAGE_URL = `${APP_ORIGIN}/og.png`;
+
 export const metadata: Metadata = {
-  metadataBase: resolveMetadataBase(),
+  metadataBase: new URL(APP_ORIGIN),
   title: {
     default: "ClosetAI — Decide What to Wear from Clothes You Already Own",
     template: "%s · ClosetAI",
@@ -70,14 +80,14 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "/",
+    url: APP_ORIGIN,
     siteName: "ClosetAI",
     title: "ClosetAI — Decide What to Wear from Clothes You Already Own",
     description:
       "Digital wardrobe & personal AI stylist. Outfit ideas built only from clothes ready to wear.",
     images: [
       {
-        url: "/og.png",
+        url: OG_IMAGE_URL,
         width: 1200,
         height: 630,
         type: "image/png",
@@ -90,7 +100,7 @@ export const metadata: Metadata = {
     title: "ClosetAI — Decide What to Wear from Clothes You Already Own",
     description:
       "Digital wardrobe & personal AI stylist. Outfit ideas built only from clothes ready to wear.",
-    images: ["/og.png"],
+    images: [OG_IMAGE_URL],
   },
   robots: {
     index: true,

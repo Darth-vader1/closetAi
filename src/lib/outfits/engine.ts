@@ -97,7 +97,6 @@ export function generateOutfits(
       }
 
       // Formulate a clean naming & tip
-      const occasionLabel = targetOccasion ? targetOccasion.replace("_", " ") : "Daily";
       const name = `${top.name} with ${bottom.name}`;
       const styleDesc = top.style ? `${top.style.replace("_", " ")} look` : "Balanced ensemble";
       const tip = `Pairs ${top.primaryColour || "clean"} tones with ${bottom.name.toLowerCase()} for a cohesive silhouette.`;

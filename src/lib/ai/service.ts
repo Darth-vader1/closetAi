@@ -2,7 +2,6 @@ import { createGeminiProvider } from "@/lib/ai/gemini";
 import { createMistralProvider } from "@/lib/ai/mistral";
 import { createMockProvider } from "@/lib/ai/mock";
 import { CLOTHING_SYSTEM_PROMPT, clothingAnalysisJsonSchema, clothingAnalysisSchema, type ClothingSuggestion } from "@/lib/ai/schemas";
-import { STYLIST_JSON_SCHEMA, STYLIST_SYSTEM_PROMPT, stylistResponseSchema, type StylistResponse } from "@/lib/ai/stylist-schemas";
 import { AiProviderError, type AiImage, type AiProvider } from "@/lib/ai/types";
 import { resolveAiConfig } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -40,7 +39,7 @@ export async function analyseClothingImage(
     provider = availability.provider;
   }
 
-  const MAX_ATTEMPTS = 1;
+  const MAX_ATTEMPTS = 2;
   let lastMessage = "The AI service couldn't analyse this photo.";
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -55,17 +54,11 @@ export async function analyseClothingImage(
         signal: options.signal,
       });
 
-      console.log(`\n🤖 [AI RAW OUTPUT (${provider.name})]`);
-      console.dir(raw, { depth: null, colors: true });
-
       const parsed = clothingAnalysisSchema.safeParse(raw);
       if (parsed.success) {
-        console.log(`✨ [AI PARSED RESULT (${provider.name})]`);
-        console.dir(parsed.data, { depth: null, colors: true });
         return { status: "ok", suggestion: parsed.data, provider: provider.name, isMock: provider.isMock };
       }
 
-      console.warn("⚠️ [AI SCHEMA ISSUES]:", parsed.error.issues);
       logger.warn("ai.analysis_invalid_output", { provider: provider.name, attempt, issues: parsed.error.issues.length });
       lastMessage = "The AI returned details we couldn't use.";
     } catch (err) {
@@ -75,7 +68,7 @@ export async function analyseClothingImage(
         if (!err.retryable) break;
       } else {
         logger.error("ai.unexpected_error", { provider: provider.name, attempt, err });
-        lastMessage = err instanceof Error ? err.message : "The AI service encountered an unexpected error.";
+        lastMessage = "The AI service encountered an unexpected error.";
         break;
       }
     }
@@ -90,5 +83,3 @@ export {
   type StylistRequestOptions,
   type StylistResult,
 } from "@/lib/ai/stylist";
-
-

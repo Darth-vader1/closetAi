@@ -33,7 +33,12 @@ $$;
 create table public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   display_name text check (display_name is null or char_length(display_name) between 1 and 80),
-  preferred_style text[] not null default '{}',
+  preferred_style text check (
+    preferred_style is null or preferred_style in (
+      'casual', 'smart_casual', 'formal', 'minimalist', 'streetwear',
+      'sporty', 'business_casual', 'traditional', 'other'
+    )
+  ),
   favourite_colours text[] not null default '{}',
   common_occasions text[] not null default '{}',
   location text check (location is null or char_length(location) <= 120),

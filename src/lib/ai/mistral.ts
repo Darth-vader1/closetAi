@@ -99,14 +99,14 @@ export function createMistralProvider(options: MistralOptions): AiProvider {
             }
 
             if (res.status === 401 || res.status === 403) {
-              throw new AiProviderError(`Mistral authentication failed: ${errorMsg.slice(0, 120)}`, false);
+              throw new AiProviderError("Mistral authentication failed. Please check your API key.", false);
             }
 
             if (res.status === 400 || res.status === 404) {
-              throw new AiProviderError(`Mistral request error: ${errorMsg.slice(0, 120)}`, false);
+              throw new AiProviderError("Mistral rejected the request due to a configuration error.", false);
             }
 
-            throw new AiProviderError(`Mistral service error: ${errorMsg.slice(0, 120)}`, true);
+            throw new AiProviderError("Mistral service encountered a temporary error.", true);
           }
 
           const data = (await res.json()) as {
@@ -140,7 +140,7 @@ export function createMistralProvider(options: MistralOptions): AiProvider {
 
       if (lastError instanceof AiProviderError) throw lastError;
       throw new AiProviderError(
-        lastError instanceof Error ? lastError.message : "Mistral request failed. Please check your connection and API key.",
+        "Mistral request failed. Please check your connection and API key.",
         false,
       );
     },

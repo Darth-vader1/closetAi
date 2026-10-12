@@ -1,17 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   User,
   Bell,
-  Mail,
   Shirt,
   MapPin,
   Clock,
   Sparkles,
   CheckCircle2,
   AlertCircle,
-  Loader2,
   Send,
   Download,
   Trash2,
@@ -58,6 +57,7 @@ export function SettingsClient({
   initialProfile,
   initialPreferences,
 }: SettingsClientProps) {
+  const router = useRouter();
   // Profile State
   const [displayName, setDisplayName] = useState(initialProfile.displayName);
   const [gender, setGender] = useState(initialProfile.gender || "unisex");
@@ -591,7 +591,7 @@ export function SettingsClient({
                   if (confirm("Are you absolutely sure you want to permanently delete your ClosetAI account and all your wardrobe items? This cannot be undone.")) {
                     deleteAccountAction().then((res) => {
                       if (res.ok) {
-                        window.location.href = "/login";
+                        router.push("/login");
                       } else {
                         alert(res.error || "Could not delete account.");
                       }

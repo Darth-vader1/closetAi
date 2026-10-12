@@ -6,8 +6,7 @@ import { generateStylistRecommendations } from "@/lib/ai/stylist";
 import { getProfile, getSessionUser } from "@/lib/auth/session";
 import { isSameOrigin } from "@/lib/security/origin";
 import { createClient } from "@/lib/supabase/server";
-import { isEligibleStatus } from "@/lib/wardrobe/status";
-import { listWardrobeItems, signImageUrls, type WardrobeItem } from "@/lib/wardrobe/queries";
+import { signImageUrls, type WardrobeItem } from "@/lib/wardrobe/queries";
 import { logger } from "@/lib/logger";
 
 const requestSchema = z.object({
@@ -73,7 +72,7 @@ export async function POST(request: NextRequest) {
       occasions: row.occasions ?? [],
       seasons: row.seasons ?? [],
       warmthLevel: row.warmth_level,
-      status: row.status as any,
+      status: row.status as WardrobeItem["status"],
       isFavourite: row.is_favourite,
       aiAnalysed: row.ai_analysed,
       wearCount: row.wear_count,
@@ -138,20 +137,27 @@ export async function POST(request: NextRequest) {
       ? [profile.preferred_style]
       : [];
 
-    // Continuous learning: inject aesthetics from outfits user rated 4 or 5 stars
-    const { data: topRatedOutfits } = await supabase
-      .from("outfits")
-      .select("name, style_description, rating")
+    // Continuous learning: inject aesthetics from outfits user rated 4 or 5 stars in outfit_feedback
+    const { data: topRatedFeedback } = await supabase
+      .from("outfit_feedback")
+      .select("rating, outfits ( name, style_description )")
       .eq("user_id", user.id)
+      .eq("action", "RATED")
       .gte("rating", 4)
       .order("rating", { ascending: false })
       .limit(3);
 
-    if (topRatedOutfits && topRatedOutfits.length > 0) {
-      const likedStyles = topRatedOutfits
-        .map((o) => `${o.name} (${o.style_description || "favorite silhouette"})`)
+    if (topRatedFeedback && topRatedFeedback.length > 0) {
+      const likedStyles = topRatedFeedback
+        .map((row) => {
+          const o = row.outfits as unknown as { name?: string; style_description?: string | null } | null;
+          return o?.name ? `${o.name} (${o.style_description || "favorite silhouette"})` : null;
+        })
+        .filter(Boolean)
         .join("; ");
-      stylePreferences.push(`Favorite looks user previously rated 5-stars: ${likedStyles}`);
+      if (likedStyles) {
+        stylePreferences.push(`Favorite looks user previously rated 5-stars: ${likedStyles}`);
+      }
     }
 
     const result = await generateStylistRecommendations(

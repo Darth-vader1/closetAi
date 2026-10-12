@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Download, Sparkles, Wand2, RefreshCw } from "lucide-react";
+import { Download, Sparkles, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { WardrobeItem } from "@/lib/wardrobe/queries";
-import { categoryGroup, humanise } from "@/lib/wardrobe/categories";
+import { categoryGroup } from "@/lib/wardrobe/categories";
 
 interface EditorialFlatlayCanvasProps {
   items: WardrobeItem[];
@@ -26,7 +26,7 @@ export function EditorialFlatlayCanvas({
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const drawCollage = async () => {
+  const drawCollage = useCallback(async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     setLoading(true);
@@ -188,11 +188,11 @@ export function EditorialFlatlayCanvas({
       "image/jpeg",
       0.95,
     );
-  };
+  }, [items, imageUrls, outfitName, onExportBlob]);
 
   useEffect(() => {
     drawCollage();
-  }, [items, imageUrls, outfitName]);
+  }, [drawCollage]);
 
   const handleDownload = () => {
     if (!renderedUrl) return;

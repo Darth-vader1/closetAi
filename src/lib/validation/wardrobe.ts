@@ -18,7 +18,7 @@ export const itemFieldsSchema = z.object({
   primaryColour: z.enum(WARDROBE_COLOURS).nullable(),
   secondaryColours: z.array(z.enum(WARDROBE_COLOURS)).max(4, "Pick up to 4 secondary colours."),
   pattern: z.enum(PATTERNS).nullable(),
-  material: z.string().trim().min(1, "Please specify the material (e.g. cotton, denim, wool).").max(60, "Use 60 characters or fewer."),
+  material: optionalText(60),
   style: z.enum(STYLE_VALUES).nullable(),
   occasions: z.array(z.enum(OCCASION_VALUES as [string, ...string[]])).max(10),
   seasons: z.array(z.enum(SEASONS)).max(5),

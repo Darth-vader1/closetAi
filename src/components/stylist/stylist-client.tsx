@@ -13,16 +13,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  RefreshCw,
   Sun,
   CloudRain,
   Snowflake,
   Flame,
-  ArrowRight,
   Shirt,
   Camera,
   ExternalLink,
-  Compass,
   Star,
   MessageSquare,
 } from "lucide-react";
@@ -103,6 +100,7 @@ export function StylistClient({
   initialGender = "unisex",
   initialWeather,
 }: StylistClientProps) {
+  void userStylePreferences;
   const [prompt, setPrompt] = useState("");
   const [selectedWeather, setSelectedWeather] = useState(initialWeather?.summary || "");
   const [selectedGender, setSelectedGender] = useState<"male" | "female" | "unisex">(initialGender);
@@ -115,6 +113,7 @@ export function StylistClient({
   const [outfits, setOutfits] = useState<StylistOutfitItem[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [overallAdvice, setOverallAdvice] = useState<string | null>(null);
+  void overallAdvice;
   const [wardrobeGaps, setWardrobeGaps] = useState<Array<{ name: string; category: string; why_it_helps: string; pairs_with: string }>>([]);
   const [activeOutfitIndex, setActiveOutfitIndex] = useState(0);
   const [viewMode, setViewMode] = useState<"3d" | "grid" | "photo" | "flatlay">("3d");

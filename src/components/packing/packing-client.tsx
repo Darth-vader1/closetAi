@@ -2,19 +2,14 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import {
   Luggage,
   Sparkles,
-  Calendar,
-  CheckCircle2,
   MapPin,
   Check,
   Loader2,
   Sun,
-  ArrowRight,
   Shirt,
-  Info,
   MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -62,6 +57,7 @@ const POPULAR_DESTINATIONS = [
 ];
 
 export function PackingClient({ initialCleanCount }: { initialCleanCount: number }) {
+  void initialCleanCount;
   const [destination, setDestination] = useState("Paris");
   const [days, setDays] = useState(4);
   const [tripType, setTripType] = useState("City Break & Sightseeing");

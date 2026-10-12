@@ -23,27 +23,33 @@ Configure these environment variables in your **Vercel Project Settings > Enviro
 |---|---|---|
 | `NEXT_PUBLIC_APP_URL` | Public application URL | `https://closetai.app` or `https://your-app.vercel.app` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API endpoint | `https://xxxx.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anonymous key | Found in Supabase API settings |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public publishable (anon) key | Found in Supabase API settings |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret administrative key for crons & storage signing | Found in Supabase API settings |
-| `AI_PROVIDER` | Primary AI provider for styling & classification | `mistral` |
-| `MISTRAL_API_KEY` | Mistral AI API key | From console.mistral.ai |
+| `AI_PROVIDER` | Primary AI provider for styling & classification | `mistral` or `gemini` |
+| `MISTRAL_API_KEY` | Mistral AI API key (when `AI_PROVIDER=mistral`) | From console.mistral.ai |
+| `AI_API_KEY` | Gemini API key (when `AI_PROVIDER=gemini`) | From Google AI Studio |
 | `PUTER_API_TOKEN` | Puter API token for server-side AI model photoshoot generation | Puter Account Settings > API Token |
 | `RESEND_API_KEY` | Resend API key for transactional emails | From resend.com/api-keys |
 | `EMAIL_FROM` | Verified sender email address | `ClosetAI <stylist@yourdomain.com>` |
-| `CRON_SECRET` | Secret token protecting background cron endpoints | A secure random 32-character string |
+| `CRON_SECRET` | Secret token protecting background cron endpoints (16+ chars) | A secure random 32-character string |
+| `WHATSAPP_ACCESS_TOKEN` | Meta WhatsApp Cloud API permanent/system token | Meta App Dashboard > WhatsApp |
+| `WHATSAPP_PHONE_NUMBER_ID` | Meta WhatsApp Phone Number ID | Meta App Dashboard > WhatsApp |
+| `WHATSAPP_VERIFY_TOKEN` | Webhook verification token | Meta App Dashboard > WhatsApp > Configuration |
+| `WHATSAPP_APP_SECRET` | Meta App Secret for `X-Hub-Signature-256` verification | Meta App Settings > Basic > App secret |
 
 ---
 
 ## 3. Database & Storage Configuration (Supabase)
 
 ### A. Run Database Migrations
-Ensure all schema tables, views, and RLS policies are applied in Supabase SQL Editor:
+Apply the migrations in `supabase/migrations/` in chronological order (`supabase db push`) so all schema tables, functions, and RLS policies are created:
+- `profiles` (user preferences, style tags, location, timezone, `rewear_worn_items`)
+- `email_preferences` (`daily_enabled`, `daily_time`, `weekly_enabled`, `weekly_day`, `weekly_time`, `unsubscribe_token`, `whatsapp_phone`, `whatsapp_daily_enabled`)
 - `wardrobe_items`
-- `outfits`
-- `outfit_items`
-- `user_profiles` (with `daily_outfit_digest`, `laundry_reminders`, `preferred_style_tags`)
-- `wear_logs`
-- `laundry_logs`
+- `outfits` & `outfit_items`
+- `outfit_plans`, `outfit_history`, & `outfit_history_items`
+- `outfit_feedback` & `outfit_recommendations`
+- `laundry_events`, `email_logs`, & `ai_usage_events`
 
 ### B. Storage Buckets
 1. Ensure the `wardrobe` bucket exists and is set to **Private**.

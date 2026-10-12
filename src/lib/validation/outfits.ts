@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OCCASION_VALUES, STYLE_VALUES } from "@/lib/wardrobe/categories";
+import { STYLE_VALUES } from "@/lib/wardrobe/categories";
 
 export const createOutfitSchema = z.object({
   name: z.string().trim().min(1, "Name this outfit.").max(120, "Use 120 characters or fewer."),

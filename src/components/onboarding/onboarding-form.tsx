@@ -10,7 +10,6 @@ import { Alert } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
 import { COLOUR_OPTIONS, OCCASION_OPTIONS, STYLE_OPTIONS, WEEKDAYS } from "@/lib/profile/options";
 import { listTimeZones } from "@/lib/scheduling/timezone";
-import { optionalStringFromSelect } from "@/lib/validation/wardrobe";
 import { onboardingSchema, type OnboardingData, type OnboardingInput } from "@/lib/validation/onboarding";
 
 // Browser-only list of timezones, read through useSyncExternalStore so server and client markup agree

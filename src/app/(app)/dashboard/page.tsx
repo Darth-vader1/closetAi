@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
-import { Shirt, WashingMachine, TrendingUp, Sparkles, HeartHandshake, Compass, RotateCcw } from "lucide-react";
+import { Shirt, WashingMachine, TrendingUp, Sparkles, HeartHandshake } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/card";
@@ -12,6 +12,18 @@ import { humanise } from "@/lib/wardrobe/categories";
 import { signImageUrls } from "@/lib/wardrobe/queries";
 
 export const metadata: Metadata = { title: "Dashboard" };
+
+function filterUntouchedItems<T extends { wear_count?: number | null; last_worn_at?: string | null }>(items: T[]): T[] {
+  const cutoffMs = new Date().getTime() - 90 * 24 * 60 * 60 * 1000;
+  return items
+    .filter((i) => {
+      const wearCount = i.wear_count ?? 0;
+      if (wearCount === 0) return true;
+      if (i.last_worn_at && new Date(i.last_worn_at).getTime() < cutoffMs) return true;
+      return false;
+    })
+    .slice(0, 3);
+}
 
 export default async function DashboardPage() {
   const user = await requireUser();
@@ -44,16 +56,7 @@ export default async function DashboardPage() {
     .slice(0, 3);
 
   // Untouched items (Worn 0 times, or not worn in > 90 days)
-  const now = Date.now();
-  const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
-  const untouchedItems = items
-    .filter((i) => {
-      const wearCount = i.wear_count ?? 0;
-      if (wearCount === 0) return true;
-      if (i.last_worn_at && now - new Date(i.last_worn_at).getTime() > ninetyDaysMs) return true;
-      return false;
-    })
-    .slice(0, 3);
+  const untouchedItems = filterUntouchedItems(items);
 
   // Sign images for highlighted items
   const imagePathsToSign = Array.from(

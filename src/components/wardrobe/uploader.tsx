@@ -47,7 +47,7 @@ interface Entry {
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
-function suggestionToValues(s: ClothingSuggestion): ItemFieldsInput {
+function suggestionToValues(s: ClothingSuggestion & { material?: string | null }): ItemFieldsInput {
   return {
     ...emptyItemValues(),
     name: s.name,

@@ -236,3 +236,51 @@ describe("email idempotency key", () => {
     ).rejects.toThrow(/unique|duplicate/i);
   });
 });
+
+describe("wear_outfit atomic RPC & profile deletion", () => {
+  it("atomically logs outfit history, increments wear_count, sets last_worn_at, and marks status WORN", async () => {
+    const itemId = await insertItem(alice, "Wear test shirt", `${alice}/wear-shirt.jpg`);
+    const outfitId = (
+      await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Wear Test Look') returning id`, [
+        alice,
+      ])
+    ).rows[0].id;
+    await db.query(`insert into public.outfit_items (outfit_id, item_id, user_id) values ($1, $2, $3)`, [
+      outfitId,
+      itemId,
+      alice,
+    ]);
+
+    const histId = await asUser(db, alice, async () => {
+      const r = await db.query<{ wear_outfit: string }>(`select public.wear_outfit($1, '2026-10-12')`, [outfitId]);
+      return r.rows[0].wear_outfit;
+    });
+
+    expect(histId).toBeTruthy();
+
+    const updatedItem = (
+      await db.query<{ status: string; wear_count: number; last_worn_at: string | null }>(
+        `select status, wear_count, last_worn_at from public.wardrobe_items where id = $1`,
+        [itemId],
+      )
+    ).rows[0];
+    expect(updatedItem.status).toBe("WORN");
+    expect(updatedItem.wear_count).toBe(1);
+    expect(updatedItem.last_worn_at).not.toBeNull();
+
+    const histItems = await db.query(`select item_id from public.outfit_history_items where history_id = $1`, [histId]);
+    expect(histItems.rows).toEqual([{ item_id: itemId }]);
+  });
+
+  it("allows a user to delete their own profile and cascades to owned rows", async () => {
+    const tempUser = await createUser(db, "TempUser");
+    await insertItem(tempUser, "Temp shirt", `${tempUser}/shirt.jpg`);
+    await asUser(db, tempUser, async () => {
+      const del = await db.query(`delete from public.profiles where id = $1`, [tempUser]);
+      expect(del.affectedRows).toBe(1);
+    });
+    const remaining = await db.query(`select 1 from public.wardrobe_items where user_id = $1`, [tempUser]);
+    expect(remaining.rows).toHaveLength(0);
+  });
+});
+

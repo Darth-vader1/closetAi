@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { Maximize2, Minimize2, RotateCcw, Play, Pause, Sun, Moon, Layers } from "lucide-react";
+import { RotateCcw, Play, Pause, Sun, Moon, Layers } from "lucide-react";
 import type { WardrobeItem } from "@/lib/wardrobe/queries";
 import { categoryGroup } from "@/lib/wardrobe/categories";
 
@@ -26,7 +26,16 @@ export function OutfitStage3D({ items, imageUrls, className = "", autoRotate = t
   const [spinning, setSpinning] = useState(autoRotate);
   const [exploded, setExploded] = useState(false);
   const [isDarkTheme, setIsDarkTheme] = useState(false);
-  const [loadedCount, setLoadedCount] = useState(0);
+  const spinningRef = useRef(spinning);
+  const explodedRef = useRef(exploded);
+
+  useEffect(() => {
+    spinningRef.current = spinning;
+  }, [spinning]);
+
+  useEffect(() => {
+    explodedRef.current = exploded;
+  }, [exploded]);
 
   // References for animation state
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -233,7 +242,6 @@ export function OutfitStage3D({ items, imageUrls, className = "", autoRotate = t
 
           stageGroup.add(mesh);
           createdMeshes.push({ mesh, slot });
-          setLoadedCount((c) => c + 1);
         },
         undefined,
         (err) => console.warn("Could not load 3D garment texture:", err),
@@ -299,7 +307,7 @@ export function OutfitStage3D({ items, imageUrls, className = "", autoRotate = t
       const elapsed = (performance.now() - startTime) * 0.001;
 
       // Auto-spin if active and not dragging
-      if (spinning && !isDraggingRef.current) {
+      if (spinningRef.current && !isDraggingRef.current) {
         targetRotationRef.current.y += 0.006;
       }
 
@@ -317,7 +325,7 @@ export function OutfitStage3D({ items, imageUrls, className = "", autoRotate = t
 
       // Animate layer explosion / collapse
       meshesRef.current.forEach(({ mesh, slot }) => {
-        const dest = exploded
+        const dest = explodedRef.current
           ? slot.targetPos.clone().add(slot.explodedOffset)
           : slot.targetPos;
         mesh.position.lerp(dest, 0.08);

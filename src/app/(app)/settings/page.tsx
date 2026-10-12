@@ -23,7 +23,7 @@ export default async function SettingsPage() {
 
   const initialProfile = {
     displayName: profile?.display_name || "",
-    gender: (profile as any)?.gender || "unisex",
+    gender: profile?.gender || "unisex",
     preferredStyle: Array.isArray(profile?.preferred_style)
       ? (profile?.preferred_style as string[])
       : typeof profile?.preferred_style === "string"
@@ -39,12 +39,12 @@ export default async function SettingsPage() {
   const initialWeeklyDay =
     typeof emailPrefs?.weekly_day === "number" && emailPrefs.weekly_day >= 0 && emailPrefs.weekly_day <= 6
       ? weekdayNames[emailPrefs.weekly_day]
-      : emailPrefs?.weekly_laundry_day ?? "Sunday";
+      : "Sunday";
 
   const initialPreferences = {
-    dailyEnabled: emailPrefs?.daily_enabled ?? emailPrefs?.daily_outfit_enabled ?? true,
-    dailyTime: (emailPrefs?.daily_time ? String(emailPrefs.daily_time).slice(0, 5) : null) ?? emailPrefs?.daily_outfit_time ?? "07:00",
-    weeklyLaundryEnabled: emailPrefs?.weekly_enabled ?? emailPrefs?.weekly_laundry_enabled ?? true,
+    dailyEnabled: emailPrefs?.daily_enabled ?? false,
+    dailyTime: emailPrefs?.daily_time ? String(emailPrefs.daily_time).slice(0, 5) : "07:00",
+    weeklyLaundryEnabled: emailPrefs?.weekly_enabled ?? false,
     weeklyLaundryDay: initialWeeklyDay,
     whatsappPhone: emailPrefs?.whatsapp_phone || "",
     whatsappDailyEnabled: emailPrefs?.whatsapp_daily_enabled ?? false,

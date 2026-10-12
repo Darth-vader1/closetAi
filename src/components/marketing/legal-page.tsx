@@ -1,5 +1,4 @@
 import { SiteFooter, SiteHeader } from "@/components/marketing/sections";
-import { Alert } from "@/components/ui/card";
 
 export function LegalPage({ title, updated, children }: { title: string; updated: string; children: React.ReactNode }) {
   return (
