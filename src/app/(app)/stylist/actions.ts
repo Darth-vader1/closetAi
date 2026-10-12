@@ -191,3 +191,30 @@ export async function wearOutfitTodayAction(input: unknown): Promise<ActionResul
 
   return { ok: true };
 }
+
+const rateOutfitSchema = z.object({
+  outfitId: z.string().uuid(),
+  rating: z.number().int().min(1).max(5),
+});
+
+export async function rateOutfitAction(input: unknown): Promise<ActionResult> {
+  const user = await requireUser();
+  const parsed = rateOutfitSchema.safeParse(input);
+  if (!parsed.success) return fail("Rating must be between 1 and 5 stars.");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("outfits")
+    .update({ rating: parsed.data.rating })
+    .eq("id", parsed.data.outfitId)
+    .eq("user_id", user.id);
+
+  if (error) {
+    logger.error("outfit.rate_failed", { userId: user.id, error });
+    return fail("Could not save rating.");
+  }
+
+  revalidatePath("/stylist");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}

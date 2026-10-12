@@ -35,11 +35,17 @@ export default async function SettingsPage() {
     rewearWornItems: profile?.rewear_worn_items ?? true,
   };
 
+  const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const initialWeeklyDay =
+    typeof emailPrefs?.weekly_day === "number" && emailPrefs.weekly_day >= 0 && emailPrefs.weekly_day <= 6
+      ? weekdayNames[emailPrefs.weekly_day]
+      : emailPrefs?.weekly_laundry_day ?? "Sunday";
+
   const initialPreferences = {
-    dailyEnabled: emailPrefs?.daily_outfit_enabled ?? emailPrefs?.daily_enabled ?? true,
-    dailyTime: emailPrefs?.daily_outfit_time ?? "07:00",
-    weeklyLaundryEnabled: emailPrefs?.weekly_laundry_enabled ?? emailPrefs?.weekly_enabled ?? true,
-    weeklyLaundryDay: emailPrefs?.weekly_laundry_day ?? "Sunday",
+    dailyEnabled: emailPrefs?.daily_enabled ?? emailPrefs?.daily_outfit_enabled ?? true,
+    dailyTime: (emailPrefs?.daily_time ? String(emailPrefs.daily_time).slice(0, 5) : null) ?? emailPrefs?.daily_outfit_time ?? "07:00",
+    weeklyLaundryEnabled: emailPrefs?.weekly_enabled ?? emailPrefs?.weekly_laundry_enabled ?? true,
+    weeklyLaundryDay: initialWeeklyDay,
   };
 
   return (

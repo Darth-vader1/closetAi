@@ -4,6 +4,8 @@ import { StylistClient } from "@/components/stylist/stylist-client";
 import { getProfile, requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
+import { getLiveWeather } from "@/lib/weather/service";
+
 export const metadata: Metadata = {
   title: "AI Stylist · ClosetAI",
   description: "Ask for custom outfit ideas and styling advice grounded in your real wardrobe.",
@@ -13,6 +15,9 @@ export default async function StylistPage() {
   const user = await requireUser();
   const profile = await getProfile();
   const supabase = await createClient();
+
+  // Fetch live weather based on user location (defaults gracefully to Lagos if unspecified)
+  const weather = await getLiveWeather(profile?.location);
 
   // Count clean items available for styling
   const { count: cleanCount } = await supabase
@@ -44,6 +49,7 @@ export default async function StylistPage() {
             : []
         }
         initialGender={userGender}
+        initialWeather={weather}
       />
     </>
   );

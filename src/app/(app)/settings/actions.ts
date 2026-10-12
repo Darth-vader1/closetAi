@@ -31,19 +31,33 @@ export async function updateProfileSettingsAction(input: unknown): Promise<Actio
   }
 
   const supabase = await createClient();
-  const { error } = await supabase
+  const updatePayload: Record<string, unknown> = {
+    display_name: parsed.data.displayName,
+    preferred_style: parsed.data.preferredStyle,
+    common_occasions: parsed.data.commonOccasions,
+    location: parsed.data.location,
+    timezone: parsed.data.timezone,
+    rewear_worn_items: parsed.data.rewearWornItems,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Attempt update with gender
+  let { error } = await supabase
     .from("profiles")
     .update({
-      display_name: parsed.data.displayName,
+      ...updatePayload,
       gender: parsed.data.gender,
-      preferred_style: parsed.data.preferredStyle,
-      common_occasions: parsed.data.commonOccasions,
-      location: parsed.data.location,
-      timezone: parsed.data.timezone,
-      rewear_worn_items: parsed.data.rewearWornItems,
-      updated_at: new Date().toISOString(),
     })
     .eq("id", user.id);
+
+  // If gender column is missing in schema (e.g. migration pending), update without gender
+  if (error && (error.code === "PGRST204" || error.message.includes("'gender'"))) {
+    const fallback = await supabase
+      .from("profiles")
+      .update(updatePayload)
+      .eq("id", user.id);
+    error = fallback.error;
+  }
 
   if (error) {
     logger.error("settings.profile_update_failed", { userId: user.id, error });
@@ -66,34 +80,34 @@ export async function updateEmailPreferencesAction(input: unknown): Promise<Acti
 
   const supabase = await createClient();
 
-  // Upsert email preferences
+  const weekdayIndexMap: Record<string, number> = {
+    Sunday: 0,
+    Monday: 1,
+    Tuesday: 2,
+    Wednesday: 3,
+    Thursday: 4,
+    Friday: 5,
+    Saturday: 6,
+  };
+  const weeklyDayInt = weekdayIndexMap[parsed.data.weeklyLaundryDay] ?? 0;
+
+  // Schema columns from 20261009000001_schema.sql:
+  // daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time
   const { error } = await supabase.from("email_preferences").upsert(
     {
       user_id: user.id,
-      daily_outfit_enabled: parsed.data.dailyEnabled,
-      daily_outfit_time: parsed.data.dailyTime,
-      weekly_laundry_enabled: parsed.data.weeklyLaundryEnabled,
-      weekly_laundry_day: parsed.data.weeklyLaundryDay,
+      daily_enabled: parsed.data.dailyEnabled,
+      daily_time: parsed.data.dailyTime,
+      weekly_enabled: parsed.data.weeklyLaundryEnabled,
+      weekly_day: weeklyDayInt,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },
   );
 
   if (error) {
-    // If table doesn't have these exact column names, attempt safe fallback
-    const { error: fallbackErr } = await supabase.from("email_preferences").upsert(
-      {
-        user_id: user.id,
-        daily_enabled: parsed.data.dailyEnabled,
-        weekly_enabled: parsed.data.weeklyLaundryEnabled,
-      },
-      { onConflict: "user_id" },
-    );
-
-    if (fallbackErr) {
-      logger.error("settings.email_prefs_failed", { userId: user.id, error });
-      return fail("Could not update email preferences.");
-    }
+    logger.error("settings.email_prefs_failed", { userId: user.id, error });
+    return fail("Could not update email preferences.");
   }
 
   revalidatePath("/settings");
@@ -176,5 +190,26 @@ export async function sendTestEmailAction(type: "daily" | "laundry"): Promise<Ac
     }
 
     return { ok: true, message: `Test Laundry Digest email sent to ${user.email}!` };
+  }
+}
+
+export async function deleteAccountAction(): Promise<ActionResult> {
+  const user = await requireUser();
+  const supabase = await createClient();
+
+  try {
+    // Clean up user data
+    await supabase.from("wardrobe_items").delete().eq("user_id", user.id);
+    await supabase.from("outfits").delete().eq("user_id", user.id);
+    await supabase.from("email_preferences").delete().eq("user_id", user.id);
+    await supabase.from("profiles").delete().eq("id", user.id);
+
+    // Sign user out
+    await supabase.auth.signOut();
+
+    return { ok: true, message: "Account and wardrobe data deleted successfully." };
+  } catch (err) {
+    logger.error("settings.delete_account_failed", { userId: user.id, err });
+    return fail("Could not complete account deletion. Please contact support.");
   }
 }

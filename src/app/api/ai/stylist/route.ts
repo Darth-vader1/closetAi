@@ -133,10 +133,26 @@ export async function POST(request: NextRequest) {
     }));
 
     const stylePreferences = Array.isArray(profile?.preferred_style)
-      ? profile.preferred_style
+      ? [...profile.preferred_style]
       : typeof profile?.preferred_style === "string"
       ? [profile.preferred_style]
       : [];
+
+    // Continuous learning: inject aesthetics from outfits user rated 4 or 5 stars
+    const { data: topRatedOutfits } = await supabase
+      .from("outfits")
+      .select("name, style_description, rating")
+      .eq("user_id", user.id)
+      .gte("rating", 4)
+      .order("rating", { ascending: false })
+      .limit(3);
+
+    if (topRatedOutfits && topRatedOutfits.length > 0) {
+      const likedStyles = topRatedOutfits
+        .map((o) => `${o.name} (${o.style_description || "favorite silhouette"})`)
+        .join("; ");
+      stylePreferences.push(`Favorite looks user previously rated 5-stars: ${likedStyles}`);
+    }
 
     const result = await generateStylistRecommendations(
       {

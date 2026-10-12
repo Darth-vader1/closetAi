@@ -3,7 +3,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured } from "@/lib/env";
 
 /** Routes reachable without a session. Everything else requires sign-in. */
-const PUBLIC_EXACT = new Set(["/", "/login", "/signup", "/forgot-password", "/reset-password", "/privacy", "/terms", "/contact"]);
+const PUBLIC_EXACT = new Set([
+  "/",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/privacy",
+  "/terms",
+  "/contact",
+  "/manifest.webmanifest",
+  "/manifest.json",
+]);
 const PUBLIC_PREFIXES = ["/auth/", "/api/cron/", "/unsubscribe"];
 /** Signed-in users are bounced away from these. */
 const AUTH_ONLY_GUEST = new Set(["/login", "/signup", "/forgot-password"]);
@@ -18,8 +29,12 @@ export function isPublicPath(pathname: string): boolean {
  * (requireUser) and in Postgres RLS.
  */
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
-  let response = NextResponse.next({ request });
   const { pathname } = request.nextUrl;
+  if (isPublicPath(pathname)) {
+    return NextResponse.next({ request });
+  }
+
+  let response = NextResponse.next({ request });
 
   if (!isSupabaseConfigured()) {
     // Without Supabase there is no session to check. Public pages still render;

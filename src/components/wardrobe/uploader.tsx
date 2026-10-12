@@ -67,6 +67,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
   const router = useRouter();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [useAi, setUseAi] = useState(aiAvailable);
+  const [autoCutout, setAutoCutout] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -320,15 +321,23 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           />
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
           {aiAvailable ? (
-            <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
+            <label className="flex min-h-11 items-center gap-3 text-sm font-medium cursor-pointer">
               <input type="checkbox" className="size-5 accent-[var(--accent)]" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} />
-              Suggest details with AI (you review everything before saving)
+              <span>Suggest details with AI</span>
             </label>
           ) : (
-            <p className="text-sm text-muted">AI suggestions aren&apos;t available, so you&apos;ll enter details yourself. {aiUnavailableReason}</p>
+            <p className="text-sm text-muted">AI suggestions aren&apos;t available. {aiUnavailableReason}</p>
           )}
+
+          <label className="flex min-h-11 items-center gap-2.5 text-sm font-medium cursor-pointer text-foreground">
+            <input type="checkbox" className="size-5 accent-[var(--accent)]" checked={autoCutout} onChange={(e) => setAutoCutout(e.target.checked)} />
+            <span className="flex items-center gap-1.5">
+              <Wand2 className="size-4 text-accent" />
+              <span>Auto-Studio Cutout (clean background)</span>
+            </span>
+          </label>
         </div>
         {notice ? <Alert tone="warning" className="mt-3">{notice}</Alert> : null}
       </Card>

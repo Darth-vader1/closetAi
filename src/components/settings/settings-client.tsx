@@ -13,6 +13,9 @@ import {
   AlertCircle,
   Loader2,
   Send,
+  Download,
+  Trash2,
+  ShieldAlert,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,6 +27,7 @@ import {
   updateProfileSettingsAction,
   updateEmailPreferencesAction,
   sendTestEmailAction,
+  deleteAccountAction,
 } from "@/app/(app)/settings/actions";
 
 interface SettingsClientProps {
@@ -451,6 +455,73 @@ export function SettingsClient({
             </Button>
           </div>
         </form>
+      </Card>
+
+      {/* Data Privacy & Danger Zone */}
+      <Card className="p-6 md:p-8 border-border bg-surface shadow-2xs space-y-6">
+        <div className="border-b border-border pb-4">
+          <div className="flex items-center gap-2 text-foreground font-serif text-xl font-medium">
+            <ShieldAlert className="h-5 w-5 text-accent" />
+            <span>Data Privacy & Account Controls</span>
+          </div>
+          <p className="text-xs text-muted mt-1">
+            Download your digital wardrobe records or manage your account.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          {/* Export Data */}
+          <div className="rounded-xl border border-border bg-surface-muted/60 p-5 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Download className="h-4 w-4 text-accent" />
+              <span>Export Wardrobe Data</span>
+            </div>
+            <p className="text-xs text-muted leading-relaxed">
+              Download a complete JSON export of all your garments, outfits, wear logs, and style settings.
+            </p>
+            <div className="pt-1">
+              <a
+                href="/api/account/export"
+                download
+                className="inline-flex items-center gap-2 rounded-xl border border-border-strong bg-surface hover:bg-surface-muted text-foreground px-4 py-2 text-xs font-medium transition-colors shadow-2xs"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Download My Data (JSON)</span>
+              </a>
+            </div>
+          </div>
+
+          {/* Delete Account */}
+          <div className="rounded-xl border border-danger/30 bg-danger-soft/30 p-5 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-danger">
+              <Trash2 className="h-4 w-4" />
+              <span>Delete Account & Wardrobe</span>
+            </div>
+            <p className="text-xs text-muted leading-relaxed">
+              Permanently wipe your wardrobe items, photos, saved outfits, and account profile. This action cannot be undone.
+            </p>
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm("Are you absolutely sure you want to permanently delete your ClosetAI account and all your wardrobe items? This cannot be undone.")) {
+                    deleteAccountAction().then((res) => {
+                      if (res.ok) {
+                        window.location.href = "/login";
+                      } else {
+                        alert(res.error || "Could not delete account.");
+                      }
+                    });
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-danger/40 bg-danger text-white hover:bg-danger/90 px-4 py-2 text-xs font-medium transition-colors shadow-2xs"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Delete My Account Permanently</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </Card>
     </div>
   );

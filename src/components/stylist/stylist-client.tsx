@@ -23,14 +23,21 @@ import {
   Camera,
   ExternalLink,
   Compass,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { OutfitStage3D } from "@/components/studio/outfit-stage-3d";
 import { EditorialFlatlayCanvas } from "@/components/studio/editorial-flatlay-canvas";
-import { saveStylistOutfitAction, planOutfitAction, wearOutfitTodayAction } from "@/app/(app)/stylist/actions";
+import {
+  saveStylistOutfitAction,
+  planOutfitAction,
+  wearOutfitTodayAction,
+  rateOutfitAction,
+} from "@/app/(app)/stylist/actions";
 import type { WardrobeItem } from "@/lib/wardrobe/queries";
 import { humanise } from "@/lib/wardrobe/categories";
+import type { WeatherForecast } from "@/lib/weather/service";
 
 function PinterestIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -58,6 +65,7 @@ interface StylistClientProps {
   initialCleanCount: number;
   userStylePreferences?: string[];
   initialGender?: "male" | "female" | "unisex";
+  initialWeather?: WeatherForecast | null;
 }
 
 const PINTEREST_AESTHETICS = [
@@ -71,8 +79,10 @@ const PINTEREST_AESTHETICS = [
 
 const QUICK_PROMPTS = [
   { label: "💼 Work & Office", prompt: "Smart, professional look for a workday or meetings" },
+  { label: "🎉 Owambe / Aso-Ebi", prompt: "Owambe party / wedding look coordinating Aso-Ebi, Ankara, Agbada, Lace, or Senator wear with matching traditional accessories" },
   { label: "☕ Weekend Casual", prompt: "Relaxed and stylish outfit for a weekend coffee run or walking around" },
   { label: "🍷 Dinner Date", prompt: "Chic, elevated look for an evening dinner date" },
+  { label: "👑 Sunday Best / Church", prompt: "Elevated, elegant thanksgiving or church celebration outfit with refined tailoring or traditional touches" },
   { label: "🌧️ Chilly / Rainy Day", prompt: "Warm, comfortable layered outfit for cool, wet weather" },
   { label: "✨ Semi-Formal Event", prompt: "Polished and refined outfit for an evening gathering or party" },
   { label: "👟 Sporty Casual", prompt: "Comfortable, athletic-inspired everyday streetwear" },
@@ -90,9 +100,10 @@ export function StylistClient({
   initialCleanCount,
   userStylePreferences = [],
   initialGender = "unisex",
+  initialWeather,
 }: StylistClientProps) {
   const [prompt, setPrompt] = useState("");
-  const [selectedWeather, setSelectedWeather] = useState("");
+  const [selectedWeather, setSelectedWeather] = useState(initialWeather?.summary || "");
   const [selectedGender, setSelectedGender] = useState<"male" | "female" | "unisex">(initialGender);
   const [stylistMode, setStylistMode] = useState<"prompt" | "pinterest">("prompt");
   const [pinterestInput, setPinterestInput] = useState("");
@@ -307,6 +318,35 @@ export function StylistClient({
     }
   };
 
+  const [ratings, setRatings] = useState<Record<number, number>>({});
+
+  const handleRateOutfit = async (index: number, star: number) => {
+    const outfit = outfits[index];
+    if (!outfit) return;
+
+    let outfitId = savedOutfits[index];
+    if (!outfitId) {
+      const saveRes = await saveStylistOutfitAction({
+        name: outfit.name,
+        occasion: outfit.occasion,
+        itemIds: outfit.items.map((i) => i.id),
+        styleDescription: outfit.styleDescription,
+        explanation: outfit.explanation,
+        stylingTip: outfit.stylingTip,
+      });
+      if (saveRes.ok) {
+        outfitId = saveRes.id;
+        setSavedOutfits((prev) => ({ ...prev, [index]: outfitId }));
+      } else {
+        alert("Could not save outfit to record rating.");
+        return;
+      }
+    }
+
+    setRatings((prev) => ({ ...prev, [index]: star }));
+    await rateOutfitAction({ outfitId, rating: star });
+  };
+
   const activeOutfit = outfits[activeOutfitIndex];
 
   return (
@@ -429,6 +469,20 @@ export function StylistClient({
 
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-xs text-muted mr-1 font-medium">Weather:</span>
+                  {initialWeather && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedWeather(selectedWeather === initialWeather.summary ? "" : initialWeather.summary)}
+                      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
+                        selectedWeather === initialWeather.summary
+                          ? "border-sky-500 bg-sky-500/15 text-sky-700 dark:text-sky-300 shadow-2xs font-semibold"
+                          : "border-sky-500/30 bg-sky-500/5 hover:bg-sky-500/10 text-sky-700 dark:text-sky-400"
+                      }`}
+                    >
+                      <span className="text-xs">📍</span>
+                      <span>{initialWeather.city} Live ({initialWeather.temperatureC}°C, {initialWeather.condition})</span>
+                    </button>
+                  )}
                   {WEATHER_PRESETS.map((preset) => {
                     const Icon = preset.icon;
                     const active = selectedWeather === preset.value;
@@ -915,6 +969,37 @@ export function StylistClient({
                   <span>Pinterest Moodboard</span>
                   <ExternalLink className="h-3 w-3 opacity-60" />
                 </a>
+              </div>
+
+              {/* 1-5 Star Rating & Learning Feedback */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-border/70 bg-surface-muted/50 p-3 text-xs">
+                <div className="text-muted">
+                  <span>Rate look to fine-tune AI recommendations:</span>
+                </div>
+                <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => handleRateOutfit(activeOutfitIndex, star)}
+                      className="p-1 transition-transform hover:scale-125 focus:outline-hidden"
+                      title={`Rate ${star} star${star > 1 ? "s" : ""}`}
+                    >
+                      <Star
+                        className={`h-4 w-4 ${
+                          (ratings[activeOutfitIndex] ?? 0) >= star
+                            ? "fill-amber-400 text-amber-500"
+                            : "text-muted hover:text-amber-400"
+                        }`}
+                      />
+                    </button>
+                  ))}
+                  {ratings[activeOutfitIndex] && (
+                    <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold ml-1">
+                      {ratings[activeOutfitIndex]}★ Saved!
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
