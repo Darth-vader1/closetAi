@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     if (itemsErr || !itemRows || itemRows.length < 4) {
       return NextResponse.json(
         { error: "You need at least 4 clean wardrobe items to generate a travel packing capsule." },
-        400,
+        { status: 400 },
       );
     }
 
@@ -155,7 +155,7 @@ ${JSON.stringify(inventory, null, 2)}`;
     logger.error("packing.generate_failed", { err });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Could not generate travel packing capsule." },
-      500,
+      { status: 500 },
     );
   }
 }

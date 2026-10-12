@@ -3,6 +3,8 @@ import { logger } from "@/lib/logger";
 export interface SendWhatsAppPayload {
   to: string; // E.164 formatted phone number (e.g. "+2348012345678" or "2348012345678")
   message: string;
+  imageUrl?: string | null; // Single photo fallback
+  imageUrls?: string[]; // Multiple photos of the outfit garments (e.g. top, bottom, shoes)
 }
 
 export interface MetaCloudConfig {
@@ -73,20 +75,29 @@ function cleanDigits(phone: string): string {
 export async function sendWhatsAppMessage({
   to,
   message,
+  imageUrl,
+  imageUrls = [],
 }: SendWhatsAppPayload): Promise<{ success: boolean; id?: string; error?: string }> {
   const digitsOnly = cleanDigits(to);
   const config = getWhatsAppConfig();
+
+  // Combine images
+  const allImages = [...(imageUrls || []), ...(imageUrl ? [imageUrl] : [])].filter(
+    (url, idx, self) => Boolean(url) && self.indexOf(url) === idx,
+  );
 
   // Simulation Mode Fallback
   if (!config) {
     logger.info("whatsapp.simulation", {
       to: `+${digitsOnly}`,
+      imageCount: allImages.length,
       messagePreview: message.slice(0, 100),
       note: "Neither Meta Cloud API nor Twilio credentials found. Dispatched in console simulation mode.",
     });
 
     console.log(`\n💬 [WHATSAPP SIMULATION DISPATCH]`);
     console.log(`To: +${digitsOnly}`);
+    if (allImages.length) console.log(`Images: ${allImages.join(", ")}`);
     console.log(`----------------------------------------`);
     console.log(message);
     console.log(`----------------------------------------\n`);
@@ -99,27 +110,66 @@ export async function sendWhatsAppMessage({
     try {
       const endpoint = `https://graph.facebook.com/v21.0/${config.phoneNumberId}/messages`;
 
-      const payload = {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: digitsOnly,
-        type: "text",
-        text: {
-          preview_url: true,
-          body: message,
-        },
-      };
+      // 1. Send the first item photo with the full styling caption (or text if no images)
+      const primaryImage = allImages[0];
+      const primaryPayload = primaryImage
+        ? {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: digitsOnly,
+            type: "image",
+            image: {
+              link: primaryImage,
+              caption: message,
+            },
+          }
+        : {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: digitsOnly,
+            type: "text",
+            text: {
+              preview_url: false,
+              body: message,
+            },
+          };
 
-      const res = await fetch(endpoint, {
+      let res = await fetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${config.accessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(primaryPayload),
       });
 
-      const data = await res.json().catch(() => null);
+      let data = await res.json().catch(() => null);
+
+      // Meta 24-hour Customer Care Window rule:
+      if (!res.ok && (data?.error?.code === 131047 || data?.error?.message?.includes("template"))) {
+        console.log("ℹ️ Outside 24-hour window, dispatching WhatsApp template 'hello_world'...");
+        const templatePayload = {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: digitsOnly,
+          type: "template",
+          template: {
+            name: "hello_world",
+            language: { code: "en_US" },
+          },
+        };
+
+        res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(templatePayload),
+        });
+
+        data = await res.json().catch(() => null);
+      }
 
       if (!res.ok || data?.error) {
         const errMsg = data?.error?.message || res.statusText || "Meta WhatsApp Cloud API error";
@@ -128,6 +178,30 @@ export async function sendWhatsAppMessage({
       }
 
       const messageId = data?.messages?.[0]?.id || "meta-" + Date.now();
+
+      // 2. If there are additional garment photos (e.g. top + trousers + shoes), dispatch them sequentially
+      if (allImages.length > 1) {
+        for (let i = 1; i < allImages.length; i++) {
+          try {
+            await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${config.accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                messaging_product: "whatsapp",
+                recipient_type: "individual",
+                to: digitsOnly,
+                type: "image",
+                image: { link: allImages[i] },
+              }),
+            });
+          } catch {
+            // Non-critical if secondary image fails
+          }
+        }
+      }
       logger.info("whatsapp.meta_dispatched", { id: messageId, to: digitsOnly });
       return { success: true, id: messageId };
     } catch (err) {

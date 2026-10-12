@@ -291,6 +291,52 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
 
   const displayName = profile?.display_name || user.email?.split("@")[0] || "Friend";
 
+  // Find distinct real wardrobe items across categories (e.g. top + trousers + shoes/jacket)
+  const { data: realItems } = await supabase
+    .from("wardrobe_items")
+    .select("name, category, primary_colour, image_path")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  // Pick at most 1 item per category for a proper cohesive outfit look
+  const categoryMap = new Map<string, typeof realItems[0]>();
+  if (realItems) {
+    for (const item of realItems) {
+      if (!categoryMap.has(item.category)) {
+        categoryMap.set(item.category, item);
+      }
+    }
+  }
+
+  const selectedItems = Array.from(categoryMap.values()).slice(0, 3);
+
+  // Generate signed URLs for each distinct garment in the outfit
+  const signedImageUrls: string[] = [];
+  for (const item of selectedItems) {
+    if (item.image_path) {
+      const { data: signed } = await supabase.storage
+        .from("wardrobe")
+        .createSignedUrl(item.image_path, 60 * 60);
+      if (signed?.signedUrl) {
+        signedImageUrls.push(signed.signedUrl);
+      }
+    }
+  }
+
+  const itemsList =
+    selectedItems.length > 0
+      ? selectedItems.map((i) => ({
+          name: i.name,
+          category: i.category,
+          colour: i.primary_colour,
+        }))
+      : [
+          { name: "Classic White Cotton Tee", category: "Tops", colour: "White" },
+          { name: "Charcoal Structured Overshirt", category: "Outerwear", colour: "Grey" },
+          { name: "Tailored Black Chinos", category: "Bottoms", colour: "Black" },
+        ];
+
   const message = formatDailyOutfitWhatsApp({
     displayName,
     outfitName: "Monochrome Minimalist (WhatsApp Preview)",
@@ -298,16 +344,14 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
     styleDescription: "Crisp neutral contrast with structured layering for effortless day-to-night versatility.",
     stylingTip: "Tuck the tee loosely into waistband and cuff the sleeves once for an intentional silhouette.",
     weatherSummary: `${profile?.location || "Lagos"}: 28°C · Clear & Pleasant`,
-    items: [
-      { name: "Classic White Cotton Tee", category: "Tops", colour: "White" },
-      { name: "Charcoal Structured Overshirt", category: "Outerwear", colour: "Grey" },
-      { name: "Tailored Black Chinos", category: "Bottoms", colour: "Black" },
-    ],
+    items: itemsList,
+    appUrl: "https://closet-ai-official.vercel.app",
   });
 
   const res = await sendWhatsAppMessage({
     to: phone,
     message,
+    imageUrls: signedImageUrls,
   });
 
   if (!res.success) {

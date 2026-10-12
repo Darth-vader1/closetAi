@@ -3,7 +3,7 @@
  * touch the database and never decide what is trusted. Everything they return is `unknown` until
  * the service layer validates it against a Zod schema.
  */
-export type AiTask = "clothing_analysis" | "stylist_recommendation";
+export type AiTask = "clothing_analysis" | "stylist_recommendation" | "travel_packing_capsule";
 
 export interface AiImage {
   bytes: Uint8Array;

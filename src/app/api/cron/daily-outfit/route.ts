@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email/service";
 import { renderDailyOutfitHtml } from "@/lib/email/templates";
+import { sendWhatsAppMessage, formatDailyOutfitWhatsApp } from "@/lib/whatsapp/service";
+import { getLiveWeather } from "@/lib/weather/service";
 import { logger } from "@/lib/logger";
 
 export const maxDuration = 60; // 60s max execution for cron
@@ -9,7 +11,7 @@ export const maxDuration = 60; // 60s max execution for cron
 /**
  * Daily Morning Stylist Cron Handler
  * Triggered by Vercel Cron or external scheduler with Bearer CRON_SECRET.
- * Dispatches today's outfit recommendations to users who have opted into daily emails.
+ * Dispatches today's weather-aware outfit recommendations to users via Email and WhatsApp.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -26,26 +28,30 @@ export async function GET(request: NextRequest) {
   logger.info("cron.daily_outfit_start", { date: todayStr });
 
   try {
-    // 1. Fetch users with daily emails enabled
+    // 1. Fetch users with either daily email OR daily WhatsApp enabled
     const { data: usersWithPrefs, error: prefsErr } = await adminClient
       .from("email_preferences")
-      .select("user_id, daily_outfit_enabled, daily_enabled")
-      .or("daily_outfit_enabled.eq.true,daily_enabled.eq.true");
+      .select("user_id, daily_outfit_enabled, daily_enabled, whatsapp_phone, whatsapp_daily_enabled");
 
     if (prefsErr) {
       logger.error("cron.fetch_prefs_failed", { error: prefsErr });
-      return NextResponse.json({ error: "Could not query email preferences." }, { status: 500 });
+      return NextResponse.json({ error: "Could not query notification preferences." }, { status: 500 });
     }
 
-    const eligibleUserIds = (usersWithPrefs ?? []).map((p) => p.user_id);
-    if (eligibleUserIds.length === 0) {
-      return NextResponse.json({ message: "No users currently scheduled for daily outfit emails." });
+    const eligiblePrefs = (usersWithPrefs ?? []).filter(
+      (p) => p.daily_enabled || p.daily_outfit_enabled || (p.whatsapp_daily_enabled && p.whatsapp_phone),
+    );
+
+    if (eligiblePrefs.length === 0) {
+      return NextResponse.json({ message: "No users currently scheduled for daily outfit notifications." });
     }
 
     let dispatchedCount = 0;
 
-    for (const userId of eligibleUserIds) {
-      // Check if user already received an email today (idempotency check)
+    for (const pref of eligiblePrefs) {
+      const userId = pref.user_id;
+
+      // Check if user already received a notification today (idempotency check)
       const { data: existingLog } = await adminClient
         .from("email_logs")
         .select("id")
@@ -67,7 +73,6 @@ export async function GET(request: NextRequest) {
 
       const { data: authUser } = await adminClient.auth.admin.getUserById(userId);
       const recipientEmail = authUser?.user?.email;
-      if (!recipientEmail) continue;
 
       // Check if user has an outfit planned for today in outfit_plans
       const { data: plannedRow } = await adminClient
@@ -78,7 +83,7 @@ export async function GET(request: NextRequest) {
             name, occasion, style_description, explanation, styling_tip,
             outfit_items (
               position,
-              wardrobe_items ( name, category, primary_colour )
+              wardrobe_items ( name, category, primary_colour, image_path )
             )
           )
         `)
@@ -91,7 +96,7 @@ export async function GET(request: NextRequest) {
       let styleDescription = "A clean, balanced ensemble put together from your ready-to-wear pieces.";
       let explanation = "Color harmony and balanced silhouette ensure effortless confidence.";
       let stylingTip = "Wear with your favorite minimalist accessories.";
-      let items: Array<{ name: string; category: string; colour?: string | null }> = [];
+      let items: Array<{ name: string; category: string; colour?: string | null; image_path?: string | null }> = [];
 
       if (plannedRow?.outfits) {
         const o: any = plannedRow.outfits;
@@ -106,48 +111,106 @@ export async function GET(request: NextRequest) {
             name: i.wardrobe_items?.name || "Garment",
             category: i.wardrobe_items?.category || "Piece",
             colour: i.wardrobe_items?.primary_colour,
+            image_path: i.wardrobe_items?.image_path,
           }));
       } else {
-        // Fallback: pick clean items
+        // Fallback: harmonized clean items from distinct categories (Top, Bottom, Shoes/Outerwear)
         const { data: cleanItems } = await adminClient
           .from("wardrobe_items")
-          .select("name, category, primary_colour")
+          .select("name, category, primary_colour, image_path")
           .eq("user_id", userId)
           .eq("status", "CLEAN")
-          .limit(3);
+          .order("created_at", { ascending: false })
+          .limit(20);
 
         if (!cleanItems || cleanItems.length === 0) continue;
 
-        items = cleanItems.map((i) => ({
+        // Ensure distinct categories (e.g. 1 top, 1 bottom, 1 shoes)
+        const catMap = new Map<string, typeof cleanItems[0]>();
+        for (const item of cleanItems) {
+          if (!catMap.has(item.category)) {
+            catMap.set(item.category, item);
+          }
+        }
+
+        const distinctPieces = Array.from(catMap.values()).slice(0, 3);
+        items = distinctPieces.map((i) => ({
           name: i.name,
           category: i.category,
           colour: i.primary_colour,
+          image_path: i.image_path,
         }));
       }
 
-      const displayName = profile?.display_name || recipientEmail.split("@")[0];
-      const weatherSummary = profile?.location ? `Forecast for ${profile.location}: Sunny & Pleasant · 21°C` : null;
+      const displayName = profile?.display_name || recipientEmail?.split("@")[0] || "Friend";
 
-      const html = renderDailyOutfitHtml({
-        displayName,
-        outfitName,
-        occasion,
-        styleDescription,
-        explanation,
-        stylingTip,
-        items,
-        weatherSummary,
-      });
+      // Fetch live weather for the user's city
+      const weather = await getLiveWeather(profile?.location || "Lagos");
+      const weatherSummary = weather
+        ? `${weather.city}: ${weather.temperatureC}°C · ${weather.condition}`
+        : null;
 
-      const sendResult = await sendEmail({
-        to: recipientEmail,
-        subject: `Your Look for Today: ${outfitName} · ClosetAI`,
-        html,
-      });
+      // Sign image URLs for actual clothes photos
+      const signedUrls: string[] = [];
+      for (const itm of items) {
+        if (itm.image_path) {
+          const { data: signed } = await adminClient.storage
+            .from("wardrobe")
+            .createSignedUrl(itm.image_path, 60 * 60);
+          if (signed?.signedUrl) {
+            signedUrls.push(signed.signedUrl);
+          }
+        }
+      }
 
-      if (sendResult.success) {
+      let emailSent = false;
+      let waSent = false;
+
+      // 1. Dispatch Email (if enabled and email address exists)
+      if ((pref.daily_enabled || pref.daily_outfit_enabled) && recipientEmail) {
+        const html = renderDailyOutfitHtml({
+          displayName,
+          outfitName,
+          occasion,
+          styleDescription,
+          explanation,
+          stylingTip,
+          items,
+          weatherSummary,
+        });
+
+        const sendResult = await sendEmail({
+          to: recipientEmail,
+          subject: `Your Look for Today: ${outfitName} · ClosetAI`,
+          html,
+        });
+        emailSent = sendResult.success;
+      }
+
+      // 2. Dispatch WhatsApp (if enabled and phone exists)
+      if (pref.whatsapp_daily_enabled && pref.whatsapp_phone) {
+        const waMessage = formatDailyOutfitWhatsApp({
+          displayName,
+          outfitName,
+          occasion,
+          styleDescription,
+          stylingTip,
+          weatherSummary: weatherSummary || undefined,
+          items,
+          appUrl: "https://closet-ai-official.vercel.app",
+        });
+
+        const waRes = await sendWhatsAppMessage({
+          to: pref.whatsapp_phone,
+          message: waMessage,
+          imageUrls: signedUrls,
+        });
+        waSent = waRes.success;
+      }
+
+      if (emailSent || waSent) {
         dispatchedCount++;
-        // Record in email_logs
+        // Record in email_logs for idempotency
         await adminClient.from("email_logs").insert({
           user_id: userId,
           email_type: "DAILY_OUTFIT",

@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 export const alt = "ClosetAI — Decide What to Wear from Clothes You Already Own";
 export const size = {
