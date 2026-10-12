@@ -14,8 +14,20 @@ const PUBLIC_EXACT = new Set([
   "/contact",
   "/manifest.webmanifest",
   "/manifest.json",
+  "/opengraph-image",
+  "/twitter-image",
+  "/icon",
+  "/apple-icon",
 ]);
-const PUBLIC_PREFIXES = ["/auth/", "/api/cron/", "/unsubscribe"];
+const PUBLIC_PREFIXES = [
+  "/auth/",
+  "/api/cron/",
+  "/api/webhook/",
+  "/api/email/unsubscribe",
+  "/unsubscribe",
+  "/opengraph-image",
+  "/twitter-image",
+];
 /** Signed-in users are bounced away from these. */
 const AUTH_ONLY_GUEST = new Set(["/login", "/signup", "/forgot-password"]);
 

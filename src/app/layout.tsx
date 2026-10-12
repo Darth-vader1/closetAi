@@ -3,8 +3,25 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/fraunces";
 import "./globals.css";
 
+function resolveMetadataBase(): URL {
+  const raw =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
+      : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL.trim()}`
+      : "https://closet-ai-official.vercel.app");
+
+  try {
+    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return new URL(withProtocol);
+  } catch {
+    return new URL("https://closet-ai-official.vercel.app");
+  }
+}
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+  metadataBase: resolveMetadataBase(),
   title: {
     default: "ClosetAI — Decide What to Wear from Clothes You Already Own",
     template: "%s · ClosetAI",
@@ -63,6 +80,7 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
+        type: "image/png",
         alt: "ClosetAI — Digital Wardrobe & Personal AI Stylist",
       },
     ],

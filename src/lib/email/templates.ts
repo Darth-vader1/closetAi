@@ -31,7 +31,9 @@ export function renderDailyOutfitHtml({
   const calendarUrl = `${appUrl}/calendar`;
   const stylistUrl = `${appUrl}/stylist`;
   const settingsUrl = `${appUrl}/settings`;
-  const unsubscribeUrl = unsubscribeToken ? `${appUrl}/api/email/unsubscribe?token=${unsubscribeToken}` : settingsUrl;
+  const unsubscribeUrl = unsubscribeToken
+    ? `${appUrl}/api/email/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}&type=daily`
+    : settingsUrl;
 
   const itemsHtml = items
     .map(
@@ -138,6 +140,7 @@ export interface WeeklyLaundryEmailProps {
     category: string;
     wearCount: number;
   }>;
+  unsubscribeToken?: string;
 }
 
 export function renderWeeklyLaundryHtml({
@@ -147,10 +150,14 @@ export function renderWeeklyLaundryHtml({
   dirtyCount,
   inLaundryCount,
   urgentItems,
+  unsubscribeToken,
 }: WeeklyLaundryEmailProps): string {
   const appUrl = getAppUrl();
   const laundryUrl = `${appUrl}/laundry`;
   const settingsUrl = `${appUrl}/settings`;
+  const unsubscribeUrl = unsubscribeToken
+    ? `${appUrl}/api/email/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}&type=weekly`
+    : settingsUrl;
 
   const totalAttention = dirtyCount + inLaundryCount;
 
@@ -244,6 +251,8 @@ export function renderWeeklyLaundryHtml({
       <p style="margin: 0 0 8px 0;">Sent weekly to help keep your wardrobe rotating smoothly.</p>
       <p style="margin: 0;">
         <a href="${settingsUrl}" style="color: #78716c; text-decoration: underline;">Change notification schedule</a>
+        &nbsp;·&nbsp;
+        <a href="${unsubscribeUrl}" style="color: #78716c; text-decoration: underline;">Unsubscribe</a>
       </p>
     </div>
 
