@@ -344,7 +344,7 @@ export function SettingsClient({
         </form>
       </Card>
 
-      {/* 2. Automated Emails & Reminders */}
+      {/* 2. Automated Notifications & Reminders */}
       <Card className="p-6 md:p-8 border-border bg-surface shadow-2xs space-y-6">
         <div className="flex items-center gap-3 border-b border-border pb-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
@@ -352,10 +352,10 @@ export function SettingsClient({
           </div>
           <div>
             <h2 className="font-serif text-xl font-medium tracking-tight text-foreground">
-              Automated Email Schedules
+              Automated Notification Schedules
             </h2>
             <p className="text-xs text-muted">
-              Get weather-aware outfit inspiration and proactive laundry reminders delivered to your inbox.
+              Get weather-aware outfit inspiration and proactive laundry reminders delivered via Email and WhatsApp.
             </p>
           </div>
         </div>
@@ -463,21 +463,16 @@ export function SettingsClient({
           </div>
 
           {/* WhatsApp Direct Morning Alerts */}
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-5 space-y-4">
+          <div className="rounded-xl border border-border/80 bg-surface-muted/20 p-5 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
-                <MessageSquare className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                <MessageSquare className="h-5 w-5 text-accent shrink-0 mt-0.5" />
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-foreground">
-                      WhatsApp Daily Morning Outfit
-                    </h3>
-                    <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 border border-emerald-500/20">
-                      Popular in Nigeria
-                    </span>
-                  </div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    WhatsApp Daily Morning Outfit
+                  </h3>
                   <p className="text-xs text-muted">
-                    Receive your curated daily look with styling advice, temperature context, and Owambe notes straight to your WhatsApp.
+                    Receive your curated daily look with styling advice, weather context, and actual garment photos sent to your phone.
                   </p>
                 </div>
               </div>
@@ -485,34 +480,39 @@ export function SettingsClient({
                 type="checkbox"
                 checked={whatsappDailyEnabled}
                 onChange={(e) => setWhatsappDailyEnabled(e.target.checked)}
-                className="h-4 w-4 rounded border-border-strong text-emerald-600 focus:ring-emerald-500 mt-0.5"
+                className="h-4 w-4 rounded border-border-strong text-accent focus:ring-accent mt-0.5"
               />
             </div>
 
-            <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-3 border-t border-emerald-500/10">
-              <div className="flex-1">
-                <Input
-                  type="tel"
-                  value={whatsappPhone}
-                  onChange={(e) => setWhatsappPhone(e.target.value)}
-                  placeholder="+234 801 234 5678"
-                  className="text-xs h-9 min-h-0 bg-surface"
-                />
+            {whatsappDailyEnabled && (
+              <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-3 border-t border-border/60">
+                <label className="text-xs font-medium text-foreground whitespace-nowrap">
+                  WhatsApp Number:
+                </label>
+                <div className="flex-1 max-w-xs">
+                  <Input
+                    type="tel"
+                    value={whatsappPhone}
+                    onChange={(e) => setWhatsappPhone(e.target.value)}
+                    placeholder="+234 801 234 5678"
+                    className="text-xs h-9 min-h-0 bg-surface"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  loading={testWhatsAppPending}
+                  onClick={handleSendWhatsAppTest}
+                  className="gap-1.5 text-xs rounded-lg"
+                >
+                  <Send className="h-3 w-3" />
+                  Send Test Preview
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                loading={testWhatsAppPending}
-                onClick={handleSendWhatsAppTest}
-                className="gap-1.5 text-xs rounded-lg border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/10"
-              >
-                <Send className="h-3 w-3" />
-                Send WhatsApp Test
-              </Button>
-            </div>
+            )}
             <p className="text-[11px] text-muted">
-              Enter your number with international country code (e.g. <span className="font-mono text-foreground">+234</span> for Nigeria, <span className="font-mono text-foreground">+44</span> for UK, <span className="font-mono text-foreground">+1</span> for US).
+              Enter with international country code (e.g. <span className="font-mono text-foreground">+234</span> for Nigeria, <span className="font-mono text-foreground">+44</span> for UK, <span className="font-mono text-foreground">+1</span> for US).
             </p>
           </div>
 

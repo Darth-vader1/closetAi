@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     // 1. Fetch users with either daily email OR daily WhatsApp enabled
     const { data: usersWithPrefs, error: prefsErr } = await adminClient
       .from("email_preferences")
-      .select("user_id, daily_outfit_enabled, daily_enabled, whatsapp_phone, whatsapp_daily_enabled");
+      .select("user_id, daily_outfit_enabled, daily_enabled, daily_time, whatsapp_phone, whatsapp_daily_enabled");
 
     if (prefsErr) {
       logger.error("cron.fetch_prefs_failed", { error: prefsErr });
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       // Fetch user profile and email
       const { data: profile } = await adminClient
         .from("profiles")
-        .select("display_name, location")
+        .select("display_name, location, timezone")
         .eq("id", userId)
         .single();
 
