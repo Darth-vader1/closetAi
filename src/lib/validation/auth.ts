@@ -23,6 +23,7 @@ export const signUpSchema = z
 export const loginSchema = z.object({
   email,
   password: z.string().min(1, "Enter your password.").max(72),
+  rememberMe: z.boolean().optional().default(true),
 });
 
 export const forgotPasswordSchema = z.object({ email });

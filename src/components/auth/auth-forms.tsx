@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useForm, type FieldValues, type Path } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -113,14 +113,38 @@ export function SignUpForm() {
   );
 }
 
+const REMEMBERED_EMAIL_KEY = "closetai_remembered_email";
+
 export function LoginForm({ next, notice }: { next?: string; notice?: string | null }) {
   const form = useForm<AuthSchemaInput<typeof loginSchema>, unknown, LoginInput>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { email: "", password: "", rememberMe: true },
   });
+
+  useEffect(() => {
+    try {
+      const savedEmail = window.localStorage.getItem(REMEMBERED_EMAIL_KEY);
+      if (savedEmail && !form.getValues("email")) {
+        form.setValue("email", savedEmail);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [form]);
   const { errors } = form.formState;
   const { pending, formError, success, submit } = useAuthSubmit<LoginInput>(
-    (values) => signInAction(values, next),
+    (values) => {
+      try {
+        if (values.rememberMe) {
+          window.localStorage.setItem(REMEMBERED_EMAIL_KEY, values.email);
+        } else {
+          window.localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+        }
+      } catch {
+        // Ignore storage errors in private browsing mode
+      }
+      return signInAction(values, next);
+    },
     (name, message) => form.setError(name, { message }),
   );
 
@@ -134,7 +158,16 @@ export function LoginForm({ next, notice }: { next?: string; notice?: string | n
       <Field id="password" label="Password" error={errors.password?.message}>
         <Input id="password" type="password" autoComplete="current-password" aria-invalid={!!errors.password} {...form.register("password")} />
       </Field>
-      <div className="text-right text-sm">
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <label htmlFor="rememberMe" className="inline-flex items-center gap-2 cursor-pointer select-none text-foreground">
+          <input
+            id="rememberMe"
+            type="checkbox"
+            className="h-4 w-4 rounded border-border-strong text-accent focus:ring-accent accent-accent cursor-pointer"
+            {...form.register("rememberMe")}
+          />
+          <span>Remember me</span>
+        </label>
         <Link href="/forgot-password" className="text-accent underline underline-offset-4">
           Forgot your password?
         </Link>

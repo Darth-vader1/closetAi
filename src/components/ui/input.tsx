@@ -1,14 +1,41 @@
+"use client";
+
 import * as React from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
+import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
 const fieldBase =
   "w-full rounded-xl border border-border-strong bg-surface px-4 text-base text-foreground placeholder:text-muted/70 focus-visible:border-accent disabled:opacity-60 aria-[invalid=true]:border-danger";
 
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, type = "text", ...props }, ref) => (
-    <input ref={ref} type={type} className={cn(fieldBase, "min-h-11 py-2", className)} {...props} />
-  ),
+  ({ className, type = "text", ...props }, ref) => {
+    const [showPassword, setShowPassword] = React.useState(false);
+    const isPassword = type === "password";
+
+    if (isPassword) {
+      return (
+        <div className="relative">
+          <input
+            ref={ref}
+            type={showPassword ? "text" : "password"}
+            className={cn(fieldBase, "min-h-11 py-2 pr-11", className)}
+            {...props}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((prev) => !prev)}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            className="absolute inset-y-0 right-0 flex items-center justify-center px-3.5 text-muted hover:text-foreground focus-visible:outline-none"
+          >
+            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+      );
+    }
+
+    return <input ref={ref} type={type} className={cn(fieldBase, "min-h-11 py-2", className)} {...props} />;
+  },
 );
 Input.displayName = "Input";
 

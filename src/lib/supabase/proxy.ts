@@ -54,6 +54,8 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     return response;
   }
 
+  const sessionOnly = request.cookies.get("closetai_remember")?.value === "0";
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
@@ -65,7 +67,16 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
         setAll(cookiesToSet) {
           for (const { name, value } of cookiesToSet) request.cookies.set(name, value);
           response = NextResponse.next({ request });
-          for (const { name, value, options } of cookiesToSet) response.cookies.set(name, value, options);
+          for (const { name, value, options } of cookiesToSet) {
+            if (sessionOnly && value) {
+              const sessionOpts = { ...options };
+              delete sessionOpts.maxAge;
+              delete sessionOpts.expires;
+              response.cookies.set(name, value, sessionOpts);
+            } else {
+              response.cookies.set(name, value, options);
+            }
+          }
         },
       },
     },

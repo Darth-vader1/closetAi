@@ -67,9 +67,25 @@ export async function signInAction(input: unknown, next?: string | null): Promis
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Please fix the highlighted fields.", fieldErrors: fieldErrors(parsed.error) };
 
+  const rememberMe = parsed.data.rememberMe !== false;
+
   try {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.signInWithPassword(parsed.data);
+    const { cookies } = await import("next/headers");
+    const { REMEMBER_COOKIE } = await import("@/lib/supabase/server");
+    const cookieStore = await cookies();
+    cookieStore.set(REMEMBER_COOKIE, rememberMe ? "1" : "0", {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      ...(rememberMe ? { maxAge: 60 * 60 * 24 * 30 } : {}),
+    });
+
+    const supabase = await createClient({ rememberMe });
+    const { error } = await supabase.auth.signInWithPassword({
+      email: parsed.data.email,
+      password: parsed.data.password,
+    });
     if (error) {
       logger.warn("auth.signin_failed", { code: error.code, status: error.status });
       return { ok: false, error: friendlyAuthError(error) };
