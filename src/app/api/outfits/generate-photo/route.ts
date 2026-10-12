@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // Enforce per-user AI rate limit quota
-    const quota = await takeAiQuota(supabase, user.id, "ANALYSE_IMAGE");
+    // Enforce dedicated per-user AI photoshoot rate limit (10/hour)
+    const quota = await takeAiQuota(supabase, user.id, "GENERATE_PHOTO");
     if (!quota.allowed) {
       return json({ error: "You have reached your photoshoot generation limit for this hour. Please try again later." }, 429);
     }
@@ -107,7 +107,16 @@ export async function POST(request: NextRequest) {
         return json({ error: result.error || "Could not generate outfit photo." }, 502);
       }
       imageBuffer = result.buffer;
-      mimeType = result.mimeType;
+      if (imageBuffer.length === 0 || imageBuffer.length > MAX_IMAGE_BYTES) {
+        return json({ error: "Generated image exceeds the 5 MB size limit." }, 502);
+      }
+      if (hasValidImageMagicBytes(imageBuffer, "image/jpeg")) {
+        mimeType = "image/jpeg";
+      } else if (hasValidImageMagicBytes(imageBuffer, "image/png")) {
+        mimeType = "image/png";
+      } else {
+        return json({ error: "Upstream image generator returned an invalid image format." }, 502);
+      }
     }
 
     // 2. Upload to Supabase Storage in user's folder

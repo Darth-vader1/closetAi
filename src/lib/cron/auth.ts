@@ -161,10 +161,10 @@ export async function claimEmailLogSlot(
     return { logId: inserted.id, attemptCount: inserted.attempt_count };
   }
 
-  // 2. Row already existed — inspect status for retry eligibility (only FAILED with < 3 attempts)
+  // 2. Row already existed — inspect status for retry eligibility (FAILED or stale PENDING > 15m, < 3 attempts)
   const { data: existing, error: fetchErr } = await adminClient
     .from("email_logs")
-    .select("id, status, attempt_count")
+    .select("id, status, attempt_count, updated_at")
     .eq("user_id", userId)
     .eq("kind", kind)
     .eq("period_key", periodKey)
@@ -174,13 +174,19 @@ export async function claimEmailLogSlot(
     return null;
   }
 
-  if (existing.status === "FAILED" && existing.attempt_count < 3) {
+  const updatedAtMs = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+  const isStalePending =
+    existing.status === "PENDING" &&
+    updatedAtMs > 0 &&
+    Date.now() - updatedAtMs > 15 * 60 * 1000;
+
+  if ((existing.status === "FAILED" || isStalePending) && existing.attempt_count < 3) {
     const nextAttempt = existing.attempt_count + 1;
     const { data: claimed } = await adminClient
       .from("email_logs")
       .update({ status: "PENDING", attempt_count: nextAttempt })
       .eq("id", existing.id)
-      .eq("status", "FAILED")
+      .eq("status", existing.status)
       .select("id, attempt_count")
       .maybeSingle();
 

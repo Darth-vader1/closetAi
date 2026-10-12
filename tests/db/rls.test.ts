@@ -252,7 +252,7 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
     ]);
 
     const histId = await asUser(db, alice, async () => {
-      const r = await db.query<{ wear_outfit: string }>(`select public.wear_outfit($1, '2026-10-12')`, [outfitId]);
+      const r = await db.query<{ wear_outfit: string }>(`select public.wear_outfit($1)`, [outfitId]);
       return r.rows[0].wear_outfit;
     });
 
@@ -268,8 +268,49 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
     expect(updatedItem.wear_count).toBe(1);
     expect(updatedItem.last_worn_at).not.toBeNull();
 
+    // Repeating wear_outfit on the same date is rejected and does not bump wear_count
+    await asUser(db, alice, async () => {
+      await expect(db.query(`select public.wear_outfit($1)`, [outfitId])).rejects.toThrow(/already marked as worn/i);
+    });
+    const afterDup = (
+      await db.query<{ wear_count: number }>(`select wear_count from public.wardrobe_items where id = $1`, [itemId])
+    ).rows[0];
+    expect(afterDup.wear_count).toBe(1);
+
+    // Future date in 2099 is rejected
+    await asUser(db, alice, async () => {
+      await expect(db.query(`select public.wear_outfit($1, '2099-01-01')`, [outfitId])).rejects.toThrow(/out of allowed range/i);
+    });
+
     const histItems = await db.query(`select item_id from public.outfit_history_items where history_id = $1`, [histId]);
     expect(histItems.rows).toEqual([{ item_id: itemId }]);
+  });
+
+  it("rejects wear_outfit when an item is DIRTY", async () => {
+    const dirtyItemId = await insertItem(alice, "Dirty blazer", `${alice}/dirty-blazer.jpg`);
+    await db.query(`update public.wardrobe_items set status = 'DIRTY' where id = $1`, [dirtyItemId]);
+    const outfitId = (
+      await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Dirty Look') returning id`, [
+        alice,
+      ])
+    ).rows[0].id;
+    await db.query(`insert into public.outfit_items (outfit_id, item_id, user_id) values ($1, $2, $3)`, [
+      outfitId,
+      dirtyItemId,
+      alice,
+    ]);
+
+    await asUser(db, alice, async () => {
+      await expect(db.query(`select public.wear_outfit($1)`, [outfitId])).rejects.toThrow(/not clean and ready/i);
+    });
+  });
+
+  it("rejects '..' path traversal in storage.objects policies", async () => {
+    await asUser(db, bob, async () => {
+      await expect(
+        db.query(`insert into storage.objects (bucket_id, name) values ('wardrobe', $1)`, [`${bob}/../${alice}/sneaky.jpg`]),
+      ).rejects.toThrow(/row-level security/i);
+    });
   });
 
   it("allows a user to delete their own profile and cascades to owned rows", async () => {

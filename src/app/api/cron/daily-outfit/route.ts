@@ -75,6 +75,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: true, dispatchedCount: 0, message: "No users opted in for daily notifications." });
     }
 
+    const isDailyBatch =
+      request.headers.get("x-vercel-cron") === "1" ||
+      request.nextUrl.searchParams.get("mode") === "daily_batch";
+
     let dispatchedCount = 0;
 
     const processUser = async (pref: DailyPrefRow) => {
@@ -90,8 +94,9 @@ export async function GET(request: NextRequest) {
       const clock = getUserLocalClock(profile?.timezone);
       const targetTime = normalizeTimeHHMM(pref.daily_time, "07:00");
 
-      // Respect user's preferred local send time
-      if (clock.localTime < targetTime) {
+      // Respect user's preferred local send time on hourly/frequent runs;
+      // on once-a-day Vercel Hobby cron runs, deliver for today regardless of hour.
+      if (!isDailyBatch && clock.localTime < targetTime) {
         return;
       }
 

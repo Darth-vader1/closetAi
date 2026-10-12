@@ -1,12 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type AiOperation = "ANALYSE_IMAGE" | "STYLE_OUTFITS" | "CHAT";
+export type AiOperation = "ANALYSE_IMAGE" | "STYLE_OUTFITS" | "CHAT" | "GENERATE_PHOTO";
 
 /** Requests allowed per rolling hour, per user, per operation. */
 export const AI_HOURLY_LIMITS: Record<AiOperation, number> = {
   ANALYSE_IMAGE: 60,
   STYLE_OUTFITS: 30,
   CHAT: 60,
+  GENERATE_PHOTO: 10,
 };
 
 export function isOverLimit(recentCount: number, limit: number): boolean {

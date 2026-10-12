@@ -63,6 +63,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    const isWeeklyBatch =
+      request.headers.get("x-vercel-cron") === "1" ||
+      request.nextUrl.searchParams.get("mode") === "daily_batch";
+
     let dispatchedCount = 0;
 
     const processUser = async (pref: WeeklyPrefRow) => {
@@ -79,8 +83,8 @@ export async function GET(request: NextRequest) {
       const targetDay = typeof pref.weekly_day === "number" ? pref.weekly_day : 0;
       const targetTime = normalizeTimeHHMM(pref.weekly_time, "18:00");
 
-      // Match user's local weekday (0 = Sunday .. 6 = Saturday) and preferred time
-      if (clock.weekdayIndex !== targetDay || clock.localTime < targetTime) {
+      // Match user's local weekday and preferred time on hourly/frequent runs
+      if (!isWeeklyBatch && (clock.weekdayIndex !== targetDay || clock.localTime < targetTime)) {
         return;
       }
 

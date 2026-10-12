@@ -323,7 +323,14 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
 
 export async function deleteAccountAction(): Promise<ActionResult> {
   const user = await requireUser();
+
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+    logger.error("settings.delete_account_missing_service_role", { userId: user.id });
+    return fail("Account deletion is not fully configured on this server. Please contact support.");
+  }
+
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   try {
     // 1. Collect all storage object paths belonging to the user
@@ -367,13 +374,10 @@ export async function deleteAccountAction(): Promise<ActionResult> {
     }
 
     // 3. Delete the auth.users record using the service-role admin client
-    if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
-      const adminClient = createAdminClient();
-      const { error: authDeleteErr } = await adminClient.auth.admin.deleteUser(user.id);
-      if (authDeleteErr) {
-        logger.error("settings.delete_auth_user_failed", { userId: user.id, error: authDeleteErr });
-        return fail("Could not remove authentication account. Please contact support.");
-      }
+    const { error: authDeleteErr } = await adminClient.auth.admin.deleteUser(user.id);
+    if (authDeleteErr) {
+      logger.error("settings.delete_auth_user_failed", { userId: user.id, error: authDeleteErr });
+      return fail("Could not remove authentication account. Please contact support.");
     }
 
     // 4. Sign user out
