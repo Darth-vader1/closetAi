@@ -37,13 +37,64 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
   if (!parsed.success) return { ok: false, error: "Please fix the highlighted fields.", fieldErrors: fieldErrors(parsed.error) };
 
   try {
+    const appUrl = getAppUrl();
+    const { getResendClient, sendEmail } = await import("@/lib/email/service");
+    const emailConfig = getResendClient();
+
+    // When Gmail/Resend + Service Role are configured, generate the verification link server-side
+    // and send it via ClosetAI's own mailer (bypassing Supabase's 2/hr built-in email limit).
+    if (emailConfig && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      const admin = createAdminClient();
+      const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+        type: "signup",
+        email: parsed.data.email,
+        password: parsed.data.password,
+        options: {
+          data: { display_name: parsed.data.displayName },
+          redirectTo: `${appUrl}/auth/callback?next=/onboarding`,
+        },
+      });
+
+      if (linkErr) {
+        logger.warn("auth.signup_generate_link_failed", { code: linkErr.code, status: linkErr.status });
+        return { ok: false, error: friendlyAuthError(linkErr) };
+      }
+
+      const hashedToken = linkData?.properties?.hashed_token;
+      const actionUrl = hashedToken
+        ? `${appUrl}/auth/callback?token_hash=${encodeURIComponent(hashedToken)}&type=signup&next=/onboarding`
+        : linkData?.properties?.action_link;
+
+      if (actionUrl) {
+        const { renderAuthEmailHtml } = await import("@/lib/email/templates");
+        const sent = await sendEmail({
+          to: parsed.data.email,
+          subject: "Verify your ClosetAI account",
+          html: renderAuthEmailHtml({
+            type: "signup",
+            displayName: parsed.data.displayName,
+            actionUrl,
+          }),
+        });
+        if (!sent.success) {
+          logger.error("auth.signup_email_send_failed", { error: sent.error });
+          return { ok: false, error: "Could not send verification email. Please try again in a moment." };
+        }
+        return {
+          ok: true,
+          message: "Check your email for a verification link. Once confirmed, you can finish setting up your wardrobe.",
+        };
+      }
+    }
+
     const supabase = await createClient();
     const { data, error } = await supabase.auth.signUp({
       email: parsed.data.email,
       password: parsed.data.password,
       options: {
         data: { display_name: parsed.data.displayName },
-        emailRedirectTo: `${getAppUrl()}/auth/callback?next=/onboarding`,
+        emailRedirectTo: `${appUrl}/auth/callback?next=/onboarding`,
       },
     });
     if (error) {
@@ -103,9 +154,47 @@ export async function requestPasswordResetAction(input: unknown): Promise<AuthAc
   if (!parsed.success) return { ok: false, error: "Enter a valid email address.", fieldErrors: fieldErrors(parsed.error) };
 
   try {
+    const appUrl = getAppUrl();
+    const { getResendClient, sendEmail } = await import("@/lib/email/service");
+    const emailConfig = getResendClient();
+
+    if (emailConfig && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      const admin = createAdminClient();
+      const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+        type: "recovery",
+        email: parsed.data.email,
+        options: {
+          redirectTo: `${appUrl}/auth/callback?next=/reset-password`,
+        },
+      });
+
+      if (!linkErr && linkData?.properties) {
+        const hashedToken = linkData.properties.hashed_token;
+        const actionUrl = hashedToken
+          ? `${appUrl}/auth/callback?token_hash=${encodeURIComponent(hashedToken)}&type=recovery&next=/reset-password`
+          : linkData.properties.action_link;
+
+        if (actionUrl) {
+          const { renderAuthEmailHtml } = await import("@/lib/email/templates");
+          await sendEmail({
+            to: parsed.data.email,
+            subject: "Reset your ClosetAI password",
+            html: renderAuthEmailHtml({
+              type: "recovery",
+              actionUrl,
+            }),
+          });
+        }
+      } else if (linkErr) {
+        logger.warn("auth.reset_generate_link_failed", { code: linkErr.code, status: linkErr.status });
+      }
+      return { ok: true, message: "If an account exists for that email, a reset link is on its way." };
+    }
+
     const supabase = await createClient();
     const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
-      redirectTo: `${getAppUrl()}/auth/callback?next=/reset-password`,
+      redirectTo: `${appUrl}/auth/callback?next=/reset-password`,
     });
     // Only surface rate limiting. Any other outcome gets the same message so we never reveal
     // whether an address has an account.

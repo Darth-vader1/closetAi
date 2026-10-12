@@ -22,32 +22,33 @@ export function getResendClient(): EmailProviderConfig | null {
   const gmailUser = process.env.GMAIL_USER?.trim();
   const gmailAppPassword = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, "").trim();
 
-  // 1. Gmail SMTP via 16-character App Password (easiest setup)
-  if (gmailUser && gmailAppPassword) {
-    const from = `ClosetAI <${gmailUser}>`;
-    return {
-      provider: "gmail_smtp",
-      user: gmailUser,
-      appPassword: gmailAppPassword,
-      from,
-    };
-  }
-
-  // 2. Gmail REST API via OAuth2 (Client ID + Client Secret + Refresh Token)
   const clientId = process.env.GMAIL_CLIENT_ID?.trim();
   const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
   const refreshToken = process.env.GMAIL_REFRESH_TOKEN?.trim();
+
+  // 1. Gmail REST API via OAuth2 (Client ID + Client Secret + Refresh Token)
   if (clientId && clientSecret && refreshToken) {
     const senderEmail = gmailUser || "me";
-    const from =
-      process.env.EMAIL_FROM?.trim() ||
-      (gmailUser ? `ClosetAI <${gmailUser}>` : "ClosetAI");
+    const from = gmailUser
+      ? `ClosetAI <${gmailUser}>`
+      : process.env.EMAIL_FROM?.trim() || "ClosetAI";
     return {
       provider: "gmail_api",
       clientId,
       clientSecret,
       refreshToken,
       user: senderEmail,
+      from,
+    };
+  }
+
+  // 2. Gmail SMTP via 16-character App Password
+  if (gmailUser && gmailAppPassword) {
+    const from = `ClosetAI <${gmailUser}>`;
+    return {
+      provider: "gmail_smtp",
+      user: gmailUser,
+      appPassword: gmailAppPassword,
       from,
     };
   }
@@ -73,29 +74,43 @@ export interface SendEmailPayload {
 }
 
 /**
- * Builds an RFC 2822 base64url-encoded MIME message for the Gmail REST API (`users.messages.send`).
+ * Builds an RFC 2822 base64url-encoded multipart/alternative MIME message for the Gmail REST API (`users.messages.send`).
  */
 function encodeGmailMimeMessage({
   from,
   to,
   subject,
+  text,
   html,
 }: {
   from: string;
   to: string;
   subject: string;
+  text: string;
   html: string;
 }): string {
+  const boundary = `closetai_${Date.now().toString(36)}`;
   const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`;
   const mime = [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${encodedSubject}`,
     "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    Buffer.from(text, "utf8").toString("base64"),
+    "",
+    `--${boundary}`,
     'Content-Type: text/html; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
     "",
     Buffer.from(html, "utf8").toString("base64"),
+    "",
+    `--${boundary}--`,
   ].join("\r\n");
 
   return Buffer.from(mime, "utf8")
@@ -208,7 +223,7 @@ export async function sendEmail({
         return { success: false, error: "Gmail OAuth2 did not return an access token." };
       }
 
-      const raw = encodeGmailMimeMessage({ from: config.from, to, subject, html });
+      const raw = encodeGmailMimeMessage({ from: config.from, to, subject, text, html });
       const sendRes = await fetch(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
         {

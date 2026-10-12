@@ -262,6 +262,67 @@ export function renderWeeklyLaundryHtml({
   `;
 }
 
+export interface AuthEmailProps {
+  type: "signup" | "recovery";
+  displayName?: string;
+  actionUrl: string;
+}
+
+export function renderAuthEmailHtml({
+  type,
+  displayName,
+  actionUrl,
+}: AuthEmailProps): string {
+  const isSignup = type === "signup";
+  const badge = isSignup ? "CLOSET·AI ACCOUNT VERIFICATION" : "CLOSET·AI PASSWORD RESET";
+  const heading = isSignup
+    ? `Welcome to ClosetAI${displayName ? `, ${escapeHtml(displayName)}` : ""}`
+    : "Reset your ClosetAI password";
+  const bodyText = isSignup
+    ? "Confirm your email address below to activate your digital wardrobe, 3D AI Stylist, and automated outfit briefings."
+    : "We received a request to reset the password for your ClosetAI account. Click the button below to choose a new password.";
+  const ctaLabel = isSignup ? "Verify Email Address →" : "Reset Password →";
+  const footerNote = isSignup
+    ? "If you didn't create a ClosetAI account, you can safely ignore this email."
+    : "If you didn't request a password reset, you can safely ignore this email — your password will remain unchanged.";
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(heading)}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1c1917; line-height: 1.5;">
+  <div style="max-width: 560px; margin: 40px auto; background-color: #ffffff; border: 1px solid #e7e5e4; border-radius: 16px; overflow: hidden;">
+    <div style="background-color: #1c1917; padding: 32px 36px; text-align: left;">
+      <span style="display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #d6d3d1; margin-bottom: 8px;">${badge}</span>
+      <h1 style="margin: 0; font-family: Georgia, serif; font-size: 25px; font-weight: normal; color: #f5f5f4;">${heading}</h1>
+    </div>
+    <div style="padding: 36px;">
+      <p style="margin: 0 0 28px 0; font-size: 15px; color: #44403c; line-height: 1.6;">
+        ${bodyText}
+      </p>
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${escapeHtml(actionUrl)}" style="display: inline-block; background-color: #1c1917; color: #ffffff; text-decoration: none; padding: 14px 30px; border-radius: 30px; font-size: 14px; font-weight: 500; letter-spacing: 0.4px;">
+          ${ctaLabel}
+        </a>
+      </div>
+      <p style="margin: 24px 0 0 0; font-size: 12px; color: #78716c; word-break: break-all;">
+        Or copy and paste this link into your browser:<br>
+        <a href="${escapeHtml(actionUrl)}" style="color: #57534e;">${escapeHtml(actionUrl)}</a>
+      </p>
+    </div>
+    <div style="background-color: #f5f5f4; border-top: 1px solid #e7e5e4; padding: 20px 36px; text-align: center; font-size: 12px; color: #78716c;">
+      <p style="margin: 0;">${footerNote}</p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -270,3 +331,4 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
