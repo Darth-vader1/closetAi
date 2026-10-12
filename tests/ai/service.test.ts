@@ -134,6 +134,30 @@ describe("getAiProvider / resolveAiConfig", () => {
   it("rejects unknown providers", () => {
     expect(resolveAiConfig({ AI_PROVIDER: "skynet" }).ok).toBe(false);
   });
+
+  it("chains multiple providers when AI_PROVIDER is comma-separated or backup keys exist", async () => {
+    const { createMultiProvider } = await import("@/lib/ai/service");
+    const primary: AiProvider = {
+      name: "groq",
+      isMock: false,
+      async generateJson() {
+        throw new AiProviderError("Groq rate limited", false);
+      },
+    };
+    const backup: AiProvider = {
+      name: "mistral",
+      isMock: false,
+      async generateJson() {
+        return validRaw;
+      },
+    };
+    const multi = createMultiProvider([primary, backup]);
+    const res = await analyseClothingImage(image, { provider: multi });
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.provider).toBe("mistral");
+    }
+  });
 });
 
 describe("mock provider", () => {

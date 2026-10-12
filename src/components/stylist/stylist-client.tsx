@@ -94,6 +94,21 @@ const WEATHER_PRESETS = [
   { label: "Cold (<12°C)", icon: Snowflake, value: "Cold winter weather, warm layers essential (around 8°C)" },
 ];
 
+const SKIN_TONE_OPTIONS = [
+  { value: "deep" as const, label: "Deep", swatch: "#3B2219" },
+  { value: "rich_brown" as const, label: "Rich Brown", swatch: "#6B3E26" },
+  { value: "caramel" as const, label: "Caramel", swatch: "#A66E4E" },
+  { value: "olive" as const, label: "Olive", swatch: "#C99A72" },
+  { value: "fair" as const, label: "Fair", swatch: "#F1D2B6" },
+];
+
+const BODY_BUILD_OPTIONS = [
+  { value: "tailored" as const, label: "Classic Fit" },
+  { value: "athletic" as const, label: "Athletic" },
+  { value: "curvy" as const, label: "Curvy / Full" },
+  { value: "tall_slender" as const, label: "Tall / Runway" },
+];
+
 export function StylistClient({
   initialCleanCount,
   userStylePreferences = [],
@@ -104,6 +119,8 @@ export function StylistClient({
   const [prompt, setPrompt] = useState("");
   const [selectedWeather, setSelectedWeather] = useState(initialWeather?.summary || "");
   const [selectedGender, setSelectedGender] = useState<"male" | "female" | "unisex">(initialGender);
+  const [selectedSkinTone, setSelectedSkinTone] = useState<"deep" | "rich_brown" | "caramel" | "olive" | "fair">("rich_brown");
+  const [selectedBodyBuild, setSelectedBodyBuild] = useState<"tailored" | "athletic" | "curvy" | "tall_slender">("tailored");
   const [stylistMode, setStylistMode] = useState<"prompt" | "pinterest">("prompt");
   const [pinterestInput, setPinterestInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -134,7 +151,6 @@ export function StylistClient({
 
     setGeneratingPhotoIndex(index);
     try {
-      // Generate purely on server using backend API token (never pops up Puter login to users)
       const res = await fetch("/api/outfits/generate-photo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -143,6 +159,8 @@ export function StylistClient({
           styleDescription: outfit.styleDescription,
           outfitId: savedOutfits[index],
           gender: selectedGender,
+          skinTone: selectedSkinTone,
+          bodyBuild: selectedBodyBuild,
           items: outfit.items.map((i) => ({
             name: i.name,
             category: i.category,
@@ -428,43 +446,91 @@ export function StylistClient({
                 </Button>
               </div>
 
-              {/* Model Gender & Weather Selectors */}
-              <div className="flex flex-wrap items-center gap-4 pt-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-muted mr-1 font-medium">Model / Fit:</span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedGender("male")}
-                    className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
-                      selectedGender === "male"
-                        ? "border-accent bg-accent-soft text-accent shadow-2xs"
-                        : "border-border hover:bg-surface-muted text-muted"
-                    }`}
-                  >
-                    <span>👔 Menswear</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedGender("female")}
-                    className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
-                      selectedGender === "female"
-                        ? "border-accent bg-accent-soft text-accent shadow-2xs"
-                        : "border-border hover:bg-surface-muted text-muted"
-                    }`}
-                  >
-                    <span>👗 Womenswear</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedGender("unisex")}
-                    className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
-                      selectedGender === "unisex"
-                        ? "border-accent bg-accent-soft text-accent shadow-2xs"
-                        : "border-border hover:bg-surface-muted text-muted"
-                    }`}
-                  >
-                    <span>✨ Unisex</span>
-                  </button>
+              {/* Model Gender, Skin Tone, Build & Weather Selectors */}
+              <div className="flex flex-col gap-3 pt-2">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-muted mr-1 font-medium">Model / Fit:</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedGender("male")}
+                      className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
+                        selectedGender === "male"
+                          ? "border-accent bg-accent-soft text-accent shadow-2xs"
+                          : "border-border hover:bg-surface-muted text-muted"
+                      }`}
+                    >
+                      <span>👔 Menswear</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedGender("female")}
+                      className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
+                        selectedGender === "female"
+                          ? "border-accent bg-accent-soft text-accent shadow-2xs"
+                          : "border-border hover:bg-surface-muted text-muted"
+                      }`}
+                    >
+                      <span>👗 Womenswear</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedGender("unisex")}
+                      className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
+                        selectedGender === "unisex"
+                          ? "border-accent bg-accent-soft text-accent shadow-2xs"
+                          : "border-border hover:bg-surface-muted text-muted"
+                      }`}
+                    >
+                      <span>✨ Unisex</span>
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-muted mr-1 font-medium">Skin Tone:</span>
+                    {SKIN_TONE_OPTIONS.map((tone) => {
+                      const active = selectedSkinTone === tone.value;
+                      return (
+                        <button
+                          key={tone.value}
+                          type="button"
+                          onClick={() => setSelectedSkinTone(tone.value)}
+                          className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors border ${
+                            active
+                              ? "border-accent bg-accent-soft text-accent shadow-2xs"
+                              : "border-border hover:bg-surface-muted text-muted"
+                          }`}
+                        >
+                          <span
+                            className="h-3 w-3 rounded-full border border-black/20 shrink-0"
+                            style={{ backgroundColor: tone.swatch }}
+                          />
+                          <span>{tone.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-muted mr-1 font-medium">Build:</span>
+                    {BODY_BUILD_OPTIONS.map((b) => {
+                      const active = selectedBodyBuild === b.value;
+                      return (
+                        <button
+                          key={b.value}
+                          type="button"
+                          onClick={() => setSelectedBodyBuild(b.value)}
+                          className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors border ${
+                            active
+                              ? "border-accent bg-accent-soft text-accent shadow-2xs"
+                              : "border-border hover:bg-surface-muted text-muted"
+                          }`}
+                        >
+                          <span>{b.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -930,7 +996,7 @@ export function StylistClient({
                   ) : generatedPhotos[activeOutfitIndex] ? (
                     <>
                       <Camera className="h-4 w-4" />
-                      View Model Photo
+                      Reshoot Model Photo
                     </>
                   ) : (
                     <>

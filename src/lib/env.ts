@@ -71,13 +71,16 @@ export function getAppUrl(): string {
 export type AiConfig =
   | { provider: "gemini"; apiKey: string; apiKeys: string[]; visionModel: string; textModel: string }
   | { provider: "mistral"; apiKey: string; apiKeys: string[]; visionModel: string; textModel: string }
+  | { provider: "groq"; apiKey: string; apiKeys: string[]; visionModel: string; textModel: string }
   | { provider: "mock" };
 
 export type AiConfigResult = { ok: true; config: AiConfig } | { ok: false; reason: string };
 
 export function resolveAiConfig(source: Record<string, string | undefined> = process.env): AiConfigResult {
-  const provider = (source.AI_PROVIDER ?? "").trim().toLowerCase();
-  if (!provider) return { ok: false, reason: "AI isn't configured on this deployment." };
+  const rawProvider = (source.AI_PROVIDER ?? "").trim().toLowerCase();
+  if (!rawProvider) return { ok: false, reason: "AI isn't configured on this deployment." };
+
+  const provider = rawProvider.split(",")[0].trim();
 
   if (provider === "mock") {
     if (source.NODE_ENV === "production") {
@@ -86,11 +89,44 @@ export function resolveAiConfig(source: Record<string, string | undefined> = pro
     return { ok: true, config: { provider: "mock" } };
   }
 
+  if (provider === "groq") {
+    const rawKey = (source.GROQ_API_KEY || source.AI_API_KEY || "").trim();
+    if (!rawKey) return { ok: false, reason: new ConfigError("Groq AI provider", ["GROQ_API_KEY"]).message };
+    const rawKeys = rawKey.split(",").map((k) => k.trim()).filter(Boolean);
+    const rawVision = (source.AI_VISION_MODEL || "").trim();
+    const rawText = (source.AI_TEXT_MODEL || "").trim();
+    const isOtherProviderModel = (m: string) => /^(pixtral|mistral|gemini|meta-llama|llama)/i.test(m);
+    const visionModel =
+      rawVision && !isOtherProviderModel(rawVision)
+        ? rawVision
+        : "qwen/qwen3.8-27b";
+    const textModel =
+      rawText && !isOtherProviderModel(rawText)
+        ? rawText
+        : "openai/gpt-oss-120b";
+    return {
+      ok: true,
+      config: {
+        provider: "groq",
+        apiKey: rawKeys[0],
+        apiKeys: rawKeys,
+        visionModel,
+        textModel,
+      },
+    };
+  }
+
   if (provider === "mistral") {
     const rawKey = (source.MISTRAL_API_KEY || source.AI_API_KEY || "").trim();
     if (!rawKey) return { ok: false, reason: new ConfigError("Mistral AI provider", ["MISTRAL_API_KEY"]).message };
     const rawKeys = rawKey.split(",").map((k) => k.trim()).filter(Boolean);
-    const visionModel = (source.AI_VISION_MODEL || "pixtral-12b-2409").trim();
+    const rawVision = (source.AI_VISION_MODEL || "").trim();
+    const rawText = (source.AI_TEXT_MODEL || "").trim();
+    const isOtherProviderModel = (m: string) => /^(meta-llama|llama|gemini|qwen|openai)/i.test(m);
+    const visionModel =
+      rawVision && !isOtherProviderModel(rawVision) ? rawVision : "pixtral-12b-2409";
+    const textModel =
+      rawText && !isOtherProviderModel(rawText) ? rawText : "mistral-small-latest";
     return {
       ok: true,
       config: {
@@ -98,15 +134,19 @@ export function resolveAiConfig(source: Record<string, string | undefined> = pro
         apiKey: rawKeys[0],
         apiKeys: rawKeys,
         visionModel,
-        textModel: (source.AI_TEXT_MODEL || "mistral-small-latest").trim(),
+        textModel,
       },
     };
   }
 
   if (provider === "gemini") {
-    const missing = ["AI_API_KEY", "AI_VISION_MODEL"].filter((k) => !source[k]?.trim());
+    const rawKey = (source.AI_API_KEY || source.GEMINI_API_KEY || "").trim();
+    const missing = [
+      !rawKey ? "AI_API_KEY" : null,
+      !source.AI_VISION_MODEL?.trim() ? "AI_VISION_MODEL" : null,
+    ].filter((k): k is string => Boolean(k));
     if (missing.length > 0) return { ok: false, reason: new ConfigError("AI provider", missing).message };
-    const rawKeys = source.AI_API_KEY!.split(",").map((k) => k.trim()).filter(Boolean);
+    const rawKeys = rawKey.split(",").map((k) => k.trim()).filter(Boolean);
     const visionModel = source.AI_VISION_MODEL!.trim();
     return {
       ok: true,
@@ -120,7 +160,7 @@ export function resolveAiConfig(source: Record<string, string | undefined> = pro
     };
   }
 
-  return { ok: false, reason: `Unknown AI_PROVIDER "${provider}". Supported values: gemini, mistral, mock.` };
+  return { ok: false, reason: `Unknown AI_PROVIDER "${provider}". Supported values: gemini, mistral, groq, mock.` };
 }
 
 export function getEmailEnv() {

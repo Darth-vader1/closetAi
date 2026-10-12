@@ -1,4 +1,5 @@
 import { createGeminiProvider } from "@/lib/ai/gemini";
+import { createGroqProvider } from "@/lib/ai/groq";
 import { createMistralProvider } from "@/lib/ai/mistral";
 import { createMockProvider } from "@/lib/ai/mock";
 import { CLOTHING_SYSTEM_PROMPT, clothingAnalysisJsonSchema, clothingAnalysisSchema, type ClothingSuggestion } from "@/lib/ai/schemas";
@@ -8,14 +9,131 @@ import { logger } from "@/lib/logger";
 
 export type AiAvailability = { available: true; provider: AiProvider } | { available: false; reason: string };
 
-/** Build the configured provider, or explain why AI is unavailable. Never throws. */
-export function getAiProvider(source?: Record<string, string | undefined>): AiAvailability {
+/**
+ * Wrap multiple providers in a fallback chain: tries each provider in order and only throws if all fail.
+ */
+export function createMultiProvider(providers: AiProvider[]): AiProvider {
+  if (providers.length === 1) return providers[0];
+  let lastUsedName = providers[0].name;
+
+  return {
+    get name() {
+      return lastUsedName;
+    },
+    isMock: providers.every((p) => p.isMock),
+    async generateJson(req) {
+      let lastError: unknown = null;
+      for (let i = 0; i < providers.length; i++) {
+        const current = providers[i];
+        try {
+          const result = await current.generateJson(req);
+          lastUsedName = current.name;
+          return result;
+        } catch (err) {
+          lastError = err;
+          if (i < providers.length - 1 && !req.signal?.aborted) {
+            const next = providers[i + 1];
+            logger.warn("ai.provider_fallback", {
+              failedProvider: current.name,
+              nextProvider: next.name,
+              errorMessage: err instanceof Error ? err.message : String(err),
+            });
+            continue;
+          }
+        }
+      }
+      throw lastError instanceof Error
+        ? lastError
+        : new AiProviderError("All configured AI providers failed.", false);
+    },
+  };
+}
+
+function buildProviderFromConfig(config: Extract<ReturnType<typeof resolveAiConfig>, { ok: true }>["config"]): AiProvider {
+  if (config.provider === "mock") return createMockProvider();
+  if (config.provider === "groq") return createGroqProvider(config);
+  if (config.provider === "mistral") return createMistralProvider(config);
+  return createGeminiProvider(config);
+}
+
+/** Build the configured provider (plus any backup providers with keys present), or explain why AI is unavailable. Never throws. */
+export function getAiProvider(source: Record<string, string | undefined> = process.env): AiAvailability {
   const resolved = resolveAiConfig(source);
   if (!resolved.ok) return { available: false, reason: resolved.reason };
   const { config } = resolved;
   if (config.provider === "mock") return { available: true, provider: createMockProvider() };
-  if (config.provider === "mistral") return { available: true, provider: createMistralProvider(config) };
-  return { available: true, provider: createGeminiProvider(config) };
+
+  const primary = buildProviderFromConfig(config);
+  const chain: AiProvider[] = [primary];
+  const seen = new Set<string>([config.provider]);
+
+  // Determine candidate fallback order: explicit comma-separated AI_PROVIDER list first, then groq -> mistral -> gemini
+  const explicitOrder = (source.AI_PROVIDER ?? "")
+    .toLowerCase()
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const candidateOrder = [...new Set([...explicitOrder, "groq", "mistral", "gemini"])];
+
+  for (const candidate of candidateOrder) {
+    if (seen.has(candidate)) continue;
+
+    if (candidate === "groq") {
+      const groqKey = (source.GROQ_API_KEY || (source.AI_API_KEY?.startsWith("gsk_") ? source.AI_API_KEY : "") || "").trim();
+      if (groqKey) {
+        const keys = groqKey.split(",").map((k) => k.trim()).filter(Boolean);
+        chain.push(
+          createGroqProvider({
+            apiKey: keys[0],
+            apiKeys: keys,
+            visionModel: "qwen/qwen3.8-27b",
+            textModel: "openai/gpt-oss-120b",
+          }),
+        );
+        seen.add("groq");
+      }
+    } else if (candidate === "mistral") {
+      const mistralKey = (
+        source.MISTRAL_API_KEY ||
+        (source.AI_API_KEY?.startsWith("mstrl_") ? source.AI_API_KEY : "") ||
+        ""
+      ).trim();
+      if (mistralKey) {
+        const keys = mistralKey.split(",").map((k) => k.trim()).filter(Boolean);
+        chain.push(
+          createMistralProvider({
+            apiKey: keys[0],
+            apiKeys: keys,
+            visionModel: "pixtral-12b-2409",
+            textModel: "mistral-small-latest",
+          }),
+        );
+        seen.add("mistral");
+      }
+    } else if (candidate === "gemini") {
+      const geminiKey = (
+        source.GEMINI_API_KEY ||
+        (source.AI_API_KEY && !source.AI_API_KEY.startsWith("gsk_") && !source.AI_API_KEY.startsWith("mstrl_")
+          ? source.AI_API_KEY
+          : "") ||
+        ""
+      ).trim();
+      if (geminiKey) {
+        const keys = geminiKey.split(",").map((k) => k.trim()).filter(Boolean);
+        chain.push(
+          createGeminiProvider({
+            apiKey: keys[0],
+            apiKeys: keys,
+            visionModel: "gemini-2.5-flash",
+            textModel: "gemini-2.5-flash",
+          }),
+        );
+        seen.add("gemini");
+      }
+    }
+  }
+
+  return { available: true, provider: createMultiProvider(chain) };
 }
 
 export type AnalyseResult =

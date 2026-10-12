@@ -23,7 +23,7 @@ export interface AiJsonRequest {
 }
 
 export interface AiProvider {
-  readonly name: "gemini" | "mistral" | "mock";
+  readonly name: "gemini" | "mistral" | "groq" | "mock";
   /** True for development sample data that did NOT come from a real model. */
   readonly isMock: boolean;
   generateJson(request: AiJsonRequest): Promise<unknown>;

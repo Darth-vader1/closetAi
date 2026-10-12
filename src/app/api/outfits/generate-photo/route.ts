@@ -16,6 +16,8 @@ const requestSchema = z.object({
   styleDescription: z.string().trim().max(400).optional().nullable(),
   outfitId: z.string().uuid().optional(),
   gender: z.enum(["male", "female", "unisex"]).optional().nullable(),
+  skinTone: z.enum(["deep", "rich_brown", "caramel", "olive", "fair"]).optional().nullable(),
+  bodyBuild: z.enum(["tailored", "athletic", "curvy", "tall_slender"]).optional().nullable(),
   imageDataUrl: z.string().max(MAX_DATA_URL_LENGTH).optional().nullable(),
   items: z
     .array(
@@ -73,7 +75,7 @@ export async function POST(request: NextRequest) {
       return json({ error: "You have reached your photoshoot generation limit for this hour. Please try again later." }, 429);
     }
 
-    const { outfitName, styleDescription, items, outfitId, gender, imageDataUrl } = parsed.data;
+    const { outfitName, styleDescription, items, outfitId, gender, skinTone, bodyBuild, imageDataUrl } = parsed.data;
 
     let imageBuffer: Buffer;
     let mimeType: "image/jpeg" | "image/png" = "image/jpeg";
@@ -97,7 +99,7 @@ export async function POST(request: NextRequest) {
     } else {
       // 1. Generate image on server
       const result = await generateOutfitEditorialImage(
-        { outfitName, styleDescription, items, modelGender: gender },
+        { outfitName, styleDescription, items, modelGender: gender, skinTone, bodyBuild },
         request.signal,
       );
 
