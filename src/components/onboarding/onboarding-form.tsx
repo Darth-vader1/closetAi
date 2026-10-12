@@ -90,8 +90,8 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
                 {STYLE_OPTIONS.map((s) => (
                   <Chip
                     key={s.value}
-                    selected={field.value.includes(s.value)}
-                    onToggle={() => field.onChange(toggle(field.value, s.value))}
+                    selected={(field.value ?? []).includes(s.value)}
+                    onToggle={() => field.onChange(toggle(field.value ?? [], s.value))}
                   >
                     {s.label}
                   </Chip>
@@ -110,7 +110,11 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
             render={({ field }) => (
               <div className="flex flex-wrap gap-2">
                 {COLOUR_OPTIONS.map((c) => (
-                  <Chip key={c} selected={field.value.includes(c)} onToggle={() => field.onChange(toggle(field.value, c))}>
+                  <Chip
+                    key={c}
+                    selected={(field.value ?? []).includes(c)}
+                    onToggle={() => field.onChange(toggle(field.value ?? [], c))}
+                  >
                     {c[0].toUpperCase() + c.slice(1)}
                   </Chip>
                 ))}
@@ -128,7 +132,11 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
             render={({ field }) => (
               <div className="flex flex-wrap gap-2">
                 {OCCASION_OPTIONS.map((o) => (
-                  <Chip key={o.value} selected={field.value.includes(o.value)} onToggle={() => field.onChange(toggle(field.value, o.value))}>
+                  <Chip
+                    key={o.value}
+                    selected={(field.value ?? []).includes(o.value)}
+                    onToggle={() => field.onChange(toggle(field.value ?? [], o.value))}
+                  >
                     {o.label}
                   </Chip>
                 ))}

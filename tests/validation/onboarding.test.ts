@@ -4,8 +4,8 @@ import { onboardingSchema } from "@/lib/validation/onboarding";
 
 const valid = {
   displayName: "  Gbolahan ",
-  preferredStyle: "smart_casual",
-  favouriteColours: ["black", "navy"],
+  preferredStyles: ["smart_casual" as const],
+  favouriteColours: ["black" as const, "navy" as const],
   commonOccasions: ["school", "work"],
   location: "Lagos",
   timezone: "Africa/Lagos",
@@ -39,17 +39,17 @@ describe("onboardingSchema", () => {
   });
 
   it("allows nonessential fields to be empty", () => {
-    const parsed = onboardingSchema.parse({ ...valid, preferredStyle: null, favouriteColours: [], commonOccasions: [], location: "" });
+    const parsed = onboardingSchema.parse({ ...valid, preferredStyles: [], favouriteColours: [], commonOccasions: [], location: "" });
     expect(parsed.location).toBeNull();
-    expect(parsed.preferredStyle).toBeNull();
+    expect(parsed.preferredStyles).toEqual([]);
   });
 
   it.each([
     ["bad timezone", { timezone: "Nowhere/City" }],
     ["bad time of day", { dailyTime: "25:00" }],
     ["bad weekday", { weeklyDay: 7 }],
-    ["unknown style", { preferredStyle: "gothic" }],
-    ["unknown colour", { favouriteColours: ["ultraviolet"] }],
+    ["unknown style", { preferredStyles: ["gothic" as any] }],
+    ["unknown colour", { favouriteColours: ["ultraviolet" as any] }],
     ["unknown occasion", { commonOccasions: ["heist"] }],
     ["empty name", { displayName: "   " }],
   ])("rejects %s", (_label, override) => {

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181B" />
+      <stop offset="100%" stop-color="#09090B" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCD34D" />
+      <stop offset="50%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+  </defs>
+  
+  <!-- App Icon Background with smooth rounded corner -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  
+  <!-- Subtle border highlight -->
+  <rect x="2" y="2" width="508" height="508" rx="110" fill="none" stroke="#27272A" stroke-width="4" />
+  
+  <!-- Stylized Coat Hanger -->
+  <path d="M256 140 C220 140 220 180 256 195 C256 220 256 240 256 250" 
+        fill="none" 
+        stroke="url(#gold)" 
+        stroke-width="18" 
+        stroke-linecap="round" />
+        
+  <!-- Hanger Shoulders and Crossbar -->
+  <path d="M100 330 L256 250 L412 330 C425 336 418 355 404 355 L108 355 C94 355 87 336 100 330 Z" 
+        fill="none" 
+        stroke="url(#gold)" 
+        stroke-width="18" 
+        stroke-linejoin="round" 
+        stroke-linecap="round" />
+        
+  <!-- Central Sparkle / AI Star -->
+  <path d="M256 280 Q256 305 275 305 Q256 305 256 330 Q256 305 237 305 Q256 305 256 280 Z" 
+        fill="url(#gold)" />
+</svg>

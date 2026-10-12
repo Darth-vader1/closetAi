@@ -8,6 +8,7 @@ import { isSameOrigin } from "@/lib/security/origin";
 import { createClient } from "@/lib/supabase/server";
 import { isEligibleStatus } from "@/lib/wardrobe/status";
 import { listWardrobeItems, signImageUrls, type WardrobeItem } from "@/lib/wardrobe/queries";
+import { logger } from "@/lib/logger";
 
 const requestSchema = z.object({
   prompt: z.string().trim().min(1, "Please provide styling instructions or a vibe.").max(300),
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
       return json({ error: "Could not load your wardrobe items." }, 500);
     }
 
-    const allItems = (itemRows ?? []).map((row) => ({
+    const allItems: WardrobeItem[] = (itemRows ?? []).map((row) => ({
       id: row.id,
       name: row.name,
       category: row.category,
@@ -70,9 +71,15 @@ export async function POST(request: NextRequest) {
       material: row.material,
       style: row.style,
       occasions: row.occasions ?? [],
+      seasons: row.seasons ?? [],
       warmthLevel: row.warmth_level,
-      status: row.status as string,
+      status: row.status as any,
+      isFavourite: row.is_favourite,
+      aiAnalysed: row.ai_analysed,
+      wearCount: row.wear_count,
       lastWornAt: row.last_worn_at,
+      lastWashedAt: row.last_washed_at,
+      createdAt: row.created_at,
       imagePath: row.image_path,
     }));
 
@@ -125,12 +132,18 @@ export async function POST(request: NextRequest) {
       warmthLevel: item.warmthLevel,
     }));
 
+    const stylePreferences = Array.isArray(profile?.preferred_style)
+      ? profile.preferred_style
+      : typeof profile?.preferred_style === "string"
+      ? [profile.preferred_style]
+      : [];
+
     const result = await generateStylistRecommendations(
       {
         userPrompt: parsed.data.prompt,
         occasion: parsed.data.occasion,
         weather: parsed.data.weather,
-        stylePreferences: profile?.style_preferences ?? [],
+        stylePreferences,
         inventory,
       },
       { provider: availability.provider, signal: request.signal },

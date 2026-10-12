@@ -8,6 +8,7 @@ import { signOutAction } from "@/app/(auth)/actions";
 import { Logo } from "@/components/layout/logo";
 import { NAV_ITEMS } from "@/components/layout/nav-items";
 import { cn } from "@/lib/utils/cn";
+import { InstallPwaBanner } from "@/components/ui/install-pwa-banner";
 
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -55,8 +56,9 @@ export function Sidebar({ displayName }: { displayName: string }) {
           );
         })}
       </nav>
-      <div className="border-t border-border pt-4">
-        <p className="truncate px-3 pb-2 text-sm text-muted">{displayName}</p>
+      <div className="border-t border-border pt-3 space-y-2">
+        <InstallPwaBanner />
+        <p className="truncate px-3 text-sm text-muted">{displayName}</p>
         <SignOutButton />
       </div>
     </aside>
@@ -92,13 +94,14 @@ export function MobileNav({ displayName }: { displayName: string }) {
       {moreOpen ? (
         <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label="More navigation">
           <button type="button" className="absolute inset-0 bg-foreground/30" aria-label="Close menu" onClick={() => setMoreOpen(false)} />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-border bg-surface px-4 pb-24 pt-5">
-            <div className="mb-2 flex items-center justify-between px-2">
+          <div className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-border bg-surface px-4 pb-24 pt-5 space-y-3">
+            <div className="flex items-center justify-between px-2">
               <p className="truncate text-sm text-muted">{displayName}</p>
               <button type="button" onClick={() => setMoreOpen(false)} className="grid size-11 place-items-center rounded-full hover:bg-surface-muted" aria-label="Close menu">
                 <X className="size-5" aria-hidden />
               </button>
             </div>
+            <InstallPwaBanner />
             <nav aria-label="More" className="flex flex-col gap-1">
               {secondary.map(({ href, label, icon: Icon }) => (
                 <Link

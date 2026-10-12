@@ -32,9 +32,13 @@ export async function generateStylistRecommendations(
   input: StylistRequestOptions,
   options: { provider?: AiProvider; signal?: AbortSignal } = {},
 ): Promise<StylistResult> {
-  const provider = options.provider ?? getAiProvider().provider;
+  let provider = options.provider;
   if (!provider) {
-    return { status: "unavailable", reason: "AI isn't configured on this deployment." };
+    const availability = getAiProvider();
+    if (!availability.available) {
+      return { status: "unavailable", reason: availability.reason };
+    }
+    provider = availability.provider;
   }
 
   const prompt = [

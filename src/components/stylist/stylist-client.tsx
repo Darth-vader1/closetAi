@@ -822,7 +822,7 @@ export function StylistClient({
                 <Button
                   onClick={() => handleSaveOutfit(activeOutfitIndex)}
                   disabled={Boolean(savedOutfits[activeOutfitIndex]) || savingIndex === activeOutfitIndex}
-                  variant={savedOutfits[activeOutfitIndex] ? "outline" : "default"}
+                  variant={savedOutfits[activeOutfitIndex] ? "outline" : "primary"}
                   className="flex-1 gap-2 rounded-xl min-w-[130px]"
                 >
                   {savedOutfits[activeOutfitIndex] ? (

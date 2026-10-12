@@ -36,7 +36,13 @@ export default async function StylistPage() {
       />
       <StylistClient
         initialCleanCount={cleanCount ?? 0}
-        userStylePreferences={profile?.style_preferences ?? []}
+        userStylePreferences={
+          Array.isArray(profile?.preferred_style)
+            ? profile.preferred_style
+            : typeof profile?.preferred_style === "string"
+            ? [profile.preferred_style]
+            : []
+        }
         initialGender={userGender}
       />
     </>
