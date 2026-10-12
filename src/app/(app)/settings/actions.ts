@@ -299,8 +299,15 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
     .order("created_at", { ascending: false })
     .limit(30);
 
+  type RealItem = {
+    name: string;
+    category: string;
+    primary_colour: string | null;
+    image_path: string | null;
+  };
+
   // Pick at most 1 item per category for a proper cohesive outfit look
-  const categoryMap = new Map<string, typeof realItems[0]>();
+  const categoryMap = new Map<string, RealItem>();
   if (realItems) {
     for (const item of realItems) {
       if (!categoryMap.has(item.category)) {
