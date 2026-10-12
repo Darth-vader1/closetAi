@@ -81,7 +81,11 @@ export async function generateStylistRecommendations(
 
       return {
         status: "ok",
-        data: { outfits: filteredOutfits, overall_advice: parsed.data.overall_advice },
+        data: {
+          outfits: filteredOutfits,
+          overall_advice: parsed.data.overall_advice,
+          wardrobe_gaps: parsed.data.wardrobe_gaps || [],
+        },
         provider: provider.name,
         isMock: provider.isMock,
       };

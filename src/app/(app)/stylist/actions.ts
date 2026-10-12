@@ -108,6 +108,8 @@ export async function planOutfitAction(input: unknown): Promise<ActionResult<{ p
 const wearOutfitSchema = z.object({
   outfitId: z.string().uuid(),
   itemIds: z.array(z.string().uuid()),
+  planId: z.string().uuid().optional(),
+  date: z.string().optional(),
 });
 
 export async function wearOutfitTodayAction(input: unknown): Promise<ActionResult> {
@@ -116,7 +118,7 @@ export async function wearOutfitTodayAction(input: unknown): Promise<ActionResul
   if (!parsed.success) return fail("Invalid outfit.");
 
   const supabase = await createClient();
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = parsed.data.date || new Date().toISOString().split("T")[0];
 
   // 1. Record in outfit_history
   const { data: hist, error: histErr } = await supabase
@@ -143,23 +145,42 @@ export async function wearOutfitTodayAction(input: unknown): Promise<ActionResul
 
   await supabase.from("outfit_history_items").insert(historyItems);
 
-  // 3. Mark garments status as WORN_ONCE or DIRTY, and increment wear count
+  // 3. Mark garments status as WORN (eligible for rewear based on user rules) and update last_worn_at
   for (const itemId of parsed.data.itemIds) {
-    await supabase.rpc("change_item_status", {
+    const { error: rpcErr } = await supabase.rpc("change_item_status", {
       p_item_id: itemId,
-      p_to: "WORN_ONCE",
+      p_to: "WORN",
       p_confirm_washed: false,
-    }).catch(() => {
-      // Fallback direct update if rpc has special rules
-      return supabase
+    });
+
+    if (rpcErr) {
+      // Fallback direct update
+      await supabase
         .from("wardrobe_items")
         .update({
-          status: "WORN_ONCE",
+          status: "WORN",
           last_worn_at: new Date().toISOString(),
         })
         .eq("id", itemId)
         .eq("user_id", user.id);
-    });
+    }
+  }
+
+  // 4. If this is linked to a planned outfit, mark the plan as WORN
+  if (parsed.data.planId) {
+    await supabase
+      .from("outfit_plans")
+      .update({ status: "WORN" })
+      .eq("id", parsed.data.planId)
+      .eq("user_id", user.id);
+  } else {
+    // Also mark any outfit_plans on todayStr for this outfit as WORN
+    await supabase
+      .from("outfit_plans")
+      .update({ status: "WORN" })
+      .eq("user_id", user.id)
+      .eq("outfit_id", parsed.data.outfitId)
+      .eq("planned_for", todayStr);
   }
 
   revalidatePath("/wardrobe");

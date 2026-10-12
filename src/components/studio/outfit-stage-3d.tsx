@@ -293,10 +293,10 @@ export function OutfitStage3D({ items, imageUrls, className = "", autoRotate = t
     window.addEventListener("touchend", onTouchEnd);
 
     // 8. Animation Loop
-    let clock = new THREE.Clock();
+    const startTime = performance.now();
 
     const animate = () => {
-      const elapsed = clock.getElapsedTime();
+      const elapsed = (performance.now() - startTime) * 0.001;
 
       // Auto-spin if active and not dragging
       if (spinning && !isDraggingRef.current) {

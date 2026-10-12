@@ -47,19 +47,58 @@ export async function POST(request: NextRequest) {
       return json({ error: "You have reached your styling limit for this hour. Please try again later." }, 429);
     }
 
-    // Fetch user's wardrobe items
-    const { items: allItems } = await listWardrobeItems(supabase, user.id, {
-      q: "",
-      category: null,
-      colour: null,
-      status: null,
-      favouritesOnly: false,
-      sort: "newest",
-      page: 1,
-    });
+    // Fetch all user's wardrobe items (up to 200 items, not just first page of 24)
+    const { data: itemRows, error: itemsErr } = await supabase
+      .from("wardrobe_items")
+      .select("id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, occasions, seasons, warmth_level, image_path, status, is_favourite, ai_analysed, wear_count, last_worn_at, last_washed_at, created_at")
+      .eq("user_id", user.id)
+      .limit(200);
 
+    if (itemsErr) {
+      logger.error("stylist.fetch_items_failed", { userId: user.id, error: itemsErr });
+      return json({ error: "Could not load your wardrobe items." }, 500);
+    }
+
+    const allItems = (itemRows ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      category: row.category,
+      subcategory: row.subcategory,
+      primaryColour: row.primary_colour,
+      secondaryColours: row.secondary_colours ?? [],
+      pattern: row.pattern,
+      material: row.material,
+      style: row.style,
+      occasions: row.occasions ?? [],
+      warmthLevel: row.warmth_level,
+      status: row.status as string,
+      lastWornAt: row.last_worn_at,
+      imagePath: row.image_path,
+    }));
+
+    // Allow re-wearing WORN items if user enables it in profile (or if requested in prompt)
     const allowRewear = profile?.rewear_worn_items ?? false;
-    const cleanItems = allItems.filter((item) => isEligibleStatus(item.status, allowRewear));
+    
+    // Check if garment was worn in the last 24 hours
+    const now = Date.now();
+    const cleanItems = allItems.filter((item) => {
+      // Must be eligible (CLEAN, or WORN if rewear enabled)
+      if (item.status !== "CLEAN" && (item.status !== "WORN" || !allowRewear)) {
+        return false;
+      }
+
+      // If item was worn in the past 24 hours and user didn't explicitly say "wear again" or "repeat",
+      // give it a breathing rest so the user doesn't get suggested yesterday's clothes
+      if (item.lastWornAt) {
+        const hoursSinceWorn = (now - new Date(item.lastWornAt).getTime()) / (1000 * 60 * 60);
+        const promptMentionsRepeat = /repeat|rewear|wear again|yesterday/i.test(parsed.data.prompt);
+        if (hoursSinceWorn < 24 && !promptMentionsRepeat) {
+          return false;
+        }
+      }
+
+      return true;
+    });
 
     if (cleanItems.length < 2) {
       return json(
@@ -129,6 +168,7 @@ export async function POST(request: NextRequest) {
         styleDescription: o.style_description,
         explanation: o.explanation,
         stylingTip: o.styling_tip,
+        missingPieces: o.missing_pieces || [],
         items,
       };
     });
@@ -137,6 +177,7 @@ export async function POST(request: NextRequest) {
       status: "ok",
       outfits: populatedOutfits,
       overallAdvice: result.data.overall_advice,
+      wardrobeGaps: result.data.wardrobe_gaps || [],
       imageUrls: imageUrlsObj,
       provider: result.provider,
     });

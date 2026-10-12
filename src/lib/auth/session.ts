@@ -31,6 +31,7 @@ export async function requireUser(): Promise<SessionUser> {
 export interface Profile {
   id: string;
   display_name: string | null;
+  gender?: string | null;
   preferred_style: string | string[] | null;
   favourite_colours: string[];
   common_occasions: string[];
@@ -47,10 +48,20 @@ export const getProfile = cache(async (): Promise<Profile | null> => {
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, display_name, preferred_style, favourite_colours, common_occasions, location, timezone, rewear_worn_items, onboarding_completed_at",
+      "id, display_name, gender, preferred_style, favourite_colours, common_occasions, location, timezone, rewear_worn_items, onboarding_completed_at",
     )
     .eq("id", user.id)
     .maybeSingle();
-  if (error) throw new Error(`Could not load profile: ${error.message}`);
+  if (error) {
+    // If gender column is not yet present, query without gender
+    const { data: fallbackData } = await supabase
+      .from("profiles")
+      .select(
+        "id, display_name, preferred_style, favourite_colours, common_occasions, location, timezone, rewear_worn_items, onboarding_completed_at",
+      )
+      .eq("id", user.id)
+      .maybeSingle();
+    return fallbackData;
+  }
   return data;
 });

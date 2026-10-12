@@ -19,7 +19,14 @@ export default async function StylistPage() {
     .from("wardrobe_items")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
-    .in("status", profile?.rewear_worn_items ? ["CLEAN", "WORN_ONCE"] : ["CLEAN"]);
+    .in("status", profile?.rewear_worn_items ? ["CLEAN", "WORN"] : ["CLEAN"]);
+
+  const userGender =
+    profile?.gender === "womenswear"
+      ? "female"
+      : profile?.gender === "menswear"
+      ? "male"
+      : "unisex";
 
   return (
     <>
@@ -30,6 +37,7 @@ export default async function StylistPage() {
       <StylistClient
         initialCleanCount={cleanCount ?? 0}
         userStylePreferences={profile?.style_preferences ?? []}
+        initialGender={userGender}
       />
     </>
   );
