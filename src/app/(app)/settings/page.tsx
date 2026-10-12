@@ -46,6 +46,8 @@ export default async function SettingsPage() {
     dailyTime: (emailPrefs?.daily_time ? String(emailPrefs.daily_time).slice(0, 5) : null) ?? emailPrefs?.daily_outfit_time ?? "07:00",
     weeklyLaundryEnabled: emailPrefs?.weekly_enabled ?? emailPrefs?.weekly_laundry_enabled ?? true,
     weeklyLaundryDay: initialWeeklyDay,
+    whatsappPhone: emailPrefs?.whatsapp_phone || "",
+    whatsappDailyEnabled: emailPrefs?.whatsapp_daily_enabled ?? false,
   };
 
   return (

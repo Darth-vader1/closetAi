@@ -24,6 +24,7 @@ import {
   ExternalLink,
   Compass,
   Star,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -958,6 +959,19 @@ export function StylistClient({
                     </>
                   )}
                 </Button>
+
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(
+                    `✨ Check out this outfit I styled on ClosetAI!\n\n👗 *${activeOutfit.name}*\n${activeOutfit.styleDescription}\n\n• Items: ${activeOutfit.items.map((i) => i.name).join(", ")}\n💡 Tip: ${activeOutfit.stylingTip}\n\nWhat do you think?`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-4 py-2 text-sm font-medium transition-colors"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  <span>Share on WhatsApp</span>
+                  <ExternalLink className="h-3 w-3 opacity-60" />
+                </a>
 
                 <a
                   href={getPinterestSearchUrl(`${activeOutfit.name} ${activeOutfit.items.map((i) => i.name).join(" ")} aesthetic outfit`)}

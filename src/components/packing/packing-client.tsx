@@ -15,6 +15,7 @@ import {
   ArrowRight,
   Shirt,
   Info,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -254,9 +255,25 @@ export function PackingClient({ initialCleanCount }: { initialCleanCount: number
                   Check off items as you pack them into your suitcase.
                 </p>
               </div>
-              <span className="text-xs bg-surface-muted border border-border px-3 py-1 rounded-full font-semibold text-foreground">
-                {Object.values(packedIds).filter(Boolean).length} of {result.capsuleItems.length} Packed
-              </span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(
+                    `🧳 *My ${result.days}-Day Travel Capsule for ${result.destination}*\n\n` +
+                    `📦 Packed Pieces (${result.capsuleItems.length} items):\n` +
+                    result.capsuleItems.map((i) => `• ${i.name} (${i.primary_colour})`).join("\n") +
+                    `\n\nGenerated with ClosetAI: https://closetai.app/packing`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 transition-colors"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  <span>Share Capsule</span>
+                </a>
+                <span className="text-xs bg-surface-muted border border-border px-3 py-1 rounded-full font-semibold text-foreground">
+                  {Object.values(packedIds).filter(Boolean).length} of {result.capsuleItems.length} Packed
+                </span>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">

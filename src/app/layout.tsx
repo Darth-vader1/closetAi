@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: "%s · ClosetAI",
   },
   description:
-    "ClosetAI is your digital wardrobe and personal AI stylist. Photograph your clothes, track what's clean, explore Pinterest moodboards, and get outfit ideas built only from garments ready to wear.",
+    "Digital wardrobe & personal AI stylist. Catalogue clothes, track laundry, and get outfit ideas from ready-to-wear pieces.",
   applicationName: "ClosetAI",
   authors: [{ name: "ClosetAI Team" }],
   generator: "Next.js",
@@ -57,13 +57,13 @@ export const metadata: Metadata = {
     siteName: "ClosetAI",
     title: "ClosetAI — Decide What to Wear from Clothes You Already Own",
     description:
-      "Your digital wardrobe and personal AI stylist. Photograph your clothes, track laundry status, and get outfit recommendations built only from clean clothes.",
+      "Digital wardrobe & personal AI stylist. Outfit ideas built only from clothes ready to wear.",
     images: [
       {
-        url: "/icon.svg",
-        width: 512,
-        height: 512,
-        alt: "ClosetAI — Digital Wardrobe & AI Stylist Emblem",
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: "ClosetAI — Digital Wardrobe & Personal AI Stylist",
       },
     ],
   },
@@ -71,8 +71,8 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "ClosetAI — Decide What to Wear from Clothes You Already Own",
     description:
-      "Your digital wardrobe and personal AI stylist. Grounded in clothes that are clean and ready to wear.",
-    images: ["/icon.svg"],
+      "Digital wardrobe & personal AI stylist. Outfit ideas built only from clothes ready to wear.",
+    images: ["/og.png"],
   },
   robots: {
     index: true,

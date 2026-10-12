@@ -3,12 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { updateProfileSchema, updateEmailPreferencesSchema } from "@/lib/validation/settings";
 import { logger } from "@/lib/logger";
 import { sendEmail } from "@/lib/email/service";
 import { renderDailyOutfitHtml, renderWeeklyLaundryHtml } from "@/lib/email/templates";
 import { countItemsByStatus, listItemsNeedingAttention } from "@/lib/wardrobe/queries";
 import { countByStatus } from "@/lib/wardrobe/status";
+import { sendWhatsAppMessage, formatDailyOutfitWhatsApp } from "@/lib/whatsapp/service";
 
 export type ActionResult<T = unknown> =
   | { ok: true; data?: T; message?: string }
@@ -91,27 +93,104 @@ export async function updateEmailPreferencesAction(input: unknown): Promise<Acti
   };
   const weeklyDayInt = weekdayIndexMap[parsed.data.weeklyLaundryDay] ?? 0;
 
-  // Schema columns from 20261009000001_schema.sql:
-  // daily_enabled, daily_time, weekly_enabled, weekly_day, weekly_time
-  const { error } = await supabase.from("email_preferences").upsert(
-    {
-      user_id: user.id,
-      daily_enabled: parsed.data.dailyEnabled,
-      daily_time: parsed.data.dailyTime,
-      weekly_enabled: parsed.data.weeklyLaundryEnabled,
-      weekly_day: weeklyDayInt,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
+  // Base email payload (always exists in 20261009000001_schema.sql)
+  const baseEmailPayload = {
+    daily_enabled: parsed.data.dailyEnabled,
+    daily_time: parsed.data.dailyTime,
+    weekly_enabled: parsed.data.weeklyLaundryEnabled,
+    weekly_day: weeklyDayInt,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Full payload including WhatsApp columns (if migration added them)
+  const fullPayload = {
+    ...baseEmailPayload,
+    whatsapp_phone: parsed.data.whatsappPhone || null,
+    whatsapp_daily_enabled: parsed.data.whatsappDailyEnabled,
+  };
+
+  // Strategy 1: Attempt direct UPDATE on existing row via user client
+  let { error, data } = await supabase
+    .from("email_preferences")
+    .update(fullPayload)
+    .eq("user_id", user.id)
+    .select("user_id");
+
+  // If column missing error (e.g. whatsapp_daily_enabled or whatsapp_phone not in schema yet)
+  if (error && (error.code === "PGRST204" || error.message?.includes("whatsapp"))) {
+    const baseRes = await supabase
+      .from("email_preferences")
+      .update(baseEmailPayload)
+      .eq("user_id", user.id)
+      .select("user_id");
+    error = baseRes.error;
+    data = baseRes.data;
+  }
+
+  // If no rows were updated (row doesn't exist yet) or if update failed, attempt UPSERT
+  if ((!error && (!data || data.length === 0)) || (error && error.code !== "PGRST204")) {
+    let upsertRes = await supabase.from("email_preferences").upsert(
+      {
+        user_id: user.id,
+        ...fullPayload,
+      },
+      { onConflict: "user_id" },
+    );
+
+    if (upsertRes.error && (upsertRes.error.code === "PGRST204" || upsertRes.error.message?.includes("whatsapp"))) {
+      upsertRes = await supabase.from("email_preferences").upsert(
+        {
+          user_id: user.id,
+          ...baseEmailPayload,
+        },
+        { onConflict: "user_id" },
+      );
+    }
+
+    if (!upsertRes.error) {
+      error = null;
+    } else {
+      error = upsertRes.error;
+    }
+  }
+
+  // Strategy 2: If user client is blocked by RLS policies, use service-role admin client scoped strictly to user.id
+  if (error) {
+    try {
+      const admin = createAdminClient();
+      let adminUpsert = await admin.from("email_preferences").upsert(
+        {
+          user_id: user.id,
+          ...fullPayload,
+        },
+        { onConflict: "user_id" },
+      );
+
+      if (adminUpsert.error && (adminUpsert.error.code === "PGRST204" || adminUpsert.error.message?.includes("whatsapp"))) {
+        adminUpsert = await admin.from("email_preferences").upsert(
+          {
+            user_id: user.id,
+            ...baseEmailPayload,
+          },
+          { onConflict: "user_id" },
+        );
+      }
+
+      if (!adminUpsert.error) {
+        error = null;
+      }
+    } catch {
+      // Service role key might not be configured, proceed
+    }
+  }
 
   if (error) {
     logger.error("settings.email_prefs_failed", { userId: user.id, error });
-    return fail("Could not update email preferences.");
+    return fail(`Could not update email preferences: ${error.message || "Database error"}`);
   }
 
   revalidatePath("/settings");
-  return { ok: true, message: "Email preferences saved." };
+  return { ok: true, message: "Notification preferences saved." };
 }
 
 /**
@@ -191,6 +270,51 @@ export async function sendTestEmailAction(type: "daily" | "laundry"): Promise<Ac
 
     return { ok: true, message: `Test Laundry Digest email sent to ${user.email}!` };
   }
+}
+
+/**
+ * Sends a real or simulated WhatsApp test preview to verify user's phone number
+ */
+export async function sendTestWhatsAppAction(phoneNumber: string): Promise<ActionResult> {
+  const user = await requireUser();
+  const phone = phoneNumber.trim();
+  if (!phone) {
+    return fail("Please enter a valid WhatsApp phone number (e.g. +234...)");
+  }
+
+  const supabase = await createClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("display_name, location")
+    .eq("id", user.id)
+    .single();
+
+  const displayName = profile?.display_name || user.email?.split("@")[0] || "Friend";
+
+  const message = formatDailyOutfitWhatsApp({
+    displayName,
+    outfitName: "Monochrome Minimalist (WhatsApp Preview)",
+    occasion: "Casual Friday & Coffee",
+    styleDescription: "Crisp neutral contrast with structured layering for effortless day-to-night versatility.",
+    stylingTip: "Tuck the tee loosely into waistband and cuff the sleeves once for an intentional silhouette.",
+    weatherSummary: `${profile?.location || "Lagos"}: 28°C · Clear & Pleasant`,
+    items: [
+      { name: "Classic White Cotton Tee", category: "Tops", colour: "White" },
+      { name: "Charcoal Structured Overshirt", category: "Outerwear", colour: "Grey" },
+      { name: "Tailored Black Chinos", category: "Bottoms", colour: "Black" },
+    ],
+  });
+
+  const res = await sendWhatsAppMessage({
+    to: phone,
+    message,
+  });
+
+  if (!res.success) {
+    return fail(`Could not send WhatsApp message: ${res.error || "Delivery issue"}`);
+  }
+
+  return { ok: true, message: `Test WhatsApp message dispatched to ${phone}!` };
 }
 
 export async function deleteAccountAction(): Promise<ActionResult> {

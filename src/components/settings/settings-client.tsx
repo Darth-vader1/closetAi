@@ -16,6 +16,7 @@ import {
   Download,
   Trash2,
   ShieldAlert,
+  MessageSquare,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import {
   updateProfileSettingsAction,
   updateEmailPreferencesAction,
   sendTestEmailAction,
+  sendTestWhatsAppAction,
   deleteAccountAction,
 } from "@/app/(app)/settings/actions";
 
@@ -46,6 +48,8 @@ interface SettingsClientProps {
     dailyTime: string;
     weeklyLaundryEnabled: boolean;
     weeklyLaundryDay: string;
+    whatsappPhone?: string;
+    whatsappDailyEnabled?: boolean;
   };
 }
 
@@ -62,16 +66,19 @@ export function SettingsClient({
   const [location, setLocation] = useState(initialProfile.location);
   const [rewearWornItems, setRewearWornItems] = useState(initialProfile.rewearWornItems);
 
-  // Email Preferences State
+  // Email & WhatsApp Preferences State
   const [dailyEnabled, setDailyEnabled] = useState(initialPreferences.dailyEnabled);
   const [dailyTime, setDailyTime] = useState(initialPreferences.dailyTime);
   const [weeklyLaundryEnabled, setWeeklyLaundryEnabled] = useState(initialPreferences.weeklyLaundryEnabled);
   const [weeklyLaundryDay, setWeeklyLaundryDay] = useState(initialPreferences.weeklyLaundryDay);
+  const [whatsappPhone, setWhatsappPhone] = useState(initialPreferences.whatsappPhone || "");
+  const [whatsappDailyEnabled, setWhatsappDailyEnabled] = useState(initialPreferences.whatsappDailyEnabled ?? false);
 
   // UI Feedback
   const [profilePending, startProfileTransition] = useTransition();
   const [emailPending, startEmailTransition] = useTransition();
   const [testPending, setTestPending] = useState<"daily" | "laundry" | null>(null);
+  const [testWhatsAppPending, setTestWhatsAppPending] = useState(false);
 
   const [profileMessage, setProfileMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [emailMessage, setEmailMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -109,10 +116,12 @@ export function SettingsClient({
         dailyTime,
         weeklyLaundryEnabled,
         weeklyLaundryDay,
+        whatsappPhone,
+        whatsappDailyEnabled,
       });
 
       if (res.ok) {
-        setEmailMessage({ type: "success", text: res.message || "Email preferences saved!" });
+        setEmailMessage({ type: "success", text: res.message || "Notification preferences saved!" });
       } else {
         setEmailMessage({ type: "error", text: res.error });
       }
@@ -133,6 +142,27 @@ export function SettingsClient({
       setEmailMessage({ type: "error", text: "Delivery error while dispatching test email." });
     } finally {
       setTestPending(null);
+    }
+  };
+
+  const handleSendWhatsAppTest = async () => {
+    if (!whatsappPhone.trim()) {
+      setEmailMessage({ type: "error", text: "Please enter your WhatsApp phone number first." });
+      return;
+    }
+    setTestWhatsAppPending(true);
+    setEmailMessage(null);
+    try {
+      const res = await sendTestWhatsAppAction(whatsappPhone);
+      if (res.ok) {
+        setEmailMessage({ type: "success", text: res.message || "Test WhatsApp message dispatched!" });
+      } else {
+        setEmailMessage({ type: "error", text: res.error });
+      }
+    } catch {
+      setEmailMessage({ type: "error", text: "Delivery error while dispatching WhatsApp test." });
+    } finally {
+      setTestWhatsAppPending(false);
     }
   };
 
@@ -432,6 +462,60 @@ export function SettingsClient({
             )}
           </div>
 
+          {/* WhatsApp Direct Morning Alerts */}
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-5 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <MessageSquare className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-foreground">
+                      WhatsApp Daily Morning Outfit
+                    </h3>
+                    <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 border border-emerald-500/20">
+                      Popular in Nigeria
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted">
+                    Receive your curated daily look with styling advice, temperature context, and Owambe notes straight to your WhatsApp.
+                  </p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={whatsappDailyEnabled}
+                onChange={(e) => setWhatsappDailyEnabled(e.target.checked)}
+                className="h-4 w-4 rounded border-border-strong text-emerald-600 focus:ring-emerald-500 mt-0.5"
+              />
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-3 border-t border-emerald-500/10">
+              <div className="flex-1">
+                <Input
+                  type="tel"
+                  value={whatsappPhone}
+                  onChange={(e) => setWhatsappPhone(e.target.value)}
+                  placeholder="+234 801 234 5678"
+                  className="text-xs h-9 min-h-0 bg-surface"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                loading={testWhatsAppPending}
+                onClick={handleSendWhatsAppTest}
+                className="gap-1.5 text-xs rounded-lg border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/10"
+              >
+                <Send className="h-3 w-3" />
+                Send WhatsApp Test
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted">
+              Enter your number with international country code (e.g. <span className="font-mono text-foreground">+234</span> for Nigeria, <span className="font-mono text-foreground">+44</span> for UK, <span className="font-mono text-foreground">+1</span> for US).
+            </p>
+          </div>
+
           {emailMessage && (
             <div
               className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
@@ -451,7 +535,7 @@ export function SettingsClient({
 
           <div className="flex justify-end pt-2">
             <Button type="submit" loading={emailPending} variant="primary" className="rounded-xl">
-              Save Email Preferences
+              Save Notification Schedules
             </Button>
           </div>
         </form>

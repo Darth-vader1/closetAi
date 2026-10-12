@@ -11,9 +11,9 @@ import { listWardrobeItems, signImageUrls, type WardrobeItem } from "@/lib/wardr
 import { logger } from "@/lib/logger";
 
 const requestSchema = z.object({
-  prompt: z.string().trim().min(1, "Please provide styling instructions or a vibe.").max(300),
-  occasion: z.string().trim().max(60).optional(),
-  weather: z.string().trim().max(100).optional(),
+  prompt: z.string().trim().min(1, "Please provide styling instructions or a vibe.").max(1000),
+  occasion: z.string().trim().max(120).optional(),
+  weather: z.string().trim().max(500).optional(),
 });
 
 const json = (body: Record<string, unknown>, status = 200) =>
