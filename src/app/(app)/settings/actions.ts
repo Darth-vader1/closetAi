@@ -129,7 +129,7 @@ export async function sendTestEmailAction(type: "daily" | "laundry"): Promise<Ac
   if (!user.email) return fail("No email address associated with this account.");
 
   if (!getResendClient()) {
-    return fail("Email service (RESEND_API_KEY) is not configured on this server.");
+    return fail("Email service is not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD (or RESEND_API_KEY) in your environment variables.");
   }
 
   const supabase = await createClient();
