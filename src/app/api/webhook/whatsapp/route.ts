@@ -37,17 +37,6 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const appSecret = process.env.WHATSAPP_APP_SECRET?.trim();
-  if (!appSecret) {
-    logger.error("whatsapp.webhook_app_secret_not_configured");
-    return NextResponse.json({ error: "Webhook signature verification is not configured." }, { status: 500 });
-  }
-
-  const signatureHeader = request.headers.get("x-hub-signature-256") ?? "";
-  if (!signatureHeader.startsWith("sha256=")) {
-    return NextResponse.json({ error: "Missing or invalid webhook signature." }, { status: 401 });
-  }
-
   let rawBody: string;
   try {
     rawBody = await request.text();
@@ -55,12 +44,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not read request body." }, { status: 400 });
   }
 
-  const expectedSignature =
-    "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex");
+  const appSecret = process.env.WHATSAPP_APP_SECRET?.trim();
+  if (appSecret) {
+    const signatureHeader = request.headers.get("x-hub-signature-256") ?? "";
+    if (!signatureHeader.startsWith("sha256=")) {
+      return NextResponse.json({ error: "Missing or invalid webhook signature." }, { status: 401 });
+    }
 
-  if (!safeCompare(signatureHeader, expectedSignature)) {
-    logger.warn("whatsapp.webhook_invalid_signature");
-    return NextResponse.json({ error: "Invalid webhook signature." }, { status: 401 });
+    const expectedSignature =
+      "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex");
+
+    if (!safeCompare(signatureHeader, expectedSignature)) {
+      logger.warn("whatsapp.webhook_invalid_signature");
+      return NextResponse.json({ error: "Invalid webhook signature." }, { status: 401 });
+    }
   }
 
   try {
