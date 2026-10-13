@@ -75,6 +75,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
             type: "signup",
             displayName: parsed.data.displayName,
             actionUrl,
+            otpCode: linkData?.properties?.email_otp,
           }),
         });
         if (!sent.success) {
@@ -83,7 +84,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
         }
         return {
           ok: true,
-          message: "Check your email for a verification link. Once confirmed, you can finish setting up your wardrobe.",
+          message: "Check your email for a verification link (please check your Spam or Promotions folder if you don't see it). Once confirmed, you can finish setting up your wardrobe.",
         };
       }
     }
@@ -105,7 +106,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
     if (data.session) redirect("/onboarding");
     return {
       ok: true,
-      message: "Check your email for a verification link. Once confirmed, you can finish setting up your wardrobe.",
+      message: "Check your email for a verification link (please check your Spam or Promotions folder if you don't see it). Once confirmed, you can finish setting up your wardrobe.",
     };
   } catch (err) {
     const cfg = configFailure(err);
@@ -183,13 +184,14 @@ export async function requestPasswordResetAction(input: unknown): Promise<AuthAc
             html: renderAuthEmailHtml({
               type: "recovery",
               actionUrl,
+              otpCode: linkData.properties.email_otp,
             }),
           });
         }
       } else if (linkErr) {
         logger.warn("auth.reset_generate_link_failed", { code: linkErr.code, status: linkErr.status });
       }
-      return { ok: true, message: "If an account exists for that email, a reset link is on its way." };
+      return { ok: true, message: "If an account exists for that email, a reset link is on its way (please check your Spam or Promotions folder if you don't see it)." };
     }
 
     const supabase = await createClient();
@@ -207,7 +209,7 @@ export async function requestPasswordResetAction(input: unknown): Promise<AuthAc
     if (cfg) return cfg;
     throw err;
   }
-  return { ok: true, message: "If an account exists for that email, a reset link is on its way." };
+  return { ok: true, message: "If an account exists for that email, a reset link is on its way (please check your Spam or Promotions folder if you don't see it)." };
 }
 
 export async function updatePasswordAction(input: unknown): Promise<AuthActionResult> {

@@ -266,12 +266,14 @@ export interface AuthEmailProps {
   type: "signup" | "recovery";
   displayName?: string;
   actionUrl: string;
+  otpCode?: string;
 }
 
 export function renderAuthEmailHtml({
   type,
   displayName,
   actionUrl,
+  otpCode,
 }: AuthEmailProps): string {
   const isSignup = type === "signup";
   const badge = isSignup ? "CLOSET·AI ACCOUNT VERIFICATION" : "CLOSET·AI PASSWORD RESET";
@@ -285,6 +287,19 @@ export function renderAuthEmailHtml({
   const footerNote = isSignup
     ? "If you didn't create a ClosetAI account, you can safely ignore this email."
     : "If you didn't request a password reset, you can safely ignore this email — your password will remain unchanged.";
+
+  const otpSection = otpCode
+    ? `
+      <div style="margin: 28px 0; padding: 18px 20px; background-color: #fafaf9; border: 1px dashed #d6d3d1; border-radius: 12px; text-align: center;">
+        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #78716c; margin-bottom: 8px;">
+          Or enter this verification code in ClosetAI
+        </div>
+        <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 26px; font-weight: 700; letter-spacing: 6px; color: #1c1917;">
+          ${escapeHtml(otpCode)}
+        </div>
+      </div>
+    `
+    : "";
 
   return `
 <!DOCTYPE html>
@@ -309,6 +324,7 @@ export function renderAuthEmailHtml({
           ${ctaLabel}
         </a>
       </div>
+      ${otpSection}
       <p style="margin: 24px 0 0 0; font-size: 12px; color: #78716c; word-break: break-all;">
         Or copy and paste this link into your browser:<br>
         <a href="${escapeHtml(actionUrl)}" style="color: #57534e;">${escapeHtml(actionUrl)}</a>

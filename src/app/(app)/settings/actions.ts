@@ -167,7 +167,10 @@ export async function sendTestEmailAction(type: "daily" | "laundry"): Promise<Ac
       return fail(`Could not send test email: ${res.error || "Delivery issue"}`);
     }
 
-    return { ok: true, message: `Test Daily Outfit email sent to ${user.email}!` };
+    return {
+      ok: true,
+      message: `Test Daily Outfit email sent to ${user.email}! Please check your Spam or Promotions folder if you don't see it in your Inbox.`,
+    };
   } else {
     const [all, attention] = await Promise.all([
       countItemsByStatus(supabase, user.id).catch(() => []),
@@ -200,7 +203,10 @@ export async function sendTestEmailAction(type: "daily" | "laundry"): Promise<Ac
       return fail(`Could not send test email: ${res.error || "Delivery issue"}`);
     }
 
-    return { ok: true, message: `Test Laundry Digest email sent to ${user.email}!` };
+    return {
+      ok: true,
+      message: `Test Laundry Digest email sent to ${user.email}! Please check your Spam or Promotions folder if you don't see it in your Inbox.`,
+    };
   }
 }
 

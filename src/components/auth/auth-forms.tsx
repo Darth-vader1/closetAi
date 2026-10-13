@@ -72,6 +72,129 @@ function FormMessages({ error, success }: { error: string | null; success: strin
   );
 }
 
+function OtpFallbackPanel({
+  email,
+  type,
+  next,
+}: {
+  email: string;
+  type: "signup" | "recovery";
+  next: string;
+}) {
+  const [secondsLeft, setSecondsLeft] = useState(60);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (secondsLeft <= 0) return;
+    const timer = window.setInterval(() => {
+      setSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [secondsLeft]);
+
+  const showPanel = secondsLeft === 0 || manualOpen;
+
+  async function handleVerifyCode() {
+    setOtpError(null);
+    const cleaned = code.replace(/\D/g, "").slice(0, 10);
+    if (cleaned.length < 6 || cleaned.length > 10) {
+      setOtpError("Please enter the verification code from your email.");
+      return;
+    }
+
+    setVerifying(true);
+    try {
+      const res = await fetch("/auth/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          token: cleaned,
+          type,
+          next,
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        redirectTo?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) {
+        setOtpError(data.error || "Invalid or expired verification code.");
+        return;
+      }
+      window.location.assign(data.redirectTo || next);
+    } catch {
+      setOtpError("Could not verify code. Check your connection and try again.");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  if (!showPanel) {
+    return (
+      <div className="rounded-xl border border-border bg-surface-muted/60 px-4 py-3 text-xs text-muted flex items-center justify-between gap-2">
+        <span>Waiting for link click ({secondsLeft}s)…</span>
+        <button
+          type="button"
+          onClick={() => setManualOpen(true)}
+          className="font-medium text-accent underline underline-offset-4 cursor-pointer"
+        >
+          Have the verification code? Enter it now
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role="region"
+      aria-label="Verification code"
+      className="rounded-xl border border-border-strong bg-surface-muted/50 p-4 space-y-3"
+    >
+      <div>
+        <p className="text-sm font-medium text-foreground">
+          Didn&apos;t get the link? Enter the verification code instead
+        </p>
+        <p className="text-xs text-muted mt-0.5">
+          Open the email sent to <span className="font-medium text-foreground">{email || "your inbox"}</span> (check Spam/Promotions too) and enter the 6–8 digit code below.
+        </p>
+      </div>
+      {otpError ? <Alert tone="danger">{otpError}</Alert> : null}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Input
+          id={`otp-code-${type}`}
+          type="text"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={10}
+          placeholder="12345678"
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 10))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleVerifyCode();
+            }
+          }}
+          className="font-mono tracking-[0.25em] text-center text-base"
+        />
+        <Button
+          type="button"
+          onClick={() => void handleVerifyCode()}
+          loading={verifying}
+          className="shrink-0"
+        >
+          Verify code
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 type AuthSchemaInput<S extends z.ZodType> = z.input<S> & FieldValues;
 
 export function SignUpForm() {
@@ -79,15 +202,26 @@ export function SignUpForm() {
     resolver: zodResolver(signUpSchema),
     defaultValues: { displayName: "", email: "", password: "", confirmPassword: "" },
   });
+  const [submittedEmail, setSubmittedEmail] = useState("");
   const { errors } = form.formState;
   const { pending, formError, success, submit } = useAuthSubmit<SignUpInput>(
-    (values) => signUpAction(values),
+    (values) => {
+      setSubmittedEmail(values.email);
+      return signUpAction(values);
+    },
     (name, message) => form.setError(name, { message }),
   );
 
   return (
     <form method="post" onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
       <FormMessages error={formError} success={success} />
+      {success ? (
+        <OtpFallbackPanel
+          email={submittedEmail || form.getValues("email")}
+          type="signup"
+          next="/onboarding"
+        />
+      ) : null}
       <Field id="displayName" label="What should we call you?" error={errors.displayName?.message}>
         <Input id="displayName" autoComplete="given-name" aria-invalid={!!errors.displayName} {...form.register("displayName")} />
       </Field>
@@ -190,15 +324,26 @@ export function ForgotPasswordForm() {
     resolver: zodResolver(forgotPasswordSchema),
     defaultValues: { email: "" },
   });
+  const [submittedEmail, setSubmittedEmail] = useState("");
   const { errors } = form.formState;
   const { pending, formError, success, submit } = useAuthSubmit<ForgotPasswordInput>(
-    (values) => requestPasswordResetAction(values),
+    (values) => {
+      setSubmittedEmail(values.email);
+      return requestPasswordResetAction(values);
+    },
     (name, message) => form.setError(name, { message }),
   );
 
   return (
     <form method="post" onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
       <FormMessages error={formError} success={success} />
+      {success ? (
+        <OtpFallbackPanel
+          email={submittedEmail || form.getValues("email")}
+          type="recovery"
+          next="/reset-password"
+        />
+      ) : null}
       <Field id="email" label="Email" error={errors.email?.message}>
         <Input id="email" type="email" autoComplete="email" inputMode="email" aria-invalid={!!errors.email} {...form.register("email")} />
       </Field>
