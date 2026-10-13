@@ -14,10 +14,13 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const next = safeRedirectPath(searchParams.get("next"), "/dashboard");
+  const defaultNext = type === "recovery" ? "/reset-password" : "/dashboard";
+  const next = safeRedirectPath(searchParams.get("next"), defaultNext);
+  const isRecovery = type === "recovery" || next.startsWith("/reset-password");
+  const expiredFallback = isRecovery ? `${origin}/reset-password` : `${origin}/login?error=link_expired`;
 
   if (!code && !(tokenHash && type)) {
-    return NextResponse.redirect(`${origin}/login?error=link_invalid`);
+    return NextResponse.redirect(isRecovery ? `${origin}/reset-password` : `${origin}/login?error=link_invalid`);
   }
 
   try {
@@ -30,18 +33,26 @@ export async function GET(request: NextRequest) {
       });
       if (error) {
         logger.warn("auth.callback_otp_failed", { code: error.code, status: error.status });
-        return NextResponse.redirect(`${origin}/login?error=link_expired`);
+        const { data } = await supabase.auth.getClaims();
+        if (data?.claims?.sub) {
+          return NextResponse.redirect(`${origin}${next}`);
+        }
+        return NextResponse.redirect(expiredFallback);
       }
     } else if (code) {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
       if (error) {
         logger.warn("auth.callback_exchange_failed", { code: error.code, status: error.status });
-        return NextResponse.redirect(`${origin}/login?error=link_expired`);
+        const { data } = await supabase.auth.getClaims();
+        if (data?.claims?.sub) {
+          return NextResponse.redirect(`${origin}${next}`);
+        }
+        return NextResponse.redirect(expiredFallback);
       }
     }
   } catch (err) {
     logger.error("auth.callback_error", { err });
-    return NextResponse.redirect(`${origin}/login?error=link_invalid`);
+    return NextResponse.redirect(isRecovery ? `${origin}/reset-password` : `${origin}/login?error=link_invalid`);
   }
 
   return NextResponse.redirect(`${origin}${next}`);

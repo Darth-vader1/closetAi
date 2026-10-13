@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { friendlyAuthError } from "@/lib/auth/errors";
@@ -14,6 +15,28 @@ import {
   resetPasswordSchema,
   signUpSchema,
 } from "@/lib/validation/auth";
+
+/**
+ * Prefer the current request's origin (so localhost stays on localhost and preview URLs stay
+ * on the preview URL), falling back to NEXT_PUBLIC_APP_URL.
+ */
+async function resolveAppUrl(): Promise<string> {
+  try {
+    const hdrs = await headers();
+    const origin = hdrs.get("origin");
+    if (origin && /^https?:\/\//i.test(origin)) {
+      return origin.replace(/\/$/, "");
+    }
+    const host = hdrs.get("x-forwarded-host") || hdrs.get("host");
+    if (host) {
+      const proto = hdrs.get("x-forwarded-proto") || (host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
+      return `${proto}://${host}`.replace(/\/$/, "");
+    }
+  } catch {
+    // Fallback to configured NEXT_PUBLIC_APP_URL
+  }
+  return getAppUrl();
+}
 
 /** Flatten Zod issues to one message per field. */
 function fieldErrors(error: z.ZodError): Record<string, string> {
@@ -37,7 +60,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
   if (!parsed.success) return { ok: false, error: "Please fix the highlighted fields.", fieldErrors: fieldErrors(parsed.error) };
 
   try {
-    const appUrl = getAppUrl();
+    const appUrl = await resolveAppUrl();
     const { getResendClient, sendEmail } = await import("@/lib/email/service");
     const emailConfig = getResendClient();
 
@@ -155,7 +178,7 @@ export async function requestPasswordResetAction(input: unknown): Promise<AuthAc
   if (!parsed.success) return { ok: false, error: "Enter a valid email address.", fieldErrors: fieldErrors(parsed.error) };
 
   try {
-    const appUrl = getAppUrl();
+    const appUrl = await resolveAppUrl();
     const { getResendClient, sendEmail } = await import("@/lib/email/service");
     const emailConfig = getResendClient();
 
@@ -170,7 +193,22 @@ export async function requestPasswordResetAction(input: unknown): Promise<AuthAc
         },
       });
 
-      if (!linkErr && linkData?.properties) {
+      if (linkErr) {
+        logger.warn("auth.reset_generate_link_failed", { code: linkErr.code, status: linkErr.status });
+        if (linkErr.code === "over_email_send_rate_limit" || linkErr.code === "over_request_rate_limit") {
+          return { ok: false, error: friendlyAuthError(linkErr) };
+        }
+        // For user_not_found, return the same success message to avoid account enumeration.
+        if (linkErr.code === "user_not_found") {
+          return {
+            ok: true,
+            message: "If an account exists for that email, a reset link and verification code are on their way (please check your Spam or Promotions folder if you don't see it).",
+          };
+        }
+        return { ok: false, error: friendlyAuthError(linkErr) };
+      }
+
+      if (linkData?.properties) {
         const hashedToken = linkData.properties.hashed_token;
         const actionUrl = hashedToken
           ? `${appUrl}/auth/callback?token_hash=${encodeURIComponent(hashedToken)}&type=recovery&next=/reset-password`
@@ -178,7 +216,7 @@ export async function requestPasswordResetAction(input: unknown): Promise<AuthAc
 
         if (actionUrl) {
           const { renderAuthEmailHtml } = await import("@/lib/email/templates");
-          await sendEmail({
+          const sent = await sendEmail({
             to: parsed.data.email,
             subject: "Reset your ClosetAI password",
             html: renderAuthEmailHtml({
@@ -187,11 +225,16 @@ export async function requestPasswordResetAction(input: unknown): Promise<AuthAc
               otpCode: linkData.properties.email_otp,
             }),
           });
+          if (!sent.success) {
+            logger.error("auth.reset_email_send_failed", { error: sent.error });
+            return { ok: false, error: "Could not send the password reset email right now. Please try again in a moment." };
+          }
         }
-      } else if (linkErr) {
-        logger.warn("auth.reset_generate_link_failed", { code: linkErr.code, status: linkErr.status });
       }
-      return { ok: true, message: "If an account exists for that email, a reset link is on its way (please check your Spam or Promotions folder if you don't see it)." };
+      return {
+        ok: true,
+        message: "If an account exists for that email, a reset link and verification code are on their way (please check your Spam or Promotions folder if you don't see it).",
+      };
     }
 
     const supabase = await createClient();
@@ -209,7 +252,10 @@ export async function requestPasswordResetAction(input: unknown): Promise<AuthAc
     if (cfg) return cfg;
     throw err;
   }
-  return { ok: true, message: "If an account exists for that email, a reset link is on its way (please check your Spam or Promotions folder if you don't see it)." };
+  return {
+    ok: true,
+    message: "If an account exists for that email, a reset link and verification code are on their way (please check your Spam or Promotions folder if you don't see it).",
+  };
 }
 
 export async function updatePasswordAction(input: unknown): Promise<AuthActionResult> {

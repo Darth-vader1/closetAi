@@ -6,11 +6,11 @@ import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/card";
 import { FilterBar } from "@/components/wardrobe/filter-bar";
-import { ItemCard } from "@/components/wardrobe/item-card";
+import { WardrobeBrowser } from "@/components/wardrobe/wardrobe-browser";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { PAGE_SIZE, parseWardrobeQuery, type WardrobeQuery } from "@/lib/validation/wardrobe";
-import { listWardrobeItems, signImageUrls } from "@/lib/wardrobe/queries";
+import { countItemsByCategory, listWardrobeItems, signImageUrls } from "@/lib/wardrobe/queries";
 
 export const metadata: Metadata = { title: "My Wardrobe" };
 
@@ -34,8 +34,13 @@ export default async function WardrobePage({ searchParams }: { searchParams: Sea
   const query = parseWardrobeQuery(await searchParams);
   const supabase = await createClient();
 
-  const { items, total } = await listWardrobeItems(supabase, user.id, query);
+  const [{ items, total }, categoryCounts] = await Promise.all([
+    listWardrobeItems(supabase, user.id, query),
+    countItemsByCategory(supabase, user.id),
+  ]);
   const urls = await signImageUrls(supabase, items.map((i) => i.imagePath));
+  const imageUrls = Object.fromEntries(urls.entries());
+  const totalUnfiltered = Object.values(categoryCounts).reduce((sum, n) => sum + n, 0);
   const filtered = Boolean(query.q || query.category || query.colour || query.status || query.favouritesOnly);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -83,13 +88,13 @@ export default async function WardrobePage({ searchParams }: { searchParams: Sea
               Try a different search or remove a filter.
             </EmptyState>
           ) : (
-            <ul className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
-              {items.map((item) => (
-                <li key={item.id}>
-                  <ItemCard item={item} imageUrl={urls.get(item.imagePath)} />
-                </li>
-              ))}
-            </ul>
+            <WardrobeBrowser
+              items={items}
+              imageUrls={imageUrls}
+              query={query}
+              categoryCounts={categoryCounts}
+              totalUnfiltered={totalUnfiltered}
+            />
           )}
 
           {pages > 1 ? (

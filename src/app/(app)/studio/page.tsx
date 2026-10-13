@@ -6,7 +6,7 @@ import { getProfile, requireUser } from "@/lib/auth/session";
 import { generateOutfits } from "@/lib/outfits/engine";
 import { listUserOutfits, signAllOutfitImages } from "@/lib/outfits/queries";
 import { createClient } from "@/lib/supabase/server";
-import { listWardrobeItems, signImageUrls } from "@/lib/wardrobe/queries";
+import { listAllWardrobeItems, signImageUrls } from "@/lib/wardrobe/queries";
 
 export const metadata: Metadata = { title: "Outfit Studio" };
 
@@ -15,18 +15,10 @@ export default async function StudioPage() {
   const profile = await getProfile();
   const supabase = await createClient();
 
-  // 1. Fetch user outfits and wardrobe items in parallel
-  const [outfits, { items: wardrobeItems }] = await Promise.all([
+  // 1. Fetch user outfits and all wardrobe items (up to 300) in parallel
+  const [outfits, wardrobeItems] = await Promise.all([
     listUserOutfits(supabase, user.id).catch(() => []),
-    listWardrobeItems(supabase, user.id, {
-      q: "",
-      category: null,
-      colour: null,
-      status: null,
-      favouritesOnly: false,
-      sort: "newest",
-      page: 1,
-    }),
+    listAllWardrobeItems(supabase, user.id, 300).catch(() => []),
   ]);
 
   // 2. Batch-sign image URLs for wardrobe garments and full-body outfit photos

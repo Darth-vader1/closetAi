@@ -28,8 +28,11 @@ const PUBLIC_PREFIXES = [
   "/opengraph-image",
   "/twitter-image",
 ];
-/** Signed-in users are bounced away from these. */
-const AUTH_ONLY_GUEST = new Set(["/login", "/signup", "/forgot-password"]);
+/** Signed-in users are bounced away from these. (Keep /forgot-password and /reset-password accessible.) */
+const AUTH_ONLY_GUEST = new Set(["/login", "/signup"]);
+
+/** Pages where we still want Supabase session refresh / guest-only check to run. */
+const AUTH_SESSION_AWARE = new Set(["/login", "/signup", "/reset-password"]);
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_EXACT.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
@@ -42,7 +45,7 @@ export function isPublicPath(pathname: string): boolean {
  */
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
-  if (isPublicPath(pathname)) {
+  if (isPublicPath(pathname) && !AUTH_SESSION_AWARE.has(pathname)) {
     return NextResponse.next({ request });
   }
 

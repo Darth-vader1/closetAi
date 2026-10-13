@@ -82,7 +82,7 @@ function OtpFallbackPanel({
   next: string;
 }) {
   const [secondsLeft, setSecondsLeft] = useState(60);
-  const [manualOpen, setManualOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(type === "recovery");
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
@@ -347,8 +347,8 @@ export function ForgotPasswordForm() {
       <Field id="email" label="Email" error={errors.email?.message}>
         <Input id="email" type="email" autoComplete="email" inputMode="email" aria-invalid={!!errors.email} {...form.register("email")} />
       </Field>
-      <Button type="submit" className="w-full" loading={pending}>
-        Send reset link
+      <Button type="submit" variant={success ? "outline" : "primary"} className="w-full" loading={pending}>
+        {success ? "Resend reset email" : "Send reset link"}
       </Button>
       <p className="text-center text-sm text-muted">
         <Link href="/login" className="font-medium text-accent underline underline-offset-4">

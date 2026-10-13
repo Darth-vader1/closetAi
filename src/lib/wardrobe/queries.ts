@@ -139,6 +139,41 @@ export async function countItemsByStatus(supabase: SupabaseClient, userId: strin
   return (data ?? []).filter((r): r is { status: LaundryStatus } => isLaundryStatus(r.status));
 }
 
+/** Returns garment counts grouped by category for quick-filter pills in large wardrobes. */
+export async function countItemsByCategory(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from("wardrobe_items")
+    .select("category")
+    .eq("user_id", userId);
+  if (error) return {};
+  const counts: Record<string, number> = {};
+  for (const row of (data ?? []) as Array<{ category?: string | null }>) {
+    if (row.category) {
+      counts[row.category] = (counts[row.category] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
+/** Loads up to `limit` wardrobe items for Outfit Studio so 100+ item wardrobes aren't truncated at 24. */
+export async function listAllWardrobeItems(
+  supabase: SupabaseClient,
+  userId: string,
+  limit = 300,
+): Promise<WardrobeItem[]> {
+  const { data, error } = await supabase
+    .from("wardrobe_items")
+    .select(COLUMNS)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Could not load wardrobe items: ${error.message}`);
+  return ((data ?? []) as Row[]).map(toItem);
+}
+
 /** Batch-sign private image paths. Missing objects are simply absent from the map. */
 export async function signImageUrls(supabase: SupabaseClient, paths: string[]): Promise<Map<string, string>> {
   const result = new Map<string, string>();
@@ -150,3 +185,4 @@ export async function signImageUrls(supabase: SupabaseClient, paths: string[]): 
   }
   return result;
 }
+
