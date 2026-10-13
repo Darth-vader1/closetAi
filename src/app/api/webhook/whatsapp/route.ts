@@ -35,17 +35,18 @@ async function handleIncomingTextMessage(
     }
     
     // Store message ID for deduplication (create table if needed)
-    await supabase
+    const { error: insertError } = await supabase
       .from('whatsapp_webhook_messages')
       .insert({ 
         whatsapp_message_id: messageId,
         from_number: from.replace(/[^0-9]/g, ''),
         received_at: new Date().toISOString(),
-      })
-      .catch(() => {
-        // Table might not exist yet - non-critical for now
-        logger.warn('whatsapp.dedup_table_missing');
       });
+    
+    if (insertError) {
+      // Table might not exist yet - non-critical for now
+      logger.warn('whatsapp.dedup_table_missing', { err: insertError });
+    }
     
     const normalized = textBody.trim().toUpperCase();
     
