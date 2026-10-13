@@ -2,12 +2,13 @@ import { z } from "zod";
 import { CATEGORY_VALUES, OCCASION_VALUES, PATTERNS, SEASONS, STYLE_VALUES, WARDROBE_COLOURS } from "@/lib/wardrobe/categories";
 import { LAUNDRY_STATUSES } from "@/lib/wardrobe/status";
 
-/** Trimmed optional text: "" and undefined both become null. */
+/** Trimmed optional text: "", null, and undefined all become null. */
 const optionalText = (max: number) =>
   z
     .string()
     .trim()
     .max(max, `Use ${max} characters or fewer.`)
+    .nullable()
     .optional()
     .transform((v) => (v ? v : null));
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Plus, SearchX, Shirt } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/card";
 import { FilterBar } from "@/components/wardrobe/filter-bar";
@@ -51,6 +52,8 @@ export default async function WardrobePage({ searchParams }: { searchParams: Sea
           </Button>
         }
       />
+
+      <ContextualGuide section="wardrobe" forceShowWhenEmpty={total === 0 && !filtered} />
 
       {total === 0 && !filtered ? (
         <EmptyState

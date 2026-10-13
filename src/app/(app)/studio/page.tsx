@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/page-header";
+import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { OutfitStudio } from "@/components/studio/outfit-studio";
 import { getProfile, requireUser } from "@/lib/auth/session";
 import { generateOutfits } from "@/lib/outfits/engine";
@@ -57,6 +58,7 @@ export default async function StudioPage() {
         title="Outfit Studio"
         description="Pair tops, bottoms, and shoes into complete looks, or let the engine suggest combinations from clean clothes."
       />
+      <ContextualGuide section="studio" />
       <OutfitStudio
         initialOutfits={outfits}
         wardrobeItems={wardrobeItems}

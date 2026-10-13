@@ -8,6 +8,9 @@ import type { NextConfig } from "next";
  */
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  logging: {
+    serverFunctions: false,
+  },
   allowedDevOrigins: [
     "skinking-emeline-unappareled.ngrok-free.dev",
     "*.ngrok-free.dev",

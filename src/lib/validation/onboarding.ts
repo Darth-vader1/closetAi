@@ -13,7 +13,13 @@ export const onboardingSchema = z.object({
     .array(z.string())
     .max(10)
     .refine((all) => all.every((o) => OCCASION_VALUES.includes(o)), "Unknown occasion."),
-  location: z.string().trim().max(120).optional().transform((v) => (v ? v : null)),
+  location: z
+    .string()
+    .trim()
+    .max(120)
+    .nullable()
+    .optional()
+    .transform((v) => (v ? v : null)),
   timezone: z.string().refine(isValidTimeZone, "Choose a valid timezone."),
   dailyEnabled: z.boolean(),
   dailyTime: timeOfDay,

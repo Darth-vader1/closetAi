@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/page-header";
+import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { StylistClient } from "@/components/stylist/stylist-client";
 import { getProfile, requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -39,6 +40,7 @@ export default async function StylistPage() {
         title="AI Stylist"
         description="Describe any occasion, vibe, or weather. The stylist curates complete looks from clothes that are ready to wear."
       />
+      <ContextualGuide section="stylist" />
       <StylistClient
         initialCleanCount={cleanCount ?? 0}
         userStylePreferences={

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ConfigNotice } from "@/components/layout/config-notice";
 import { MobileNav, Sidebar } from "@/components/layout/app-nav";
+import { ProductTour } from "@/components/onboarding/product-tour";
 import { getProfile, requireUser } from "@/lib/auth/session";
 import { isSupabaseConfigured } from "@/lib/env";
 
@@ -21,14 +22,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const displayName = profile?.display_name ?? user.email ?? "You";
 
   return (
-    <div className="flex min-h-dvh">
+    <div className="flex min-h-dvh overflow-x-hidden">
       <Sidebar displayName={displayName} />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-x-hidden">
         <MobileNav displayName={displayName} />
         <main id="main" className="mx-auto w-full max-w-6xl px-4 pb-28 pt-6 sm:px-8 lg:pb-12 lg:pt-10">
           {children}
         </main>
       </div>
+      <ProductTour userId={user.id} />
     </div>
   );
 }

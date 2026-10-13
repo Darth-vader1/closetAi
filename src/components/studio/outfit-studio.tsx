@@ -200,23 +200,29 @@ export function OutfitStudio({
     <div className="space-y-6">
       {/* Top Navigation Switcher */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button
             type="button"
+            size="sm"
+            className="flex-1 sm:flex-initial sm:min-h-11 sm:px-5 sm:text-sm"
             variant={tab === "builder" ? "primary" : "outline"}
             onClick={() => setTab("builder")}
           >
-            <Plus className="mr-1.5 size-4" /> Pair Clothes
+            <Plus className="mr-1 size-4 shrink-0" /> Pair Clothes
           </Button>
           <Button
             type="button"
+            size="sm"
+            className="flex-1 sm:flex-initial sm:min-h-11 sm:px-5 sm:text-sm"
             variant={tab === "generator" ? "primary" : "outline"}
             onClick={() => setTab("generator")}
           >
-            <Sparkles className="mr-1.5 size-4" /> Auto-Generate
+            <Sparkles className="mr-1 size-4 shrink-0" /> Auto-Generate
           </Button>
           <Button
             type="button"
+            size="sm"
+            className="w-full sm:w-auto sm:min-h-11 sm:px-5 sm:text-sm"
             variant={tab === "saved" ? "primary" : "outline"}
             onClick={() => setTab("saved")}
           >
@@ -443,7 +449,7 @@ export function OutfitStudio({
                     {/* Garments Preview Grid */}
                     <div className="grid grid-cols-3 gap-2">
                       {s.items.map((item) => (
-                        <div key={item.id} className="rounded-lg border border-border p-1">
+                        <div key={item.id} className="min-w-0 rounded-lg border border-border p-1">
                           <ItemImage
                             url={itemImageUrls[item.imagePath]}
                             alt={item.name}
@@ -477,12 +483,12 @@ export function OutfitStudio({
       {/* TAB 3: SAVED OUTFITS LOOKBOOK */}
       {tab === "saved" && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-medium">Your Outfits ({outfits.length})</h2>
               <p className="text-sm text-muted">Your curated looks and combinations.</p>
             </div>
-            <Button type="button" onClick={() => setTab("builder")}>
+            <Button type="button" className="w-full sm:w-auto" onClick={() => setTab("builder")}>
               <Plus className="mr-1.5 size-4" /> Create New Outfit
             </Button>
           </div>
@@ -501,8 +507,8 @@ export function OutfitStudio({
                 <Card key={outfit.id} className="flex flex-col justify-between overflow-hidden p-5">
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h3 className="font-medium">{outfit.name}</h3>
+                      <div className="min-w-0">
+                        <h3 className="truncate font-medium">{outfit.name}</h3>
                         {outfit.occasion && (
                           <span className="text-xs capitalize text-muted">
                             {outfit.occasion.replace("_", " ")}
@@ -512,7 +518,7 @@ export function OutfitStudio({
                       <button
                         type="button"
                         onClick={() => handleToggleFavourite(outfit.id, outfit.isFavourite)}
-                        className={`transition hover:scale-110 ${
+                        className={`shrink-0 transition hover:scale-110 ${
                           outfit.isFavourite ? "text-danger" : "text-muted hover:text-foreground"
                         }`}
                       >
@@ -533,7 +539,7 @@ export function OutfitStudio({
                     ) : (
                       <div className="grid grid-cols-3 gap-2">
                         {outfit.items.map((item) => (
-                          <div key={item.id} className="rounded-lg border border-border p-1">
+                          <div key={item.id} className="min-w-0 rounded-lg border border-border p-1">
                             <ItemImage
                               url={itemImageUrls[item.imagePath]}
                               alt={item.name}

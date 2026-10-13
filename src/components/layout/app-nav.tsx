@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Ellipsis, LogOut, X } from "lucide-react";
+import { Compass, Ellipsis, LogOut, X } from "lucide-react";
 import { signOutAction } from "@/app/(auth)/actions";
 import { Logo } from "@/components/layout/logo";
 import { NAV_ITEMS } from "@/components/layout/nav-items";
+import { triggerProductTour } from "@/components/onboarding/product-tour";
 import { cn } from "@/lib/utils/cn";
 import { InstallPwaBanner } from "@/components/ui/install-pwa-banner";
 
@@ -44,6 +45,7 @@ export function Sidebar({ displayName }: { displayName: string }) {
             <Link
               key={href}
               href={href}
+              data-tour={`nav-${href}`}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors",
@@ -56,9 +58,17 @@ export function Sidebar({ displayName }: { displayName: string }) {
           );
         })}
       </nav>
-      <div className="border-t border-border pt-3 space-y-2">
+      <div className="border-t border-border pt-3 space-y-1.5">
         <InstallPwaBanner />
-        <p className="truncate px-3 text-sm text-muted">{displayName}</p>
+        <button
+          type="button"
+          onClick={triggerProductTour}
+          className="flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted hover:bg-surface-muted hover:text-foreground cursor-pointer"
+        >
+          <Compass className="size-[1.125rem] text-accent" aria-hidden />
+          Product Tour
+        </button>
+        <p className="truncate px-3 pt-1 text-sm text-muted">{displayName}</p>
         <SignOutButton />
       </div>
     </aside>
@@ -87,8 +97,16 @@ export function MobileNav({ displayName }: { displayName: string }) {
 
   return (
     <div className="lg:hidden">
-      <header className="sticky top-0 z-30 flex h-14 items-center border-b border-border bg-background/95 px-4 backdrop-blur-sm">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur-sm">
         <Logo href="/dashboard" />
+        <button
+          type="button"
+          onClick={triggerProductTour}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium text-muted hover:text-foreground"
+        >
+          <Compass className="size-3.5 text-accent" aria-hidden />
+          Tour
+        </button>
       </header>
 
       {moreOpen ? (
@@ -117,6 +135,17 @@ export function MobileNav({ displayName }: { displayName: string }) {
                   {label}
                 </Link>
               ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreOpen(false);
+                  triggerProductTour();
+                }}
+                className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-base font-medium text-foreground hover:bg-surface-muted"
+              >
+                <Compass className="size-5 text-accent" aria-hidden />
+                Product Tour
+              </button>
               <SignOutButton className="min-h-12 text-base" />
             </nav>
           </div>
@@ -133,6 +162,7 @@ export function MobileNav({ displayName }: { displayName: string }) {
             <Link
               key={href}
               href={href}
+              data-tour-mobile={`nav-${href}`}
               aria-current={active ? "page" : undefined}
               className={cn("flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs font-medium", active ? "text-accent" : "text-muted")}
             >
