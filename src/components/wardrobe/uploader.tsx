@@ -108,15 +108,45 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
   );
 
   const process = useCallback(
-    (entry: Entry, withAi: boolean) =>
+    (entry: Entry, withAi: boolean, withAutoCutout: boolean) =>
       limiter.current(async () => {
         const controller = controllers.current.get(entry.id);
         if (!controller || controller.signal.aborted) return;
         try {
           patch(entry.id, { stage: "preparing", progress: 0, error: null });
-          const blob = await prepareImage(entry.file);
-          patch(entry.id, { stage: "uploading" });
-          const path = await uploadPhoto(blob, { signal: controller.signal, onProgress: (f) => patch(entry.id, { progress: f }) });
+          let blob = await prepareImage(entry.file);
+          let cutoutPreviewUrl: string | undefined;
+          let wasCutout = false;
+
+          if (withAutoCutout) {
+            try {
+              blob = await removeImageBackground(blob, {
+                tolerance: 34,
+                background: "clean-white",
+                addShadow: true,
+              });
+              cutoutPreviewUrl = URL.createObjectURL(blob);
+              wasCutout = true;
+            } catch (cutoutErr) {
+              console.warn("Auto cutout skipped:", cutoutErr);
+            }
+          }
+
+          patch(entry.id, {
+            stage: "uploading",
+            ...(cutoutPreviewUrl
+              ? {
+                  originalPreviewUrl: entry.previewUrl,
+                  previewUrl: cutoutPreviewUrl,
+                  isCutout: wasCutout,
+                }
+              : {}),
+          });
+
+          const path = await uploadPhoto(blob, {
+            signal: controller.signal,
+            onProgress: (f) => patch(entry.id, { progress: f }),
+          });
           patch(entry.id, { path, progress: 1 });
           if (withAi) {
             patch(entry.id, { stage: "analysing" });
@@ -164,9 +194,9 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       }));
       for (const e of fresh) controllers.current.set(e.id, new AbortController());
       setEntries((list) => [...list, ...fresh]);
-      for (const e of fresh) void process(e, useAi && aiAvailable);
+      for (const e of fresh) void process(e, useAi && aiAvailable, autoCutout);
     },
-    [process, useAi, aiAvailable],
+    [process, useAi, aiAvailable, autoCutout],
   );
 
   const removeEntry = useCallback((id: string) => {
@@ -175,8 +205,16 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
     controllers.current.delete(id);
     if (entry) {
       URL.revokeObjectURL(entry.previewUrl);
+      if (entry.originalPreviewUrl && entry.originalPreviewUrl !== entry.previewUrl) {
+        URL.revokeObjectURL(entry.originalPreviewUrl);
+      }
       // A photo that was uploaded but never saved is deleted again so it doesn't linger in storage.
-      if (entry.path && entry.stage !== "saved") void discardUploadAction(entry.path);
+      if (entry.stage !== "saved") {
+        if (entry.path) void discardUploadAction(entry.path);
+        if (entry.originalPath && entry.originalPath !== entry.path) {
+          void discardUploadAction(entry.originalPath);
+        }
+      }
     }
     setEntries((list) => list.filter((e) => e.id !== id));
   }, []);
@@ -184,9 +222,9 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
   const retry = useCallback(
     (entry: Entry) => {
       controllers.current.set(entry.id, new AbortController());
-      void process(entry, useAi && aiAvailable);
+      void process(entry, useAi && aiAvailable, autoCutout);
     },
-    [process, useAi, aiAvailable],
+    [process, useAi, aiAvailable, autoCutout],
   );
 
   const save = useCallback(
@@ -196,6 +234,9 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       patch(id, { stage: "saving" });
       const result = await saveItemAction({ ...values, imagePath: entry.path, aiAnalysed: entry.suggestion !== null && !entry.isMock });
       if (result.ok) {
+        if (entry.originalPath && entry.originalPath !== entry.path) {
+          void discardUploadAction(entry.originalPath);
+        }
         patch(id, { stage: "saved", savedId: result.id });
         router.refresh();
       } else {
@@ -209,12 +250,38 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
   const toggleCutout = useCallback(
     async (entry: Entry) => {
       if (entry.isCutout) {
-        if (entry.originalPreviewUrl && entry.originalPath) {
-          patch(entry.id, {
-            previewUrl: entry.originalPreviewUrl,
-            path: entry.originalPath,
-            isCutout: false,
-          });
+        if (entry.originalPreviewUrl) {
+          if (entry.originalPath) {
+            patch(entry.id, {
+              previewUrl: entry.originalPreviewUrl,
+              path: entry.originalPath,
+              originalPath: entry.path,
+              originalPreviewUrl: entry.previewUrl,
+              isCutout: false,
+            });
+            return;
+          }
+          // If auto-cutout ran initially, upload the original image on demand when reverting
+          try {
+            patch(entry.id, { processingCutout: true });
+            const origBlob = await prepareImage(entry.file);
+            const controller = new AbortController();
+            const origPath = await uploadPhoto(origBlob, {
+              signal: controller.signal,
+              onProgress: () => {},
+            });
+            patch(entry.id, {
+              previewUrl: entry.originalPreviewUrl,
+              originalPreviewUrl: entry.previewUrl,
+              originalPath: entry.path,
+              path: origPath,
+              isCutout: false,
+              processingCutout: false,
+            });
+          } catch (err) {
+            console.error("Revert background failed:", err);
+            patch(entry.id, { processingCutout: false });
+          }
         }
         return;
       }
@@ -222,7 +289,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       try {
         patch(entry.id, { processingCutout: true });
         const processedBlob = await removeImageBackground(entry.previewUrl, {
-          tolerance: 32,
+          tolerance: 34,
           background: "clean-white",
           addShadow: true,
         });
