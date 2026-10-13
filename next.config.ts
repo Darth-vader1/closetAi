@@ -1,5 +1,12 @@
 import type { NextConfig } from "next";
-import { withSerwist } from "@serwist/turbopack";
+import withPWAInit from "@ducanh2912/next-pwa";
+
+const withPWA = withPWAInit({
+  dest: "public",
+  disable: process.env.NODE_ENV === "development",
+  register: true,
+  skipWaiting: true,
+});
 
 /**
  * Architecture note: Cache Components (cacheComponents / partialPrefetching) is
@@ -69,4 +76,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withSerwist(nextConfig);
+export default withPWA(nextConfig);

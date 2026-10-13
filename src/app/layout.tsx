@@ -3,7 +3,6 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/fraunces";
 import "./globals.css";
 import { PwaUpdatePrompt } from "@/components/ui/pwa-update-prompt";
-import { PwaLifecycle } from "@/components/ui/pwa-lifecycle";
 
 const PRODUCTION_URL = "https://closet-ai-official.vercel.app";
 
@@ -139,7 +138,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           Skip to content
         </a>
         {children}
-        <PwaLifecycle />
         <PwaUpdatePrompt />
       </body>
     </html>

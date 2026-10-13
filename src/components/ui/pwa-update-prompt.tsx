@@ -4,69 +4,90 @@ import { useEffect, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+/**
+ * Shows update notification when new service worker version is available.
+ * Works with @ducanh2912/next-pwa's automatic registration.
+ */
 export function PwaUpdatePrompt() {
   const [showPrompt, setShowPrompt] = useState(false);
-  const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
       return;
     }
 
-    const checkForUpdates = async () => {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (!reg) return;
+    // Check if workbox is available (from next-pwa)
+    const wb = (window as any).workbox;
 
-        setRegistration(reg);
+    if (wb) {
+      // Use Workbox events
+      const showUpdate = () => setShowPrompt(true);
+      
+      wb.addEventListener("waiting", showUpdate);
+      wb.addEventListener("externalwaiting", showUpdate);
+      
+      // Register and check for updates
+      wb.register();
+    } else {
+      // Fallback: manual service worker handling
+      const checkForUpdates = async () => {
+        try {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (!reg) return;
 
-        // Check for updates on load
-        await reg.update();
+          reg.addEventListener("updatefound", () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
 
-        // Listen for new service worker waiting to activate
-        reg.addEventListener("updatefound", () => {
-          const newWorker = reg.installing;
-          if (!newWorker) return;
-
-          newWorker.addEventListener("statechange", () => {
-            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
-              // New service worker is installed and ready
-              setShowPrompt(true);
-            }
+            newWorker.addEventListener("statechange", () => {
+              if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+                setShowPrompt(true);
+              }
+            });
           });
+
+          navigator.serviceWorker.addEventListener("controllerchange", () => {
+            window.location.reload();
+          });
+
+          await reg.update();
+        } catch (error) {
+          console.error("Service worker check failed:", error);
+        }
+      };
+
+      checkForUpdates();
+
+      // Check for updates every 60 minutes
+      const interval = setInterval(() => {
+        navigator.serviceWorker.getRegistration().then((reg) => {
+          reg?.update();
         });
+      }, 60 * 60 * 1000);
 
-        // Handle controller change (when new SW takes over)
-        navigator.serviceWorker.addEventListener("controllerchange", () => {
-          window.location.reload();
-        });
-      } catch (error) {
-        console.error("Service worker check failed:", error);
-      }
-    };
-
-    checkForUpdates();
-
-    // Check for updates every 60 minutes
-    const interval = setInterval(() => {
-      navigator.serviceWorker.getRegistration().then((reg) => {
-        reg?.update();
-      });
-    }, 60 * 60 * 1000);
-
-    return () => clearInterval(interval);
+      return () => clearInterval(interval);
+    }
   }, []);
 
   const handleUpdate = () => {
     setShowPrompt(false);
     
-    if (registration?.waiting) {
-      // Tell the waiting service worker to skip waiting
-      registration.waiting.postMessage({ type: "SKIP_WAITING" });
+    const wb = (window as any).workbox;
+    
+    if (wb && typeof wb.messageSkipWaiting === "function") {
+      // Tell workbox to skip waiting and activate
+      wb.messageSkipWaiting();
     } else {
-      // Fallback: just reload
-      window.location.reload();
+      // Fallback
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg?.waiting) {
+          reg.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+      });
     }
+    
+    // Reload after a short delay to let SW activate
+    setTimeout(() => window.location.reload(), 100);
   };
 
   const handleDismiss = () => {
