@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/page-header";
+import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { CalendarClient } from "@/components/calendar/calendar-client";
 import { requireUser } from "@/lib/auth/session";
 import { listOutfitPlans, listUserOutfits, signAllOutfitImages } from "@/lib/outfits/queries";
@@ -34,6 +35,7 @@ export default async function CalendarPage() {
         title="Outfit Calendar"
         description="Plan outfits for the week ahead, see what you wore previously, and confirm your daily look."
       />
+      <ContextualGuide section="calendar" />
       <CalendarClient
         initialPlans={plans}
         savedOutfits={savedOutfits}

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/page-header";
+import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { PackingClient } from "@/components/packing/packing-client";
 import { getProfile, requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -26,6 +27,7 @@ export default async function PackingPage() {
         title="Travel Packing Capsule"
         description="Pick a destination and duration. The AI checks local weather and packs an interchangeable carry-on capsule from your wardrobe."
       />
+      <ContextualGuide section="packing" />
       <PackingClient initialCleanCount={cleanCount ?? 0} />
     </>
   );

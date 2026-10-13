@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Shirt, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/card";
 import { BulkWashedButton } from "@/components/wardrobe/bulk-washed-button";
@@ -32,6 +33,8 @@ export default async function LaundryPage() {
   return (
     <>
       <PageHeader title="Laundry" description="See what's clean, what needs washing, and what's on its way back. Anything not clean is left out of outfit suggestions." />
+
+      <ContextualGuide section="laundry" />
 
       <section aria-label="Status summary" className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {(["CLEAN", ...SECTIONS] as LaundryStatus[]).map((status) => (

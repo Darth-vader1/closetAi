@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/page-header";
+import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { SettingsClient } from "@/components/settings/settings-client";
 import { requireUser, getProfile } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -56,6 +57,7 @@ export default async function SettingsPage() {
         title="Settings & Preferences"
         description="Fine-tune your personal style persona, gender presentation, and automated morning email schedules."
       />
+      <ContextualGuide section="settings" />
       <SettingsClient
         userEmail={user.email || ""}
         initialProfile={initialProfile}

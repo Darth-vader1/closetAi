@@ -5,7 +5,14 @@ import Link from "next/link";
 import { HelpCircle, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export type ContextualGuideSection = "wardrobe" | "studio" | "stylist";
+export type ContextualGuideSection =
+  | "wardrobe"
+  | "studio"
+  | "stylist"
+  | "packing"
+  | "calendar"
+  | "laundry"
+  | "settings";
 
 interface GuideCardStep {
   badge: string;
@@ -95,6 +102,98 @@ const GUIDE_CONFIGS: Record<ContextualGuideSection, GuideConfig> = {
         badge: "3 · 3D Mannequin & Studio Lookbook",
         title: "Preview in 3D or editorial photo",
         body: "Inspect the outfit on the interactive 3D mannequin or render a high-resolution studio lookbook photo.",
+      },
+    ],
+  },
+  packing: {
+    emoji: "🧳",
+    headline: "How Travel Packing Capsule Works",
+    subtitle:
+      "Pack light without running out of outfits. The AI builds an interchangeable carry-on capsule from your clean clothes.",
+    steps: [
+      {
+        badge: "1 · Destination & Duration",
+        title: "Enter where & how long",
+        body: "Type your destination city (or pick a quick destination), choose your trip length (3–10 days), and select your trip vibe.",
+      },
+      {
+        badge: "2 · Live Destination Weather",
+        title: "Weather-aware packing list",
+        body: "ClosetAI checks the local climate for your destination and selects versatile tops, bottoms, outerwear, and shoes that mix and match.",
+      },
+      {
+        badge: "3 · Day-by-Day Itinerary",
+        title: "Interactive checklist & daily looks",
+        body: "Check off each garment as you pack your bag and review the day-by-day outfit rotation planned for your trip.",
+      },
+    ],
+  },
+  calendar: {
+    emoji: "📅",
+    headline: "How Outfit Calendar Works",
+    subtitle:
+      "Plan your outfits for the week ahead and keep a visual diary of what you wore each day.",
+    steps: [
+      {
+        badge: "1 · Schedule Ahead",
+        title: "Assign outfits to upcoming days",
+        body: "Pick any date on your calendar and assign a saved outfit so your morning routine is effortless.",
+      },
+      {
+        badge: "2 · Confirm & Log Wear",
+        title: "Mark planned outfits as worn",
+        body: "When you wear a scheduled look, confirm it on the calendar to automatically update wear counts across all included garments.",
+      },
+      {
+        badge: "3 · Avoid Outfit Repeats",
+        title: "Smart rotation history",
+        body: "ClosetAI uses your calendar history to avoid recommending the exact same outfit on consecutive days.",
+      },
+    ],
+  },
+  laundry: {
+    emoji: "🧺",
+    headline: "How the Laundry Tracker Works",
+    subtitle:
+      "Keep your outfit recommendations accurate by tracking which garments are clean, worn, or in the wash.",
+    steps: [
+      {
+        badge: "1 · Automatic Wear Tracking",
+        title: "Wears increment automatically",
+        body: "Whenever you mark an outfit as worn, each garment's wear counter increases and moves from Clean to Worn or Dirty.",
+      },
+      {
+        badge: "2 · Filtered Out When Dirty",
+        title: "No dirty clothes in suggestions",
+        body: "Anything marked Dirty, In Laundry, Washing, or Drying is automatically excluded from AI Stylist and Outfit Studio suggestions.",
+      },
+      {
+        badge: "3 · One-Tap Bulk Wash",
+        title: "Move loads back to Clean",
+        body: "Advance items through Washing/Drying or tap 'Mark all as washed & clean' to reset wear counts back to zero.",
+      },
+    ],
+  },
+  settings: {
+    emoji: "⚙️",
+    headline: "Personalize Your Style & Morning Briefs",
+    subtitle:
+      "Configure your style persona, timezone, and automated Daily Outfit emails or WhatsApp briefings.",
+    steps: [
+      {
+        badge: "1 · Style Persona & Location",
+        title: "Tailor AI recommendations",
+        body: "Set your preferred styles, occasions, gender presentation, and city so weather-aware styling matches your climate.",
+      },
+      {
+        badge: "2 · Daily Morning Briefings",
+        title: "Email & WhatsApp schedules",
+        body: "Choose your preferred delivery time to receive a curated Daily Outfit and Weekly Laundry Digest automatically.",
+      },
+      {
+        badge: "3 · Instant Test Previews",
+        title: "Send a live test anytime",
+        body: "Use the 'Send Test Email' or 'Send Test WhatsApp' buttons to preview your morning brief immediately.",
       },
     ],
   },

@@ -60,6 +60,15 @@ const TOUR_STEPS: TourStep[] = [
       "Get personalized outfit recommendations based on your wardrobe and preferences.",
   },
   {
+    id: "packing",
+    targetSelector: '[data-tour="nav-/packing"]',
+    mobileSelector: '[data-tour-mobile="nav-/packing"]',
+    emoji: "🧳",
+    title: "Trip Packing Capsule",
+    description:
+      "Enter any destination and trip duration to pack a weather-aware, carry-on friendly mix-and-match capsule.",
+  },
+  {
     id: "calendar",
     targetSelector: '[data-tour="nav-/calendar"]',
     mobileSelector: '[data-tour-mobile="nav-/calendar"]',
