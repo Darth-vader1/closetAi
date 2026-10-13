@@ -1,11 +1,9 @@
+"use client";
+
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Wifi, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-export const metadata: Metadata = {
-  title: "You're offline",
-};
 
 export default function OfflinePage() {
   return (
