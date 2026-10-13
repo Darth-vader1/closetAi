@@ -1,6 +1,5 @@
 "use client";
 
-import type { Metadata } from "next";
 import Link from "next/link";
 import { Wifi, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,10 +14,10 @@ export default function OfflinePage() {
         
         <div className="space-y-2">
           <h1 className="text-2xl font-serif font-semibold text-foreground">
-            You're offline
+            You&apos;re offline
           </h1>
           <p className="text-sm text-muted">
-            It looks like you've lost your internet connection. Some features may not be available until you're back online.
+            It looks like you&apos;ve lost your internet connection. Some features may not be available until you&apos;re back online.
           </p>
         </div>
 
@@ -39,7 +38,7 @@ export default function OfflinePage() {
         </div>
 
         <p className="text-xs text-muted">
-          Don't worry — your data is safe. We'll sync any changes when you're back online.
+          Don&apos;t worry — your data is safe. We&apos;ll sync any changes when you&apos;re back online.
         </p>
       </div>
     </div>
