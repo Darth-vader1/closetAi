@@ -8,7 +8,7 @@ export function friendlyAuthError(error: { code?: string; status?: number; messa
     case "weak_password":
       return "That password is too easy to guess. Try a longer one with a mix of characters.";
     case "same_password":
-      return "Choose a password different from your current one.";
+      return "This password is the same as your current one. Choose a different password. If you just reset your password, try signing in instead of resetting again.";
     case "over_request_rate_limit":
     case "over_email_send_rate_limit":
       return "Too many attempts. Please wait a few minutes and try again.";

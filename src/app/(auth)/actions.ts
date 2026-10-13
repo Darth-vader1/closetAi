@@ -266,13 +266,22 @@ export async function updatePasswordAction(input: unknown): Promise<AuthActionRe
     const supabase = await createClient();
     const { data } = await supabase.auth.getClaims();
     if (!data?.claims?.sub) {
+      logger.warn("auth.password_update_no_session");
       return { ok: false, error: "This reset link has expired or was already used. Request a new one." };
     }
+    
+    const userId = data.claims.sub;
     const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
     if (error) {
-      logger.warn("auth.password_update_failed", { code: error.code, status: error.status });
+      logger.warn("auth.password_update_failed", { 
+        code: error.code, 
+        status: error.status,
+        userId 
+      });
       return { ok: false, error: friendlyAuthError(error) };
     }
+    
+    logger.info("auth.password_update_success", { userId });
   } catch (err) {
     const cfg = configFailure(err);
     if (cfg) return cfg;

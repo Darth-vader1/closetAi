@@ -392,11 +392,28 @@ export function ResetPasswordForm() {
   return (
     <form method="post" onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
       <FormMessages error={formError} success={success} />
-      <Field id="password" label="New password" hint="At least 8 characters." error={errors.password?.message}>
-        <Input id="password" type="password" autoComplete="new-password" aria-invalid={!!errors.password} {...form.register("password")} />
+      {!formError && !success ? (
+        <Alert tone="info">
+          Choose a new password that&apos;s different from your current one. After updating, you&apos;ll be signed in automatically.
+        </Alert>
+      ) : null}
+      <Field id="password" label="New password" hint="At least 8 characters. Make it different from your old password." error={errors.password?.message}>
+        <Input 
+          id="password" 
+          type="password" 
+          autoComplete="new-password" 
+          aria-invalid={!!errors.password} 
+          {...form.register("password")} 
+        />
       </Field>
       <Field id="confirmPassword" label="Confirm new password" error={errors.confirmPassword?.message}>
-        <Input id="confirmPassword" type="password" autoComplete="new-password" aria-invalid={!!errors.confirmPassword} {...form.register("confirmPassword")} />
+        <Input 
+          id="confirmPassword" 
+          type="password" 
+          autoComplete="new-password" 
+          aria-invalid={!!errors.confirmPassword} 
+          {...form.register("confirmPassword")} 
+        />
       </Field>
       <Button type="submit" className="w-full" loading={pending}>
         Update password

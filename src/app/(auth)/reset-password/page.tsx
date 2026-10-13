@@ -23,8 +23,11 @@ export default async function ResetPasswordPage() {
       ) : (
         <div className="space-y-4">
           <Alert tone="warning">This reset link has expired or was already used.</Alert>
+          <p className="text-sm text-muted">
+            If you already reset your password, try signing in with your new password instead.
+          </p>
           <Link href="/forgot-password" className="inline-block font-medium text-accent underline underline-offset-4">
-            Request a new link
+            Request a new reset link
           </Link>
         </div>
       )}
