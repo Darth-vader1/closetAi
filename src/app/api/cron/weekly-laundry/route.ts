@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getResendClient, sendEmail } from "@/lib/email/service";
 import { renderWeeklyLaundryHtml } from "@/lib/email/templates";
+import { getWhatsAppConfig, sendTemplateMessage } from "@/lib/whatsapp/service";
+import { WHATSAPP_TEMPLATES } from "@/lib/whatsapp/templates";
 import { logger } from "@/lib/logger";
 import {
   verifyCronRequest,
@@ -19,6 +21,9 @@ interface WeeklyPrefRow {
   weekly_day: number;
   weekly_time: string | null;
   unsubscribe_token: string;
+  whatsapp_phone?: string | null;
+  whatsapp_weekly_enabled?: boolean | null;
+  whatsapp_phone_verified?: boolean | null;
 }
 
 const CONCURRENCY_LIMIT = 5;
@@ -34,33 +39,41 @@ export async function GET(request: NextRequest) {
 
   const adminClient = createAdminClient();
   const hasResend = Boolean(getResendClient());
+  const hasWhatsApp = Boolean(getWhatsAppConfig());
 
-  logger.info("cron.weekly_laundry_start", { hasResend });
+  logger.info("cron.weekly_laundry_start", { hasResend, hasWhatsApp });
 
   try {
     // 1. Fetch users with weekly laundry digest enabled using real schema columns
-    const { data: usersWithPrefs, error: prefsErr } = await adminClient
+    let prefsData: WeeklyPrefRow[] | null = null;
+    const { data: fullPrefs, error: fullErr } = await adminClient
       .from("email_preferences")
-      .select("user_id, weekly_enabled, weekly_day, weekly_time, unsubscribe_token")
-      .eq("weekly_enabled", true);
+      .select("user_id, weekly_enabled, weekly_day, weekly_time, unsubscribe_token, whatsapp_phone, whatsapp_weekly_enabled, whatsapp_phone_verified");
 
-    if (prefsErr) {
-      logger.error("cron.fetch_laundry_prefs_failed", { error: prefsErr });
+    if (fullErr && (fullErr.code === "42703" || fullErr.code === "PGRST204" || fullErr.message?.includes("whatsapp"))) {
+      // Fallback if WhatsApp columns don't exist
+      const { data: basePrefs, error: baseErr } = await adminClient
+        .from("email_preferences")
+        .select("user_id, weekly_enabled, weekly_day, weekly_time, unsubscribe_token");
+
+      if (baseErr) {
+        logger.error("cron.fetch_laundry_prefs_failed", { error: baseErr });
+        return NextResponse.json({ error: "Could not query email preferences." }, { status: 500 });
+      }
+      prefsData = basePrefs as WeeklyPrefRow[];
+    } else if (fullErr) {
+      logger.error("cron.fetch_laundry_prefs_failed", { error: fullErr });
       return NextResponse.json({ error: "Could not query email preferences." }, { status: 500 });
+    } else {
+      prefsData = fullPrefs as WeeklyPrefRow[];
     }
 
-    const eligiblePrefs = (usersWithPrefs ?? []) as WeeklyPrefRow[];
+    const eligiblePrefs = (prefsData ?? []).filter(
+      (p) => p.weekly_enabled || Boolean(p.whatsapp_weekly_enabled && p.whatsapp_phone && p.whatsapp_phone_verified),
+    );
 
     if (eligiblePrefs.length === 0) {
-      return NextResponse.json({ ok: true, dispatchedCount: 0, message: "No users opted in for weekly laundry emails." });
-    }
-
-    if (!hasResend) {
-      return NextResponse.json({
-        ok: true,
-        dispatchedCount: 0,
-        message: "Resend email provider is not configured; skipping weekly digest dispatch.",
-      });
+      return NextResponse.json({ ok: true, dispatchedCount: 0, message: "No users opted in for weekly laundry notifications." });
     }
 
     const isWeeklyBatch =
@@ -89,6 +102,17 @@ export async function GET(request: NextRequest) {
       }
 
       // Atomically claim this ISO week's slot in email_logs (e.g. '2026-W41')
+      const wantEmail = pref.weekly_enabled && hasResend;
+      const wantWhatsApp = Boolean(
+        pref.whatsapp_weekly_enabled &&
+        pref.whatsapp_phone &&
+        pref.whatsapp_phone_verified
+      ) && hasWhatsApp;
+
+      if (!wantEmail && !wantWhatsApp) {
+        return;
+      }
+
       const slot = await claimEmailLogSlot(adminClient, userId, "WEEKLY", clock.isoWeekKey);
       if (!slot) {
         return; // Already sent or in progress for this week
@@ -97,7 +121,7 @@ export async function GET(request: NextRequest) {
       try {
         const { data: authUser } = await adminClient.auth.admin.getUserById(userId);
         const recipientEmail = authUser?.user?.email;
-        if (!recipientEmail) {
+        if (!recipientEmail && wantEmail) {
           await finalizeEmailLogSlot(adminClient, slot.logId, {
             status: "SKIPPED",
             reason: "User has no email address.",
@@ -133,34 +157,74 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        const displayName = profile?.display_name || recipientEmail.split("@")[0];
+        const displayName = profile?.display_name || recipientEmail?.split("@")[0] || "Friend";
 
-        const html = renderWeeklyLaundryHtml({
-          displayName,
-          cleanCount,
-          wornCount,
-          dirtyCount,
-          inLaundryCount,
-          urgentItems: urgentItems.slice(0, 6),
-          unsubscribeToken: pref.unsubscribe_token,
-        });
+        let emailSent = false;
+        let waSent = false;
+        let providerMessageId: string | undefined;
+        const errors: string[] = [];
 
-        const sendResult = await sendEmail({
-          to: recipientEmail,
-          subject: `Weekly Laundry Digest: ${dirtyCount + inLaundryCount} items waiting · ClosetAI`,
-          html,
-        });
+        // 1. Dispatch Email (if enabled and email exists)
+        if (wantEmail && recipientEmail) {
+          const html = renderWeeklyLaundryHtml({
+            displayName,
+            cleanCount,
+            wornCount,
+            dirtyCount,
+            inLaundryCount,
+            urgentItems: urgentItems.slice(0, 6),
+            unsubscribeToken: pref.unsubscribe_token,
+          });
 
-        if (sendResult.success) {
+          const sendResult = await sendEmail({
+            to: recipientEmail,
+            subject: `Weekly Laundry Digest: ${dirtyCount + inLaundryCount} items waiting · ClosetAI`,
+            html,
+          });
+
+          if (sendResult.success) {
+            emailSent = true;
+            providerMessageId = sendResult.id;
+          } else if (sendResult.error) {
+            errors.push(`email: ${sendResult.error}`);
+          }
+        }
+
+        // 2. Dispatch WhatsApp (if enabled, phone verified, and WhatsApp configured)
+        if (wantWhatsApp && pref.whatsapp_phone) {
+          // Use template message for weekly reminders (likely outside 24h window)
+          const waRes = await sendTemplateMessage(
+            pref.whatsapp_phone,
+            WHATSAPP_TEMPLATES.WEEKLY_LAUNDRY,
+            {
+              userName: displayName,
+              itemCount: dirtyCount + inLaundryCount,
+            }
+          );
+
+          if (waRes.success) {
+            waSent = true;
+            providerMessageId = providerMessageId ?? waRes.id;
+          } else if (waRes.error) {
+            errors.push(`whatsapp: ${waRes.error}`);
+          }
+        }
+
+        if (emailSent || waSent) {
           dispatchedCount++;
           await finalizeEmailLogSlot(adminClient, slot.logId, {
             status: "SENT",
-            providerMessageId: sendResult.id,
+            providerMessageId,
+          });
+        } else if (errors.length > 0) {
+          await finalizeEmailLogSlot(adminClient, slot.logId, {
+            status: "FAILED",
+            lastError: errors.join("; "),
           });
         } else {
           await finalizeEmailLogSlot(adminClient, slot.logId, {
-            status: "FAILED",
-            lastError: sendResult.error || "Email delivery failed",
+            status: "SKIPPED",
+            reason: "No deliverable recipient address.",
           });
         }
       } catch (userErr) {

@@ -36,6 +36,7 @@ Configure these environment variables in your **Vercel Project Settings > Enviro
 | `WHATSAPP_PHONE_NUMBER_ID` | Meta WhatsApp Phone Number ID | Meta App Dashboard > WhatsApp |
 | `WHATSAPP_VERIFY_TOKEN` | Webhook verification token | Meta App Dashboard > WhatsApp > Configuration |
 | `WHATSAPP_APP_SECRET` | Meta App Secret for `X-Hub-Signature-256` verification | Meta App Settings > Basic > App secret |
+| `WHATSAPP_VERIFICATION_PEPPER` | Secret pepper for hashing verification codes (32+ chars, never expose) | Generate with: `openssl rand -hex 32` |
 
 ---
 
@@ -111,3 +112,103 @@ ClosetAI features automated daily outfit suggestions and weekly laundry alerts. 
 2. **On-Model AI Photoshoot**:
    - Verify `PUTER_API_TOKEN` is set.
    - Server handles generation headlessly without prompting users to log in or create an account.
+
+---
+
+## 8. WhatsApp Production Safety & Phone Verification
+
+### A. Phone Verification Requirements
+ClosetAI requires users to **verify ownership of their WhatsApp number** before production messages are delivered. This prevents accidental spam and ensures compliance with Meta policies.
+
+**How verification works:**
+1. User enables WhatsApp notifications and enters their phone number in Settings.
+2. User clicks "Send Verification Code" — a 6-digit code in format `CLOSET-XXXXXX` is generated.
+3. Code is sent via Meta-approved **template message** (works outside 24h window).
+4. User texts the code back to your WhatsApp Business number OR enters it in the Settings UI.
+5. System verifies code via SHA-256 hash (with server-side pepper) and marks phone as verified.
+
+**Security features:**
+- Codes hashed with `WHATSAPP_VERIFICATION_PEPPER` (never stored plaintext)
+- Rate limits: 5 code generation attempts per hour, max 3 active codes
+- Attempt limits: 5 verification attempts per code before lockout
+- 15-minute expiry per code
+- Webhook deduplication prevents replay attacks
+
+### B. Template Message Configuration
+WhatsApp requires **pre-approved template messages** for messages sent outside the 24-hour customer care window.
+
+**Required templates to register in Meta Business Manager:**
+
+1. **`phone_verification`** (Category: Authentication)
+   ```
+   Your ClosetAI verification code is: {{1}}
+   
+   Valid for 15 minutes. Reply with this code to verify your phone number.
+   ```
+
+2. **`daily_outfit_suggestion`** (Category: Marketing)
+   ```
+   Good morning {{1}}! 👋
+   
+   Today's weather: {{2}}
+   
+   Check your daily outfit suggestion in the ClosetAI app.
+   ```
+
+3. **`weekly_laundry_reminder`** (Category: Marketing)
+   ```
+   Hi {{1}}! 🧺
+   
+   You have {{2}} items waiting for laundry this week.
+   
+   Open the ClosetAI app to manage your laundry schedule.
+   ```
+
+**Note:** Template approval can take 24-48 hours. Test in Meta's development environment first.
+
+### C. 24-Hour Messaging Window
+- **Within 24h of user's last message:** Can send rich free-form messages with images
+- **Outside 24h window:** Must use pre-approved templates only
+- System automatically tracks `last_whatsapp_message_at` for each user
+- Cron jobs detect window status and choose appropriate message type
+
+### D. Webhook Configuration
+Set up the webhook endpoint in Meta App Dashboard:
+
+1. **Callback URL:** `https://your-domain.com/api/webhook/whatsapp`
+2. **Verify Token:** Your `WHATSAPP_VERIFY_TOKEN` value
+3. **Subscribe to:** `messages` field
+4. **Signature Verification:** Uses `WHATSAPP_APP_SECRET` for `X-Hub-Signature-256` validation
+
+**Webhook handles:**
+- Incoming verification codes (users text code to business number)
+- STOP/START opt-out commands
+- Message status updates (delivered, read)
+- Automatic message deduplication (via `whatsapp_webhook_messages` table)
+
+### E. Production Safety Checks
+The system **refuses simulation mode in production**:
+```typescript
+// If WhatsApp credentials not configured in production:
+throw new Error('PRODUCTION_SAFETY: WhatsApp credentials not configured');
+```
+
+This prevents silent failures where messages appear to send but don't actually reach users.
+
+---
+
+## 9. Database Cleanup Tasks
+
+Add these periodic cleanup tasks to your Supabase cron or external scheduler:
+
+```sql
+-- Clean up expired verification codes (run daily)
+SELECT cleanup_expired_verifications();
+
+-- Clean up old webhook messages (run weekly)
+SELECT cleanup_old_webhook_messages();
+```
+
+These functions are defined in the migrations and help keep the database lean.
+
+---

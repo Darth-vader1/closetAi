@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getResendClient, sendEmail } from "@/lib/email/service";
 import { renderDailyOutfitHtml } from "@/lib/email/templates";
-import { getWhatsAppConfig, sendWhatsAppMessage, formatDailyOutfitWhatsApp } from "@/lib/whatsapp/service";
+import { getWhatsAppConfig, sendWhatsAppMessage, sendTemplateMessage, formatDailyOutfitWhatsApp } from "@/lib/whatsapp/service";
+import { WHATSAPP_TEMPLATES, isWithin24HourWindow } from "@/lib/whatsapp/templates";
 import { getLiveWeather } from "@/lib/weather/service";
 import { getAppUrl } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -23,6 +24,8 @@ interface DailyPrefRow {
   unsubscribe_token: string;
   whatsapp_phone?: string | null;
   whatsapp_daily_enabled?: boolean | null;
+  whatsapp_phone_verified?: boolean | null;
+  last_whatsapp_message_at?: string | null;
 }
 
 const CONCURRENCY_LIMIT = 5;
@@ -48,7 +51,7 @@ export async function GET(request: NextRequest) {
     let prefsData: DailyPrefRow[] | null = null;
     const { data: fullPrefs, error: fullErr } = await adminClient
       .from("email_preferences")
-      .select("user_id, daily_enabled, daily_time, unsubscribe_token, whatsapp_phone, whatsapp_daily_enabled");
+      .select("user_id, daily_enabled, daily_time, unsubscribe_token, whatsapp_phone, whatsapp_daily_enabled, whatsapp_phone_verified, last_whatsapp_message_at");
 
     if (fullErr && (fullErr.code === "42703" || fullErr.code === "PGRST204" || fullErr.message?.includes("whatsapp"))) {
       const { data: basePrefs, error: baseErr } = await adminClient
@@ -101,7 +104,11 @@ export async function GET(request: NextRequest) {
       }
 
       const wantEmail = pref.daily_enabled && hasResend;
-      const wantWhatsApp = Boolean(pref.whatsapp_daily_enabled && pref.whatsapp_phone) && hasWhatsApp;
+      const wantWhatsApp = Boolean(
+        pref.whatsapp_daily_enabled && 
+        pref.whatsapp_phone && 
+        pref.whatsapp_phone_verified
+      ) && hasWhatsApp;
 
       // Do not claim or mark SENT if neither configured provider can actually deliver
       if (!wantEmail && !wantWhatsApp) {
@@ -271,11 +278,30 @@ export async function GET(request: NextRequest) {
             appUrl,
           });
 
-          const waRes = await sendWhatsAppMessage({
-            to: pref.whatsapp_phone,
-            message: waMessage,
-            imageUrls: signedUrls,
-          });
+          // Check if within 24-hour window
+          const within24h = isWithin24HourWindow(pref.last_whatsapp_message_at || null);
+          
+          let waRes: { success: boolean; id?: string; error?: string };
+          
+          if (within24h) {
+            // Within 24h window - can send regular message with images
+            waRes = await sendWhatsAppMessage({
+              to: pref.whatsapp_phone,
+              message: waMessage,
+              imageUrls: signedUrls,
+              userId: userId,
+            });
+          } else {
+            // Outside 24h window - must use approved template
+            waRes = await sendTemplateMessage(
+              pref.whatsapp_phone,
+              WHATSAPP_TEMPLATES.DAILY_OUTFIT,
+              {
+                userName: displayName,
+                weatherDescription: weatherSummary || 'perfect weather for dressing up',
+              }
+            );
+          }
 
           if (waRes.success) {
             waSent = true;

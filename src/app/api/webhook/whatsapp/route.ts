@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { logger } from "@/lib/logger";
+import { logger, logError } from "@/lib/logger";
+import { createClient } from "@/lib/supabase/server";
+import { parseVerificationCode, hashVerificationCode } from "@/lib/whatsapp/verification";
 
 function safeCompare(a: string, b: string): boolean {
   const bufA = Buffer.from(a, "utf8");
@@ -10,11 +12,183 @@ function safeCompare(a: string, b: string): boolean {
 }
 
 /**
+ * Handles incoming text message for verification code or opt-out commands
+ */
+async function handleIncomingTextMessage(
+  messageId: string,
+  from: string,
+  textBody: string
+): Promise<void> {
+  try {
+    const supabase = await createClient();
+    
+    // Check for message deduplication
+    const { data: existing } = await supabase
+      .from('whatsapp_webhook_messages')
+      .select('id')
+      .eq('whatsapp_message_id', messageId)
+      .single();
+    
+    if (existing) {
+      logger.info('whatsapp.duplicate_message_ignored', { messageId });
+      return;
+    }
+    
+    // Store message ID for deduplication (create table if needed)
+    await supabase
+      .from('whatsapp_webhook_messages')
+      .insert({ 
+        whatsapp_message_id: messageId,
+        from_number: from.replace(/[^0-9]/g, ''),
+        received_at: new Date().toISOString(),
+      })
+      .catch(() => {
+        // Table might not exist yet - non-critical for now
+        logger.warn('whatsapp.dedup_table_missing');
+      });
+    
+    const normalized = textBody.trim().toUpperCase();
+    
+    // Handle STOP command (opt-out)
+    if (normalized === 'STOP' || normalized === 'STOPALL' || normalized === 'UNSUBSCRIBE' || normalized === 'STOP ALL') {
+      await handleOptOut(from);
+      return;
+    }
+    
+    // Handle START command (opt-in)
+    if (normalized === 'START' || normalized === 'UNSTOP') {
+      await handleOptIn(from);
+      return;
+    }
+    
+    // Try to parse as verification code
+    const codeDigits = parseVerificationCode(textBody);
+    if (codeDigits) {
+      await handleVerificationCode(from, codeDigits);
+      return;
+    }
+    
+    // Unknown message - log but don't respond
+    logger.info('whatsapp.unknown_message', { messageId });
+  } catch (error) {
+    logError(error as Error, { messageId, context: 'handleIncomingTextMessage' });
+  }
+}
+
+/**
+ * Handles user opt-out (STOP command)
+ */
+async function handleOptOut(from: string): Promise<void> {
+  try {
+    const supabase = await createClient();
+    const cleanPhone = from.replace(/[^0-9]/g, '');
+    
+    // Disable WhatsApp for this phone number in email_preferences
+    const { error } = await supabase
+      .from('email_preferences')
+      .update({ 
+        whatsapp_enabled: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('whatsapp_phone', cleanPhone);
+    
+    if (error) {
+      logError(error, { phone: 'REDACTED', context: 'handleOptOut' });
+    } else {
+      logger.info('whatsapp.user_opted_out');
+    }
+  } catch (error) {
+    logError(error as Error, { context: 'handleOptOut' });
+  }
+}
+
+/**
+ * Handles user opt-in (START command)
+ */
+async function handleOptIn(from: string): Promise<void> {
+  try {
+    const supabase = await createClient();
+    const cleanPhone = from.replace(/[^0-9]/g, '');
+    
+    // Re-enable WhatsApp for this phone number (if they had it before)
+    const { error } = await supabase
+      .from('email_preferences')
+      .update({ 
+        whatsapp_enabled: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('whatsapp_phone', cleanPhone);
+    
+    if (error) {
+      logError(error, { phone: 'REDACTED', context: 'handleOptIn' });
+    } else {
+      logger.info('whatsapp.user_opted_in');
+    }
+  } catch (error) {
+    logError(error as Error, { context: 'handleOptIn' });
+  }
+}
+
+/**
+ * Handles verification code submission via WhatsApp
+ */
+async function handleVerificationCode(from: string, codeDigits: string): Promise<void> {
+  try {
+    const supabase = await createClient();
+    const cleanPhone = from.replace(/[^0-9]/g, '');
+    
+    // Find user by phone number in email_preferences
+    const { data: prefs, error: prefsError } = await supabase
+      .from('email_preferences')
+      .select('user_id, whatsapp_phone_verified')
+      .eq('whatsapp_phone', cleanPhone)
+      .single();
+    
+    if (prefsError || !prefs) {
+      logger.warn('whatsapp.verification_no_user_found');
+      return;
+    }
+    
+    if (prefs.whatsapp_phone_verified) {
+      logger.info('whatsapp.already_verified', { userId: prefs.user_id });
+      return;
+    }
+    
+    // Hash and verify code
+    const codeHash = hashVerificationCode(codeDigits);
+    
+    const { data, error } = await supabase.rpc('verify_whatsapp_code', {
+      p_user_id: prefs.user_id,
+      p_code_hash: codeHash,
+    });
+    
+    if (error) {
+      logError(error, { userId: prefs.user_id, context: 'verify_whatsapp_code' });
+      return;
+    }
+    
+    if (data && data[0]?.success) {
+      logger.info('whatsapp.phone_verified_via_webhook', { userId: prefs.user_id });
+    } else {
+      logger.info('whatsapp.invalid_code_submitted', { userId: prefs.user_id });
+    }
+  } catch (error) {
+    logError(error as Error, { context: 'handleVerificationCode' });
+  }
+}
+
+/**
  * Meta WhatsApp Webhook Endpoint
  *
  * 1. GET: Handshake verification by Meta to confirm the endpoint URL and secret token.
  * 2. POST: Receives incoming status updates (sent, delivered, read) and replies from users,
  *    verified via X-Hub-Signature-256 HMAC-SHA256.
+ * 
+ * Handles:
+ * - Verification codes texted to business number
+ * - STOP/START opt-out commands
+ * - Message status updates
+ * - Message deduplication
  */
 
 export async function GET(request: NextRequest) {
@@ -77,11 +251,21 @@ export async function POST(request: NextRequest) {
       }
 
       if (Array.isArray(messages) && messages[0]) {
+        const msg = messages[0];
         // Log only message ID and type — never log phone numbers or message body text (PII)
         logger.info("whatsapp.incoming_message", {
-          id: messages[0].id,
-          type: messages[0].type,
+          id: msg.id,
+          type: msg.type,
         });
+        
+        // Handle text messages (verification codes, STOP/START commands)
+        if (msg.type === 'text' && msg.text?.body) {
+          await handleIncomingTextMessage(
+            msg.id,
+            msg.from,
+            msg.text.body
+          );
+        }
       }
     }
 
