@@ -5,6 +5,21 @@ import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /**
+ * Type definition for Workbox instance
+ */
+interface WorkboxLifecycleWaiting {
+  addEventListener(event: string, callback: () => void): void;
+  register(): void;
+  messageSkipWaiting(): void;
+}
+
+declare global {
+  interface Window {
+    workbox?: WorkboxLifecycleWaiting;
+  }
+}
+
+/**
  * Shows update notification when new service worker version is available.
  * Works with @ducanh2912/next-pwa's automatic registration.
  */
@@ -17,7 +32,7 @@ export function PwaUpdatePrompt() {
     }
 
     // Check if workbox is available (from next-pwa)
-    const wb = (window as any).workbox;
+    const wb = window.workbox;
 
     if (wb) {
       // Use Workbox events
@@ -72,7 +87,7 @@ export function PwaUpdatePrompt() {
   const handleUpdate = () => {
     setShowPrompt(false);
     
-    const wb = (window as any).workbox;
+    const wb = window.workbox;
     
     if (wb && typeof wb.messageSkipWaiting === "function") {
       // Tell workbox to skip waiting and activate

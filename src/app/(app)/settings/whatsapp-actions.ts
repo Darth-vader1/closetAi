@@ -14,7 +14,6 @@ import {
   generateVerificationCode, 
   verifySubmittedCode, 
   getVerificationStatus,
-  formatVerificationCode,
   type VerificationStatus,
 } from '@/lib/whatsapp/verification';
 import { sendTemplateMessage } from '@/lib/whatsapp/service';

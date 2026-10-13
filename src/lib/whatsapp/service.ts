@@ -2,7 +2,6 @@ import { logger } from "@/lib/logger";
 import {
   buildTemplateMessagePayload,
   parseMetaError,
-  isWithin24HourWindow,
   type WhatsAppTemplateName,
   type TemplateParams,
   logTemplateSend,
@@ -321,7 +320,7 @@ export async function sendWhatsAppMessage({
             },
           };
 
-      let res = await fetch(endpoint, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${config.accessToken}`,
@@ -330,7 +329,7 @@ export async function sendWhatsAppMessage({
         body: JSON.stringify(primaryPayload),
       });
 
-      let data = await res.json().catch(() => null);
+      const data = await res.json().catch(() => null);
 
       // Meta 24-hour Customer Care Window rule:
       // If outside window (error 131047), don't auto-retry - this should use templates
