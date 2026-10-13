@@ -95,3 +95,28 @@ h3 {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Wardrobe hero animations */
+
+/* Subtle garment sway — very gentle, like a light draught */
+@keyframes garmentSway {
+  0%   { transform: translateX(-50%) rotate(-1.2deg); }
+  100% { transform: translateX(-50%) rotate(1.2deg);  }
+}
+
+@keyframes wardrobeFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [class*="animate-"] {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
