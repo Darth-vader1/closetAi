@@ -19,7 +19,6 @@ export interface AccessoryGap {
 
 const NEUTRAL_COLOURS = new Set(["black", "white", "grey", "navy", "beige", "cream", "brown"]);
 const FORMAL_OCCASIONS = new Set(["work", "formal", "business"]);
-const CASUAL_OCCASIONS = new Set(["casual", "everyday", "weekend"]);
 
 /** Computes color compatibility score between items */
 function calculateColorHarmony(items: WardrobeItem[]): number {
