@@ -54,7 +54,15 @@ function useAuthSubmit<T extends FieldValues>(
         for (const [name, message] of Object.entries(result.fieldErrors ?? {})) {
           setFieldError(name as Path<T>, message);
         }
-      } catch {
+      } catch (error) {
+        // Next.js redirect() throws a special error that we should not catch
+        // Check if it's a Next.js NEXT_REDIRECT error
+        if (error && typeof error === "object" && "digest" in error && 
+            typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) {
+          // This is a successful redirect, let it through
+          throw error;
+        }
+        // Real network/server error
         setFormError("We couldn't reach the server. Check your connection and try again.");
       }
     });
