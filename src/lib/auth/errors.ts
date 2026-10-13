@@ -18,6 +18,15 @@ export function friendlyAuthError(error: { code?: string; status?: number; messa
     case "session_not_found":
     case "refresh_token_not_found":
       return "Your session has expired. Please sign in again.";
+    case "otp_expired":
+      return "This verification code has expired. Request a new one.";
+    case "otp_disabled":
+      return "Email verification is not enabled. Please contact support.";
+    case "invalid_token":
+    case "token_not_found":
+      return "Invalid or expired verification code. Please check the code and try again.";
+    case "user_not_found":
+      return "No account found with that email address.";
     default:
       return error.status && error.status >= 500
         ? "Our sign-in service is having trouble. Please try again shortly."

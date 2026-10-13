@@ -80,20 +80,32 @@ export async function POST(request: NextRequest) {
     const defaultNext = type === "recovery" ? "/reset-password" : "/onboarding";
     const redirectTo = safeRedirectPath(next, defaultNext);
 
-    const supabase = await createClient();
-    const { error } = await supabase.auth.verifyOtp({
+    // Create client with remember=true to ensure session persists
+    const supabase = await createClient({ rememberMe: true });
+    const { data, error } = await supabase.auth.verifyOtp({
       email,
       token,
       type: type as EmailOtpType,
     });
 
     if (error) {
-      logger.warn("auth.confirm_otp_post_failed", { code: error.code, status: error.status });
+      logger.warn("auth.confirm_otp_post_failed", { code: error.code, status: error.status, type });
       return NextResponse.json(
         { ok: false, error: friendlyAuthError(error) },
         { status: 400 },
       );
     }
+
+    // Verify session was established
+    if (!data?.session) {
+      logger.error("auth.confirm_otp_no_session", { type, hasUser: !!data?.user });
+      return NextResponse.json(
+        { ok: false, error: "Verification succeeded but session could not be established. Please try the email link instead." },
+        { status: 500 },
+      );
+    }
+
+    logger.info("auth.confirm_otp_post_success", { type, userId: data.user?.id });
 
     return NextResponse.json({ ok: true, redirectTo });
   } catch (err) {

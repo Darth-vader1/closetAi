@@ -117,17 +117,36 @@ function OtpFallbackPanel({
           next,
         }),
       });
+      
+      if (!res.ok) {
+        // Try to parse error response
+        try {
+          const data = (await res.json()) as {
+            ok?: boolean;
+            redirectTo?: string;
+            error?: string;
+          };
+          setOtpError(data.error || `Verification failed (${res.status}). Please check your code and try again.`);
+        } catch {
+          setOtpError(`Server error (${res.status}). Please try again.`);
+        }
+        return;
+      }
+
       const data = (await res.json()) as {
         ok?: boolean;
         redirectTo?: string;
         error?: string;
       };
-      if (!res.ok || !data.ok) {
+      
+      if (!data.ok) {
         setOtpError(data.error || "Invalid or expired verification code.");
         return;
       }
+      
       window.location.assign(data.redirectTo || next);
-    } catch {
+    } catch (err) {
+      console.error("OTP verification error:", err);
       setOtpError("Could not verify code. Check your connection and try again.");
     } finally {
       setVerifying(false);
