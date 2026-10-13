@@ -18,6 +18,11 @@ async function insertItem(userId: string, name: string, imagePath: string): Prom
   return res.rows[0].id;
 }
 
+// Helper to assert db is defined
+function assertDb(): asserts db is PGlite {
+  if (!db) throw new Error("Database not initialized");
+}
+
 beforeAll(async () => {
   try {
     db = await createTestDb();
@@ -46,7 +51,7 @@ afterAll(async () => {
 
 describe("schema bootstrap", () => {
   it.skipIf(!db)("creates a profile and DISABLED email preferences when a user signs up", async () => {
-    if (!db) return;
+    assertDb();
     const profile = await db.query<{ display_name: string; timezone: string }>(
       `select display_name, timezone from public.profiles where id = $1`,
       [alice],
@@ -60,7 +65,7 @@ describe("schema bootstrap", () => {
   });
 
   it("creates the wardrobe storage bucket as private", async () => {
-    if (!db) return; // Skip if PGlite not available
+    assertDb();
     const res = await db.query<{ public: boolean }>(`select public from storage.buckets where id = 'wardrobe'`);
     expect(res.rows[0].public).toBe(false);
   });
@@ -68,13 +73,13 @@ describe("schema bootstrap", () => {
 
 describe("Row Level Security isolation (Flow G)", () => {
   it("lets a user read their own items", async () => {
-    if (!db) return;
+    assertDb();
     const rows = await asUser(db, alice, async () => (await db.query(`select id from public.wardrobe_items`)).rows);
     expect(rows).toHaveLength(1);
   });
 
   it("hides another user's items, outfits and profile", async () => {
-    if (!db) return;
+    assertDb();
     await asUser(db, bob, async () => {
       expect((await db.query(`select 1 from public.wardrobe_items`)).rows).toHaveLength(0);
       expect((await db.query(`select 1 from public.outfits`)).rows).toHaveLength(0);
@@ -85,7 +90,7 @@ describe("Row Level Security isolation (Flow G)", () => {
   });
 
   it("cannot update or delete another user's item by guessing its id", async () => {
-    if (!db) return;
+    assertDb();
     await asUser(db, bob, async () => {
       const upd = await db.query(`update public.wardrobe_items set name = 'hacked' where id = $1`, [aliceItem]);
       expect(upd.affectedRows).toBe(0);
@@ -97,7 +102,7 @@ describe("Row Level Security isolation (Flow G)", () => {
   });
 
   it("rejects inserting a row that claims another user's id", async () => {
-    if (!db) return;
+    assertDb();
     await asUser(db, bob, async () => {
       await expect(
         db.query(`insert into public.wardrobe_items (user_id, name, category, image_path) values ($1, 'x', 'jeans', 'p')`, [
@@ -108,7 +113,7 @@ describe("Row Level Security isolation (Flow G)", () => {
   });
 
   it("prevents Bob from putting Alice's garment into Bob's outfit (composite FK)", async () => {
-    if (!db) return;
+    assertDb();
     const bobOutfit = (
       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Bob outfit') returning id`, [
         bob,
@@ -126,7 +131,7 @@ describe("Row Level Security isolation (Flow G)", () => {
   });
 
   it("blocks users from writing email_logs, which are service-role only", async () => {
-    if (!db) return;
+    assertDb();
     await asUser(db, alice, async () => {
       await expect(
         db.query(`insert into public.email_logs (user_id, kind, period_key) values ($1, 'DAILY', '2026-10-09')`, [alice]),
@@ -135,7 +140,7 @@ describe("Row Level Security isolation (Flow G)", () => {
   });
 
   it("isolates private storage objects by folder", async () => {
-    if (!db) return;
+    assertDb();
     await db.query(`insert into storage.objects (bucket_id, name) values ('wardrobe', $1)`, [`${alice}/tee.jpg`]);
     const seenByBob = await asUser(db, bob, async () => (await db.query(`select 1 from storage.objects`)).rows);
     expect(seenByBob).toHaveLength(0);
@@ -151,7 +156,7 @@ describe("Row Level Security isolation (Flow G)", () => {
 
 describe("delete semantics", () => {
   it("deleting an outfit never deletes garments", async () => {
-    if (!db) return;
+    assertDb();
     const item = await insertItem(alice, "Keep me", `${alice}/keep.jpg`);
     const outfit = (
       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Temp') returning id`, [alice])
@@ -163,7 +168,7 @@ describe("delete semantics", () => {
   });
 
   it("deleting a garment removes its outfit links but keeps the outfit", async () => {
-    if (!db) return;
+    assertDb();
     const item = await insertItem(alice, "Temp item", `${alice}/temp.jpg`);
     const outfit = (
       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Stays') returning id`, [alice])
@@ -175,7 +180,7 @@ describe("delete semantics", () => {
   });
 
   it("deleting an outfit keeps worn history, nulling the outfit reference", async () => {
-    if (!db) return;
+    assertDb();
     const outfit = (
       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Worn once') returning id`, [alice])
     ).rows[0].id;
@@ -194,7 +199,7 @@ describe("delete semantics", () => {
 
 describe("change_item_status (laundry, Flow D)", () => {
   it("records events and updates last_washed_at ONLY when washing is confirmed", async () => {
-    if (!db) return;
+    assertDb();
     const id = await insertItem(alice, "Laundry tee", `${alice}/laundry.jpg`);
     await asUser(db, alice, async () => {
       await db.query(`select public.change_item_status($1, 'DIRTY')`, [id]);
@@ -223,7 +228,7 @@ describe("change_item_status (laundry, Flow D)", () => {
   });
 
   it("does not touch last_washed_at for a plain status edit back to CLEAN", async () => {
-    if (!db) return;
+    assertDb();
     const id = await insertItem(alice, "Edit tee", `${alice}/edit.jpg`);
     await asUser(db, alice, async () => {
       await db.query(`select public.change_item_status($1, 'DIRTY')`, [id]);
@@ -235,7 +240,7 @@ describe("change_item_status (laundry, Flow D)", () => {
   });
 
   it("rejects confirming a wash for a non-CLEAN target", async () => {
-    if (!db) return;
+    assertDb();
     const id = await insertItem(alice, "Bad tee", `${alice}/bad.jpg`);
     await asUser(db, alice, async () => {
       await expect(db.query(`select public.change_item_status($1, 'DRYING', true)`, [id])).rejects.toThrow(/only be confirmed/i);
@@ -243,7 +248,7 @@ describe("change_item_status (laundry, Flow D)", () => {
   });
 
   it("cannot change another user's item", async () => {
-    if (!db) return;
+    assertDb();
     await asUser(db, bob, async () => {
       await expect(db.query(`select public.change_item_status($1, 'DIRTY')`, [aliceItem])).rejects.toThrow(/not found/i);
     });
@@ -252,7 +257,7 @@ describe("change_item_status (laundry, Flow D)", () => {
 
 describe("email idempotency key", () => {
   it("allows only one email_logs row per user, kind and period", async () => {
-    if (!db) return;
+    assertDb();
     await db.query(`insert into public.email_logs (user_id, kind, period_key) values ($1, 'DAILY', '2026-10-10')`, [alice]);
     await expect(
       db.query(`insert into public.email_logs (user_id, kind, period_key) values ($1, 'DAILY', '2026-10-10')`, [alice]),
@@ -262,7 +267,7 @@ describe("email idempotency key", () => {
 
 describe("wear_outfit atomic RPC & profile deletion", () => {
   it("atomically logs outfit history, increments wear_count, sets last_worn_at, and marks status WORN", async () => {
-    if (!db) return;
+    assertDb();
     const itemId = await insertItem(alice, "Wear test shirt", `${alice}/wear-shirt.jpg`);
     const outfitId = (
       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Wear Test Look') returning id`, [
@@ -311,7 +316,7 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
   });
 
   it("rejects wear_outfit when an item is DIRTY", async () => {
-    if (!db) return;
+    assertDb();
     const dirtyItemId = await insertItem(alice, "Dirty blazer", `${alice}/dirty-blazer.jpg`);
     await db.query(`update public.wardrobe_items set status = 'DIRTY' where id = $1`, [dirtyItemId]);
     const outfitId = (
@@ -331,7 +336,7 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
   });
 
   it("rejects '..' path traversal in storage.objects policies", async () => {
-    if (!db) return;
+    assertDb();
     await asUser(db, bob, async () => {
       await expect(
         db.query(`insert into storage.objects (bucket_id, name) values ('wardrobe', $1)`, [`${bob}/../${alice}/sneaky.jpg`]),
@@ -340,7 +345,7 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
   });
 
   it("allows a user to delete their own profile and cascades to owned rows", async () => {
-    if (!db) return;
+    assertDb();
     const tempUser = await createUser(db, "TempUser");
     await insertItem(tempUser, "Temp shirt", `${tempUser}/shirt.jpg`);
     await asUser(db, tempUser, async () => {
@@ -351,4 +356,3 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
     expect(remaining.rows).toHaveLength(0);
   });
 });
-
