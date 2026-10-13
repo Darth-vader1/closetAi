@@ -1,3 +1,4 @@
+
 -- Migration: WhatsApp Phone Verification and Production Safety
 -- Description: Adds phone verification system, template message tracking, and production safety controls
 

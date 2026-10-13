@@ -3,7 +3,13 @@
  * touch the database and never decide what is trusted. Everything they return is `unknown` until
  * the service layer validates it against a Zod schema.
  */
-export type AiTask = "clothing_analysis" | "stylist_recommendation" | "travel_packing_capsule";
+export type AiTask =
+  | "clothing_analysis"
+  | "stylist_recommendation"
+  /** @deprecated Superseded by `packing_plan`; kept so older callers still type-check. */
+  | "travel_packing_capsule"
+  /** "Pack for..." planner: trips, school terms, work stints, events and long stays. */
+  | "packing_plan";
 
 export interface AiImage {
   bytes: Uint8Array;

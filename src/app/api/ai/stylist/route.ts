@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     // Fetch all user's wardrobe items (up to 200 items, not just first page of 24)
     const { data: itemRows, error: itemsErr } = await supabase
       .from("wardrobe_items")
-      .select("id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, occasions, seasons, warmth_level, image_path, status, is_favourite, ai_analysed, wear_count, last_worn_at, last_washed_at, created_at")
+      .select("id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, occasions, seasons, warmth_level, image_path, status, care_type, is_favourite, ai_analysed, wear_count, last_worn_at, last_washed_at, created_at")
       .eq("user_id", user.id)
       .limit(200);
 
@@ -73,6 +73,9 @@ export async function POST(request: NextRequest) {
       seasons: row.seasons ?? [],
       warmthLevel: row.warmth_level,
       status: row.status as WardrobeItem["status"],
+      careType: (row.care_type === "WASHABLE" || row.care_type === "WIPE_CLEAN" || row.care_type === "NO_WASH") 
+        ? row.care_type 
+        : "WASHABLE",
       isFavourite: row.is_favourite,
       aiAnalysed: row.ai_analysed,
       wearCount: row.wear_count,

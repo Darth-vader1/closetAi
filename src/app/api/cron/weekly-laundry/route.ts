@@ -129,11 +129,12 @@ export async function GET(request: NextRequest) {
           return;
         }
 
-        // Query garment statuses for user
+        // Query garment statuses for user (only WASHABLE items for laundry tracking)
         const { data: items } = await adminClient
           .from("wardrobe_items")
-          .select("name, category, status, wear_count")
-          .eq("user_id", userId);
+          .select("name, category, status, wear_count, care_type")
+          .eq("user_id", userId)
+          .eq("care_type", "WASHABLE");
 
         const allItems = items ?? [];
         let cleanCount = 0;

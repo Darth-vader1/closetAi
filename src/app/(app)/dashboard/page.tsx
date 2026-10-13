@@ -42,7 +42,16 @@ export default async function DashboardPage() {
   const validStatusItems = items.filter((r): r is typeof r & { status: LaundryStatus } => isLaundryStatus(r.status));
   const total = validStatusItems.length;
   const counts = countByStatus(validStatusItems);
-  const needsAttention = counts.DIRTY + counts.IN_LAUNDRY + counts.WASHING + counts.DRYING;
+  
+  // Only count WASHABLE items in wash cycle (exclude accessories and shoes)
+  const washableInCycle = items.filter((i) => 
+    i.status && isLaundryStatus(i.status) && 
+    (i.status === 'DIRTY' || i.status === 'IN_LAUNDRY' || i.status === 'WASHING' || i.status === 'DRYING') &&
+    // Assume WASHABLE if care_type is missing (for backward compatibility)
+    (!('care_type' in i) || i.care_type === 'WASHABLE')
+  ).length;
+  
+  const needsAttention = washableInCycle;
   const firstName = profile?.display_name?.split(" ")[0];
 
   // Wear statistics computations
@@ -90,7 +99,7 @@ export default async function DashboardPage() {
           title="Your wardrobe is empty"
           action={
             <Button asChild>
-              <Link href="/wardrobe/new">Add your first garment</Link>
+              <Link href="/wardrobe/new">Add your first item</Link>
             </Button>
           }
         >
@@ -100,14 +109,14 @@ export default async function DashboardPage() {
         <>
           {/* Overview Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Total Garments" value={total} hint={`${utilizationRate}% in active rotation`} />
+            <Stat label="Total Items" value={total} hint={`${utilizationRate}% in active rotation`} />
             <Stat label={STATUS_LABELS.CLEAN} value={counts.CLEAN} tone="success" hint="Ready to style today" />
             <Stat label={STATUS_LABELS.WORN} value={counts.WORN} hint="Gently worn pieces" />
             <Stat
               label="In Wash Cycle"
               value={needsAttention}
               tone={needsAttention > 0 ? "warning" : undefined}
-              hint={`${counts.DIRTY} waiting in hamper`}
+              hint={needsAttention > 0 ? "Washable items only" : "All clean!"}
             />
           </div>
 

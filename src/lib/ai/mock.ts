@@ -6,11 +6,11 @@ import { AiProviderError, type AiJsonRequest, type AiProvider } from "@/lib/ai/t
  * The UI labels these results as development samples so nobody mistakes them for real analysis.
  */
 const SAMPLES = [
-  { name: "Sample navy T-shirt", category: "t-shirts", subcategory: "crew neck", primary_colour: "navy", secondary_colours: [], pattern: "solid", style: "casual", occasions: ["everyday", "school"], seasons: ["all_year"] },
-  { name: "Sample white shirt", category: "shirts", subcategory: "button-up", primary_colour: "white", secondary_colours: [], pattern: "solid", style: "smart_casual", occasions: ["work", "formal_event"], seasons: ["all_year"] },
-  { name: "Sample stone chinos", category: "trousers", subcategory: "chinos", primary_colour: "beige", secondary_colours: [], pattern: "solid", style: "smart_casual", occasions: ["work", "everyday"], seasons: ["spring", "summer", "autumn"] },
-  { name: "Sample blue jeans", category: "jeans", subcategory: "straight", primary_colour: "blue", secondary_colours: [], pattern: "solid", style: "casual", occasions: ["everyday", "travel"], seasons: ["all_year"] },
-  { name: "Sample white sneakers", category: "sneakers", subcategory: "low-top", primary_colour: "white", secondary_colours: ["grey"], pattern: "solid", style: "casual", occasions: ["everyday", "sport"], seasons: ["all_year"] },
+  { name: "Sample navy T-shirt", category: "t-shirts", subcategory: "crew neck", primary_colour: "navy", secondary_colours: [], pattern: "solid", style: "casual", occasions: ["everyday", "school"], seasons: ["all_year"], care_type: "WASHABLE" },
+  { name: "Sample white shirt", category: "shirts", subcategory: "button-up", primary_colour: "white", secondary_colours: [], pattern: "solid", style: "smart_casual", occasions: ["work", "formal_event"], seasons: ["all_year"], care_type: "WASHABLE" },
+  { name: "Sample stone chinos", category: "trousers", subcategory: "chinos", primary_colour: "beige", secondary_colours: [], pattern: "solid", style: "smart_casual", occasions: ["work", "everyday"], seasons: ["spring", "summer", "autumn"], care_type: "WASHABLE" },
+  { name: "Sample blue jeans", category: "jeans", subcategory: "straight", primary_colour: "blue", secondary_colours: [], pattern: "solid", style: "casual", occasions: ["everyday", "travel"], seasons: ["all_year"], care_type: "WASHABLE" },
+  { name: "Sample white sneakers", category: "sneakers", subcategory: "low-top", primary_colour: "white", secondary_colours: ["grey"], pattern: "solid", style: "casual", occasions: ["everyday", "sport"], seasons: ["all_year"], care_type: "WIPE_CLEAN" },
 ] as const;
 
 function pick(bytes: Uint8Array): (typeof SAMPLES)[number] {

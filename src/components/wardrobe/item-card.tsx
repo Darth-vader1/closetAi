@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CareTypeBadge } from "@/components/wardrobe/care-type-badge";
 import { FavouriteButton } from "@/components/wardrobe/favourite-button";
 import { ItemImage } from "@/components/wardrobe/item-image";
 import { StatusBadge } from "@/components/wardrobe/status-badge";
@@ -16,7 +17,10 @@ export function ItemCard({ item, imageUrl }: { item: WardrobeItem; imageUrl: str
             {categoryLabel(item.category)}
             {item.primaryColour ? ` · ${humanise(item.primaryColour)}` : ""}
           </p>
-          <StatusBadge status={item.status} />
+          <div className="flex items-center gap-2 flex-wrap">
+            <StatusBadge status={item.status} />
+            <CareTypeBadge careType={item.careType} />
+          </div>
         </div>
       </Link>
       <FavouriteButton id={item.id} name={item.name} isFavourite={item.isFavourite} className="absolute right-2 top-2" />

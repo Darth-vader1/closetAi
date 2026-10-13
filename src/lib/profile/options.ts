@@ -14,7 +14,7 @@ export type StyleValue = (typeof STYLE_OPTIONS)[number]["value"];
 export const STYLE_VALUES = STYLE_OPTIONS.map((s) => s.value) as [StyleValue, ...StyleValue[]];
 
 export const COLOUR_OPTIONS = [
-  "black", "white", "grey", "navy", "blue", "green", "olive", "brown", "beige", "cream",
+  "black", "white", "grey", "ash", "navy", "blue", "green", "olive", "brown", "beige", "cream",
   "red", "burgundy", "pink", "orange", "yellow", "purple",
 ] as const;
 

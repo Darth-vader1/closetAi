@@ -5,7 +5,7 @@ import { Chip, toggleValue } from "@/components/ui/chip";
 import { Field, Input, Select } from "@/components/ui/input";
 import { OCCASION_OPTIONS, STYLE_OPTIONS } from "@/lib/profile/options";
 import { optionalIntFromSelect, optionalStringFromSelect, type ItemFields, type ItemFieldsInput } from "@/lib/validation/wardrobe";
-import { CATEGORIES, humanise, PATTERNS, SEASONS, WARDROBE_COLOURS, WARMTH_LEVELS } from "@/lib/wardrobe/categories";
+import { CATEGORIES, humanise, PATTERNS, SEASONS, WARDROBE_COLOURS, WARMTH_LEVELS, categoryDefaultCareType, careTypeLabel, careTypeDescription } from "@/lib/wardrobe/categories";
 
 export type ItemForm = UseFormReturn<ItemFieldsInput, unknown, ItemFields>;
 
@@ -14,6 +14,18 @@ export function ItemFieldsForm({ form, idPrefix, highlight = [] }: { form: ItemF
   const { errors } = form.formState;
   const id = (name: string) => `${idPrefix}-${name}`;
   const uncertain = (name: string) => (highlight.includes(name) ? "Check this one: the AI wasn't sure." : undefined);
+  
+  // Watch category changes to auto-update care type
+  const selectedCategory = form.watch("category");
+  const currentCareType = form.watch("careType");
+  
+  // Auto-suggest care type based on category
+  const suggestedCareType = selectedCategory ? categoryDefaultCareType(selectedCategory) : "WASHABLE";
+  
+  // Show hint if suggested care type differs from current
+  const careTypeHint = currentCareType !== suggestedCareType 
+    ? `Default for ${CATEGORIES.find(c => c.value === selectedCategory)?.label ?? selectedCategory}: ${careTypeLabel(suggestedCareType)}`
+    : careTypeDescription(currentCareType);
 
   return (
     <div className="space-y-5">
@@ -28,6 +40,13 @@ export function ItemFieldsForm({ form, idPrefix, highlight = [] }: { form: ItemF
             {CATEGORIES.map((c) => (
               <option key={c.value} value={c.value}>{c.label}</option>
             ))}
+          </Select>
+        </Field>
+        <Field id={id("careType")} label="Care Type" hint={uncertain("care_type") ?? careTypeHint} error={errors.careType?.message}>
+          <Select id={id("careType")} aria-invalid={!!errors.careType} {...form.register("careType")}>
+            <option value="WASHABLE">{careTypeLabel("WASHABLE")}</option>
+            <option value="WIPE_CLEAN">{careTypeLabel("WIPE_CLEAN")}</option>
+            <option value="NO_WASH">{careTypeLabel("NO_WASH")}</option>
           </Select>
         </Field>
         <Field id={id("subcategory")} label="Subcategory" hint={uncertain("subcategory") ?? "Optional, e.g. crew neck."} error={errors.subcategory?.message}>
@@ -156,6 +175,7 @@ export function emptyItemValues(): ItemFieldsInput {
     name: "",
     category: "" as ItemFieldsInput["category"],
     subcategory: "",
+    careType: "WASHABLE",
     primaryColour: null,
     secondaryColours: [],
     pattern: null,

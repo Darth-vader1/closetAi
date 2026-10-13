@@ -32,6 +32,7 @@ function toRow(fields: ReturnType<typeof itemFieldsSchema.parse>) {
     seasons: fields.seasons,
     warmth_level: fields.warmthLevel,
     is_favourite: fields.isFavourite,
+    care_type: fields.careType,
   };
 }
 
@@ -143,6 +144,7 @@ export async function setFavouriteAction(id: unknown, value: unknown): Promise<A
 /**
  * Change one garment's laundry status through the database function, which records the audit event
  * and only sets last_washed_at when `confirmWashed` is true.
+ * The database trigger will prevent setting non-washable items to wash cycle statuses.
  */
 export async function changeStatusAction(id: unknown, input: unknown): Promise<ActionResult> {
   await requireUser();
@@ -159,6 +161,7 @@ export async function changeStatusAction(id: unknown, input: unknown): Promise<A
   if (error) {
     if (error.code === "P0002") return fail("That item couldn't be found.");
     if (error.code === "22023") return fail("Washing can only be confirmed when marking an item clean.");
+    if (error.code === "23514") return fail("This item doesn't need washing. Non-washable items like accessories and shoes always stay clean.");
     logger.error("wardrobe.status_failed", { code: error.code });
     return fail(GENERIC_ERROR);
   }

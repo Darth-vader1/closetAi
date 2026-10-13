@@ -47,12 +47,15 @@ interface Entry {
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
-function suggestionToValues(s: ClothingSuggestion & { material?: string | null }): ItemFieldsInput {
+function suggestionToValues(s: ClothingSuggestion & { material?: string | null; careType?: string | null }): ItemFieldsInput {
   return {
     ...emptyItemValues(),
     name: s.name,
     category: s.category,
     subcategory: s.subcategory ?? "",
+    careType: (s.careType === "WASHABLE" || s.careType === "WIPE_CLEAN" || s.careType === "NO_WASH") 
+      ? s.careType 
+      : "WASHABLE",
     primaryColour: s.primaryColour as ItemFieldsInput["primaryColour"],
     secondaryColours: s.secondaryColours as ItemFieldsInput["secondaryColours"],
     pattern: s.pattern as ItemFieldsInput["pattern"],

@@ -22,6 +22,7 @@ export interface WardrobeItem {
   warmthLevel: number | null;
   imagePath: string;
   status: LaundryStatus;
+  careType: "WASHABLE" | "WIPE_CLEAN" | "NO_WASH";
   isFavourite: boolean;
   aiAnalysed: boolean;
   wearCount: number;
@@ -31,7 +32,7 @@ export interface WardrobeItem {
 }
 
 const COLUMNS =
-  "id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, occasions, seasons, warmth_level, image_path, status, is_favourite, ai_analysed, wear_count, last_worn_at, last_washed_at, created_at";
+  "id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, occasions, seasons, warmth_level, image_path, status, care_type, is_favourite, ai_analysed, wear_count, last_worn_at, last_washed_at, created_at";
 
 interface Row {
   id: string;
@@ -48,6 +49,7 @@ interface Row {
   warmth_level: number | null;
   image_path: string;
   status: string;
+  care_type: string | null;
   is_favourite: boolean;
   ai_analysed: boolean;
   wear_count: number;
@@ -72,6 +74,9 @@ function toItem(row: Row): WardrobeItem {
     warmthLevel: row.warmth_level,
     imagePath: row.image_path,
     status: isLaundryStatus(row.status) ? row.status : "UNAVAILABLE",
+    careType: (row.care_type === "WASHABLE" || row.care_type === "WIPE_CLEAN" || row.care_type === "NO_WASH") 
+      ? row.care_type 
+      : "WASHABLE", // Default for backward compatibility
     isFavourite: row.is_favourite,
     aiAnalysed: row.ai_analysed,
     wearCount: row.wear_count,
@@ -121,13 +126,14 @@ export async function getWardrobeItem(supabase: SupabaseClient, userId: string, 
   return data ? toItem(data as Row) : null;
 }
 
-/** Items in any non-CLEAN status, for the laundry page. */
+/** Items in any non-CLEAN status and WASHABLE care type, for the laundry page. */
 export async function listItemsNeedingAttention(supabase: SupabaseClient, userId: string): Promise<WardrobeItem[]> {
   const { data, error } = await supabase
     .from("wardrobe_items")
     .select(COLUMNS)
     .eq("user_id", userId)
     .neq("status", "CLEAN")
+    .eq("care_type", "WASHABLE")
     .order("updated_at", { ascending: true });
   if (error) throw new Error(`Could not load laundry: ${error.message}`);
   return ((data ?? []) as Row[]).map(toItem);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CATEGORY_VALUES, OCCASION_VALUES, PATTERNS, SEASONS, STYLE_VALUES, WARDROBE_COLOURS } from "@/lib/wardrobe/categories";
+import { CARE_TYPES, CATEGORY_VALUES, OCCASION_VALUES, PATTERNS, SEASONS, STYLE_VALUES, WARDROBE_COLOURS } from "@/lib/wardrobe/categories";
 import { LAUNDRY_STATUSES } from "@/lib/wardrobe/status";
 
 /** Trimmed optional text: "", null, and undefined all become null. */
@@ -25,6 +25,7 @@ export const itemFieldsSchema = z.object({
   seasons: z.array(z.enum(SEASONS)).max(5),
   warmthLevel: z.number().int().min(1).max(5).nullable(),
   isFavourite: z.boolean(),
+  careType: z.enum(CARE_TYPES).default("WASHABLE"),
 });
 
 export const createItemSchema = itemFieldsSchema.extend({

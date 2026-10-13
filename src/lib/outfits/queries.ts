@@ -47,6 +47,7 @@ interface RawOutfitRow {
       warmth_level: number | null;
       image_path: string;
       status: string;
+      care_type: string | null;
       is_favourite: boolean;
       ai_analysed: boolean;
       wear_count: number;
@@ -70,7 +71,7 @@ export async function listUserOutfits(
         wardrobe_items (
           id, name, category, subcategory, primary_colour, secondary_colours,
           pattern, material, style, occasions, seasons, warmth_level,
-          image_path, status, is_favourite, ai_analysed, wear_count,
+          image_path, status, care_type, is_favourite, ai_analysed, wear_count,
           last_worn_at, last_washed_at, created_at
         )
       )
@@ -111,6 +112,9 @@ export async function listUserOutfits(
           warmthLevel: item.warmth_level,
           imagePath: item.image_path,
           status: isLaundryStatus(item.status) ? item.status : "UNAVAILABLE",
+          careType: (item.care_type === "WASHABLE" || item.care_type === "WIPE_CLEAN" || item.care_type === "NO_WASH") 
+            ? item.care_type 
+            : "WASHABLE",
           isFavourite: item.is_favourite,
           aiAnalysed: item.ai_analysed,
           wearCount: item.wear_count,
@@ -156,7 +160,7 @@ export async function listOutfitPlans(
           wardrobe_items (
             id, name, category, subcategory, primary_colour, secondary_colours,
             pattern, material, style, occasions, seasons, warmth_level,
-            image_path, status, is_favourite, ai_analysed, wear_count,
+            image_path, status, care_type, is_favourite, ai_analysed, wear_count,
             last_worn_at, last_washed_at, created_at
           )
         )
@@ -188,6 +192,7 @@ export async function listOutfitPlans(
       warmth_level: number | null;
       image_path: string;
       status: string;
+      care_type: string | null;
       is_favourite: boolean;
       ai_analysed: boolean;
       wear_count: number;
@@ -227,6 +232,7 @@ export async function listOutfitPlans(
       .sort((a, b) => a.position - b.position)
       .map((l) => {
         const item = l.wardrobe_items;
+        const careType = item.care_type;
         return {
           id: item.id,
           name: item.name,
@@ -242,6 +248,9 @@ export async function listOutfitPlans(
           warmthLevel: item.warmth_level,
           imagePath: item.image_path,
           status: isLaundryStatus(item.status) ? item.status : "UNAVAILABLE",
+          careType: (careType === "WASHABLE" || careType === "WIPE_CLEAN" || careType === "NO_WASH") 
+            ? (careType as "WASHABLE" | "WIPE_CLEAN" | "NO_WASH")
+            : ("WASHABLE" as const),
           isFavourite: item.is_favourite,
           aiAnalysed: item.ai_analysed,
           wearCount: item.wear_count,

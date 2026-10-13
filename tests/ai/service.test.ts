@@ -19,6 +19,7 @@ const validRaw = {
   style: "casual",
   occasions: ["everyday", "everyday", "school"],
   seasons: ["all_year"],
+  care_type: "WASHABLE",
   confidence: 0.9,
   uncertain_fields: ["style"],
 };

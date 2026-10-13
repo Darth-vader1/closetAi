@@ -32,7 +32,7 @@ export default async function LaundryPage() {
 
   return (
     <>
-      <PageHeader title="Laundry" description="See what's clean, what needs washing, and what's on its way back. Anything not clean is left out of outfit suggestions." />
+      <PageHeader title="Laundry" description="Track washable items through the laundry cycle. Accessories and shoes with wipe-clean or no-wash care stay in your rotation." />
 
       <ContextualGuide section="laundry" />
 
@@ -46,12 +46,12 @@ export default async function LaundryPage() {
       </section>
 
       {all.length === 0 ? (
-        <EmptyState icon={Shirt} title="Nothing to track yet" action={<Button asChild><Link href="/wardrobe/new">Add your first garment</Link></Button>}>
-          Once you&apos;ve added clothes, the ones that need washing show up here.
+        <EmptyState icon={Shirt} title="Nothing to track yet" action={<Button asChild><Link href="/wardrobe/new">Add your first item</Link></Button>}>
+          Once you&apos;ve added washable items, the ones that need laundering show up here.
         </EmptyState>
       ) : attention.length === 0 ? (
         <EmptyState icon={Sparkles} title="Everything is clean" action={<Button asChild variant="outline"><Link href="/wardrobe">Browse wardrobe</Link></Button>}>
-          All {counts.CLEAN} garments are ready to wear.
+          All {counts.CLEAN} washable items are ready to wear.
         </EmptyState>
       ) : (
         <div className="space-y-10">

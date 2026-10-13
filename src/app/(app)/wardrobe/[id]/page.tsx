@@ -36,6 +36,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
     name: item.name,
     category: item.category,
     subcategory: item.subcategory ?? "",
+    careType: item.careType,
     primaryColour: item.primaryColour as ItemFieldsInput["primaryColour"],
     secondaryColours: item.secondaryColours as ItemFieldsInput["secondaryColours"],
     pattern: item.pattern as ItemFieldsInput["pattern"],

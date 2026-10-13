@@ -48,7 +48,7 @@ export default async function WardrobePage({ searchParams }: { searchParams: Sea
     <>
       <PageHeader
         title="My Wardrobe"
-        description={total > 0 ? `${total} ${total === 1 ? "garment" : "garments"}${filtered ? " match your filters" : ""}.` : "Every garment you own, with its photo and laundry status."}
+        description={total > 0 ? `${total} ${total === 1 ? "item" : "items"}${filtered ? " match your filters" : ""}.` : "Every item you own, with its photo and laundry status."}
         action={
           <Button asChild>
             <Link href="/wardrobe/new">
@@ -66,7 +66,7 @@ export default async function WardrobePage({ searchParams }: { searchParams: Sea
           title="Your wardrobe is empty"
           action={
             <Button asChild>
-              <Link href="/wardrobe/new">Add your first garment</Link>
+              <Link href="/wardrobe/new">Add your first item</Link>
             </Button>
           }
         >
@@ -78,7 +78,7 @@ export default async function WardrobePage({ searchParams }: { searchParams: Sea
           {items.length === 0 ? (
             <EmptyState
               icon={SearchX}
-              title={query.page > 1 ? "No more garments" : "Nothing matches those filters"}
+              title={query.page > 1 ? "No more items" : "Nothing matches those filters"}
               action={
                 <Button asChild variant="outline">
                   <Link href="/wardrobe">Clear filters</Link>

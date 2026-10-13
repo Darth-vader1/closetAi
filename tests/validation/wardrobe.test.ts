@@ -84,7 +84,7 @@ describe("escapeLike", () => {
 
 describe("categories", () => {
   it("covers every category in the spec and has unique values", () => {
-    expect(CATEGORIES).toHaveLength(23);
+    expect(CATEGORIES).toHaveLength(33); // Updated: 23 original + 7 accessories + jorts + windbreakers + capri-pants
     expect(new Set(CATEGORIES.map((c) => c.value)).size).toBe(CATEGORIES.length);
   });
 
