@@ -20,7 +20,7 @@ import {
 import { sendTemplateMessage } from '@/lib/whatsapp/service';
 import { WHATSAPP_TEMPLATES } from '@/lib/whatsapp/templates';
 import { createClient } from '@/lib/supabase/server';
-import { logError } from '@/lib/logger';
+import { logger } from '@/lib/logger';
 
 export interface StartVerificationResult {
   success: boolean;
@@ -90,10 +90,11 @@ export async function startPhoneVerification(): Promise<StartVerificationResult>
     if (!sendResult.success) {
       // Code was generated but couldn't be sent
       // User can still verify manually if they received it
-      logError(
-        new Error('Failed to send verification code'),
-        { userId: user.id, sendError: sendResult.error }
-      );
+      logger.error('whatsapp.send_verification_code_failed', {
+        err: new Error('Failed to send verification code'),
+        userId: user.id,
+        sendError: sendResult.error,
+      });
       
       return {
         success: false,
@@ -112,7 +113,7 @@ export async function startPhoneVerification(): Promise<StartVerificationResult>
       expiresInMinutes,
     };
   } catch (error) {
-    logError(error as Error, { context: 'startPhoneVerification' });
+    logger.error('whatsapp.start_verification_error', { err: error });
     return {
       success: false,
       error: 'An unexpected error occurred',
@@ -149,7 +150,7 @@ export async function verifyPhoneCode(code: string): Promise<VerifyCodeResult> {
     
     return result;
   } catch (error) {
-    logError(error as Error, { context: 'verifyPhoneCode' });
+    logger.error('whatsapp.verify_phone_code_error', { err: error });
     return {
       success: false,
       error: 'An unexpected error occurred',
@@ -195,7 +196,7 @@ export async function checkVerificationStatus(): Promise<CheckVerificationResult
       status,
     };
   } catch (error) {
-    logError(error as Error, { context: 'checkVerificationStatus' });
+    logger.error('whatsapp.check_verification_status_error', { err: error });
     return {
       success: false,
       error: 'An unexpected error occurred',
@@ -270,7 +271,7 @@ export async function sendTestWhatsAppMessage(): Promise<SendTestMessageResult> 
       error: result.error,
     };
   } catch (error) {
-    logError(error as Error, { context: 'sendTestWhatsAppMessage' });
+    logger.error('whatsapp.send_test_message_error', { err: error });
     return {
       success: false,
       error: 'An unexpected error occurred',

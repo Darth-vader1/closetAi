@@ -5,7 +5,7 @@
  * All templates must be approved by Meta before use.
  */
 
-import { logError } from '@/lib/logger';
+import { logger } from '@/lib/logger';
 
 // Template names registered with Meta
 export const WHATSAPP_TEMPLATES = {
@@ -264,14 +264,12 @@ export function logTemplateSend(
       timestamp: new Date().toISOString(),
     });
   } else {
-    logError(
-      new Error(`WhatsApp template send failed: ${error?.message || 'Unknown error'}`),
-      {
-        template: templateName,
-        errorCode: error?.code,
-        errorSubcode: error?.subcode,
-        isRetryable: error?.isRetryable,
-      }
-    );
+    logger.error('whatsapp.template_send_failed', {
+      err: new Error(`WhatsApp template send failed: ${error?.message || 'Unknown error'}`),
+      template: templateName,
+      errorCode: error?.code,
+      errorSubcode: error?.subcode,
+      isRetryable: error?.isRetryable,
+    });
   }
 }

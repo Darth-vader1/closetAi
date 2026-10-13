@@ -1,4 +1,4 @@
-import { logger, logError } from "@/lib/logger";
+import { logger } from "@/lib/logger";
 import {
   buildTemplateMessagePayload,
   parseMetaError,
@@ -131,7 +131,7 @@ export async function sendTemplateMessage(
   // Only Meta Cloud API supports templates
   if (config.provider !== "meta") {
     const error = "Template messages only supported with Meta WhatsApp Cloud API";
-    logError(new Error(error), { provider: config.provider });
+    logger.error('whatsapp.template_unsupported_provider', { err: new Error(error), provider: config.provider });
     return { success: false, error };
   }
 
@@ -175,9 +175,8 @@ export async function sendTemplateMessage(
     
     return { success: true, id: messageId };
   } catch (err) {
-    logError(err as Error, { to: digitsOnly, template: templateName });
     logger.error("whatsapp.template_exception", { 
-      error: err, 
+      err, 
       to: digitsOnly,
       template: templateName,
     });
@@ -202,7 +201,7 @@ async function updateLastMessageTime(userId: string): Promise<void> {
       .eq('user_id', userId);
   } catch (error) {
     // Non-critical - log but don't fail the message
-    logError(error as Error, { userId, context: 'updateLastMessageTime' });
+    logger.error('whatsapp.update_last_message_failed', { err: error, userId });
   }
 }
 
@@ -221,13 +220,13 @@ async function isPhoneVerified(userId: string): Promise<boolean> {
       .single();
     
     if (error) {
-      logError(error, { userId, context: 'isPhoneVerified' });
+      logger.error('whatsapp.phone_verified_check_failed', { err: error, userId });
       return false;
     }
     
     return data?.whatsapp_phone_verified || false;
   } catch (error) {
-    logError(error as Error, { userId, context: 'isPhoneVerified' });
+    logger.error('whatsapp.phone_verified_check_error', { err: error, userId });
     return false;
   }
 }

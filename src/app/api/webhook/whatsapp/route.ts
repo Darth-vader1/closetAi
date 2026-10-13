@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { logger, logError } from "@/lib/logger";
+import { logger } from "@/lib/logger";
 import { createClient } from "@/lib/supabase/server";
 import { parseVerificationCode, hashVerificationCode } from "@/lib/whatsapp/verification";
 
@@ -71,7 +71,7 @@ async function handleIncomingTextMessage(
     // Unknown message - log but don't respond
     logger.info('whatsapp.unknown_message', { messageId });
   } catch (error) {
-    logError(error as Error, { messageId, context: 'handleIncomingTextMessage' });
+    logger.error('whatsapp.incoming_text_error', { err: error, messageId });
   }
 }
 
@@ -93,12 +93,12 @@ async function handleOptOut(from: string): Promise<void> {
       .eq('whatsapp_phone', cleanPhone);
     
     if (error) {
-      logError(error, { phone: 'REDACTED', context: 'handleOptOut' });
+      logger.error('whatsapp.dedup_table_missing', { err: error });
     } else {
       logger.info('whatsapp.user_opted_out');
     }
   } catch (error) {
-    logError(error as Error, { context: 'handleOptOut' });
+    logger.error('whatsapp.opt_out_error', { err: error });
   }
 }
 
@@ -120,12 +120,12 @@ async function handleOptIn(from: string): Promise<void> {
       .eq('whatsapp_phone', cleanPhone);
     
     if (error) {
-      logError(error, { phone: 'REDACTED', context: 'handleOptIn' });
+      logger.error('whatsapp.opt_in_failed', { err: error });
     } else {
       logger.info('whatsapp.user_opted_in');
     }
   } catch (error) {
-    logError(error as Error, { context: 'handleOptIn' });
+    logger.error('whatsapp.opt_in_error', { err: error });
   }
 }
 
@@ -163,7 +163,7 @@ async function handleVerificationCode(from: string, codeDigits: string): Promise
     });
     
     if (error) {
-      logError(error, { userId: prefs.user_id, context: 'verify_whatsapp_code' });
+      logger.error('whatsapp.verify_code_rpc_failed', { err: error, userId: prefs.user_id });
       return;
     }
     
@@ -173,7 +173,7 @@ async function handleVerificationCode(from: string, codeDigits: string): Promise
       logger.info('whatsapp.invalid_code_submitted', { userId: prefs.user_id });
     }
   } catch (error) {
-    logError(error as Error, { context: 'handleVerificationCode' });
+    logger.error('whatsapp.verification_error', { err: error });
   }
 }
 

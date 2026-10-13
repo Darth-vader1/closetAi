@@ -6,7 +6,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
-import { logError } from '@/lib/logger';
+import { logger } from '@/lib/logger';
 import crypto from 'crypto';
 
 // Verification code format: CLOSET-XXXXXX (6 random digits)
@@ -144,7 +144,7 @@ export async function generateVerificationCode(
       .single();
     
     if (prefsError) {
-      logError(prefsError, { userId, context: 'generateVerificationCode' });
+      logger.error('whatsapp.generate_code_fetch_prefs_failed', { err: prefsError, userId });
       return {
         success: false,
         error: 'Failed to fetch user preferences',
@@ -202,7 +202,7 @@ export async function generateVerificationCode(
         };
       }
       
-      logError(createError, { userId, context: 'create_whatsapp_verification' });
+      logger.error('whatsapp.create_verification_failed', { err: createError, userId });
       return {
         success: false,
         error: 'Failed to create verification code',
@@ -217,7 +217,7 @@ export async function generateVerificationCode(
       verificationId,
     };
   } catch (error) {
-    logError(error as Error, { userId, context: 'generateVerificationCode' });
+    logger.error('whatsapp.generate_code_error', { err: error, userId });
     return {
       success: false,
       error: 'An unexpected error occurred',
@@ -270,7 +270,7 @@ export async function verifySubmittedCode(
     });
     
     if (error) {
-      logError(error, { userId, context: 'verify_whatsapp_code' });
+      logger.error('whatsapp.verify_code_rpc_failed', { err: error, userId });
       return {
         success: false,
         error: 'Verification failed',
@@ -328,7 +328,7 @@ export async function verifySubmittedCode(
       errorCode: 'INVALID',
     };
   } catch (error) {
-    logError(error as Error, { userId, context: 'verifySubmittedCode' });
+    logger.error('whatsapp.verify_code_error', { err: error, userId });
     return {
       success: false,
       error: 'An unexpected error occurred',
@@ -368,7 +368,7 @@ export async function getVerificationStatus(
       .single();
     
     if (prefsError || !prefs) {
-      logError(prefsError, { userId, context: 'getVerificationStatus' });
+      logger.error('whatsapp.get_verification_status_failed', { err: prefsError, userId });
       return null;
     }
     
@@ -395,7 +395,7 @@ export async function getVerificationStatus(
       hasWhatsAppEnabled: prefs.whatsapp_enabled || false,
     };
   } catch (error) {
-    logError(error as Error, { userId, context: 'getVerificationStatus' });
+    logger.error('whatsapp.get_verification_status_error', { err: error, userId });
     return null;
   }
 }
