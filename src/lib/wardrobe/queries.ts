@@ -2,10 +2,14 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { escapeLike, PAGE_SIZE, type WardrobeQuery } from "@/lib/validation/wardrobe";
 import { isLaundryStatus, type LaundryStatus } from "@/lib/wardrobe/status";
+import { signImageUrlsBatch, uniquePaths, type ImageSize } from "@/lib/wardrobe/image-transform";
 
 export const WARDROBE_BUCKET = "wardrobe";
 /** Signed image URLs live for an hour; pages are rendered fresh per request. */
 export const IMAGE_URL_TTL_SECONDS = 60 * 60;
+
+// Re-export so callers can import size type from here too.
+export type { ImageSize };
 
 export interface WardrobeItem {
   id: string;
@@ -180,15 +184,21 @@ export async function listAllWardrobeItems(
   return ((data ?? []) as Row[]).map(toItem);
 }
 
-/** Batch-sign private image paths. Missing objects are simply absent from the map. */
-export async function signImageUrls(supabase: SupabaseClient, paths: string[]): Promise<Map<string, string>> {
-  const result = new Map<string, string>();
-  if (paths.length === 0) return result;
-  const { data, error } = await supabase.storage.from(WARDROBE_BUCKET).createSignedUrls(paths, IMAGE_URL_TTL_SECONDS);
-  if (error) throw new Error(`Could not sign image URLs: ${error.message}`);
-  for (const entry of data ?? []) {
-    if (entry.path && entry.signedUrl) result.set(entry.path, entry.signedUrl);
-  }
-  return result;
+/**
+ * Batch-sign private image paths at a given size variant.
+ *
+ * `size` defaults to `"original"` so all existing callers are unchanged.
+ * Pass `"thumbnail"` for grids/cards (240×320 px) or `"medium"` for detail
+ * pages (600×800 px). Supabase's CDN caches the transformed result so the
+ * browser only pays the resize cost once per unique path+size combination.
+ *
+ * Deduplicates paths automatically; missing objects are absent from the map.
+ */
+export async function signImageUrls(
+  supabase: SupabaseClient,
+  paths: string[],
+  size: ImageSize = "original",
+): Promise<Map<string, string>> {
+  return signImageUrlsBatch(supabase, uniquePaths(paths), size);
 }
 

@@ -21,11 +21,12 @@ export default async function StudioPage() {
     listAllWardrobeItems(supabase, user.id, 300).catch(() => []),
   ]);
 
-  // 2. Batch-sign image URLs for wardrobe garments and full-body outfit photos
+  // 2. Batch-sign image URLs for wardrobe garments (thumbnail for grid) and
+  //    full-body outfit photos (medium for preview panels)
   const itemPaths = wardrobeItems.map((i) => i.imagePath);
   const [itemUrlsMap, outfitUrlsMap] = await Promise.all([
-    signImageUrls(supabase, itemPaths),
-    signAllOutfitImages(supabase, outfits),
+    signImageUrls(supabase, itemPaths, "thumbnail"),
+    signAllOutfitImages(supabase, outfits, "thumbnail"),
   ]);
 
   const itemImageUrls: Record<string, string> = {};

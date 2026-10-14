@@ -71,7 +71,7 @@ export default async function DashboardPage() {
   const imagePathsToSign = Array.from(
     new Set([...mostWorn.map((i) => i.image_path), ...untouchedItems.map((i) => i.image_path)].filter(Boolean))
   );
-  const signedMap = await signImageUrls(supabase, imagePathsToSign);
+  const signedMap = await signImageUrls(supabase, imagePathsToSign, "thumbnail");
 
   return (
     <div className="space-y-8">

@@ -10,7 +10,12 @@ export function ItemCard({ item, imageUrl }: { item: WardrobeItem; imageUrl: str
   return (
     <article className="group relative overflow-hidden rounded-[1.25rem] border border-border bg-surface">
       <Link href={`/wardrobe/${item.id}`} className="block focus-visible:outline-offset-[-2px]">
-        <ItemImage url={imageUrl} alt={item.name} className="aspect-[4/5] w-full transition-transform duration-300 group-hover:scale-[1.02] motion-reduce:transition-none motion-reduce:group-hover:scale-100" />
+        <ItemImage
+          url={imageUrl}
+          alt={item.name}
+          className="aspect-[4/5] w-full transition-transform duration-300 group-hover:scale-[1.02] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 240px"
+        />
         <div className="space-y-1.5 p-4">
           <h3 className="truncate font-sans text-base font-medium">{item.name}</h3>
           <p className="truncate text-sm text-muted">

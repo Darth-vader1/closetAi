@@ -21,9 +21,9 @@ export default async function CalendarPage() {
     listUserOutfits(supabase, user.id).catch(() => []),
   ]);
 
-  // Batch sign images across all outfits in plans and library
+  // Batch sign images across all outfits in plans and library (thumbnail size for calendar cells)
   const allOutfits = [...plans.map((p) => p.outfit), ...savedOutfits];
-  const urlMap = await signAllOutfitImages(supabase, allOutfits);
+  const urlMap = await signAllOutfitImages(supabase, allOutfits, "thumbnail");
   const imageUrlsObj: Record<string, string> = {};
   for (const [path, url] of urlMap.entries()) {
     imageUrlsObj[path] = url;

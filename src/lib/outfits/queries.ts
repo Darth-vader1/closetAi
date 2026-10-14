@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { signImageUrls, type WardrobeItem } from "@/lib/wardrobe/queries";
+import { signImageUrls, type ImageSize, type WardrobeItem } from "@/lib/wardrobe/queries";
 import { isLaundryStatus } from "@/lib/wardrobe/status";
 
 export interface OutfitWithItems {
@@ -287,6 +287,7 @@ export async function listOutfitPlans(
 export async function signAllOutfitImages(
   supabase: SupabaseClient,
   outfits: OutfitWithItems[],
+  size: ImageSize = "original",
 ): Promise<Map<string, string>> {
   const paths: string[] = [];
   for (const o of outfits) {
@@ -295,5 +296,5 @@ export async function signAllOutfitImages(
       if (item.imagePath) paths.push(item.imagePath);
     }
   }
-  return signImageUrls(supabase, [...new Set(paths)]);
+  return signImageUrls(supabase, [...new Set(paths)], size);
 }

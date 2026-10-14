@@ -29,16 +29,37 @@ const nextConfig: NextConfig = {
   },
   images: {
     // Wardrobe photos are private and served through short-lived signed URLs
-    // from Supabase Storage. Allow the project's storage host only.
+    // from Supabase Storage. Two URL patterns are allowed:
+    //
+    //  1. /storage/v1/object/sign/**   — plain signed URLs (original size)
+    //  2. /storage/v1/render/image/sign/** — transform-signed URLs (resize + WebP)
+    //
+    // Only the project's own Supabase hostname is permitted; public storage
+    // URLs (/object/public/**) are deliberately excluded because the bucket
+    // is private. Both patterns are scoped to a single hostname so the
+    // allowlist is as narrow as possible.
     remotePatterns: process.env.NEXT_PUBLIC_SUPABASE_URL
-      ? [
-          {
-            protocol: "https",
-            hostname: new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname,
-            pathname: "/storage/v1/object/sign/**",
-          },
-        ]
+      ? (() => {
+          const hostname = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname;
+          return [
+            {
+              protocol: "https" as const,
+              hostname,
+              pathname: "/storage/v1/object/sign/**",
+            },
+            {
+              protocol: "https" as const,
+              hostname,
+              // Supabase image-transform endpoint: /render/image/sign/<bucket>/<path>
+              pathname: "/storage/v1/render/image/sign/**",
+            },
+          ];
+        })()
       : [],
+    // Serve modern formats where supported. next/image will prefer AVIF then
+    // WebP automatically; Supabase's transform endpoint also outputs WebP when
+    // the Accept header requests it, so these work together.
+    formats: ["image/avif", "image/webp"],
   },
   async headers() {
     const csp = [

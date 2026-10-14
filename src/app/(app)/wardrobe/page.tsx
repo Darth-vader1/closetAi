@@ -38,7 +38,7 @@ export default async function WardrobePage({ searchParams }: { searchParams: Sea
     listWardrobeItems(supabase, user.id, query),
     countItemsByCategory(supabase, user.id),
   ]);
-  const urls = await signImageUrls(supabase, items.map((i) => i.imagePath));
+  const urls = await signImageUrls(supabase, items.map((i) => i.imagePath), "thumbnail");
   const imageUrls = Object.fromEntries(urls.entries());
   const totalUnfiltered = Object.values(categoryCounts).reduce((sum, n) => sum + n, 0);
   const filtered = Boolean(query.q || query.category || query.colour || query.status || query.favouritesOnly);
