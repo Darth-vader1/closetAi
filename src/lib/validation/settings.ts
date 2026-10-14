@@ -34,6 +34,7 @@ export const updateEmailPreferencesSchema = z.object({
   ]).default("Sunday"),
   whatsappPhone: z.string().trim().max(30).optional().default(""),
   whatsappDailyEnabled: z.boolean().default(false),
+  remindEmptyWardrobe: z.boolean().default(true),
 });
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

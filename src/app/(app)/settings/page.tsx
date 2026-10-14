@@ -49,6 +49,7 @@ export default async function SettingsPage() {
     weeklyLaundryDay: initialWeeklyDay,
     whatsappPhone: emailPrefs?.whatsapp_phone || "",
     whatsappDailyEnabled: emailPrefs?.whatsapp_daily_enabled ?? false,
+    remindEmptyWardrobe: emailPrefs?.remind_empty_wardrobe ?? true,
   };
 
   return (

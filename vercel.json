@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/weekly-laundry",
       "schedule": "0 18 * * 0"
+    },
+    {
+      "path": "/api/cron/empty-wardrobe-reminder",
+      "schedule": "0 14 * * *"
     }
   ]
 }

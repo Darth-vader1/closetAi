@@ -49,6 +49,7 @@ interface SettingsClientProps {
     weeklyLaundryDay: string;
     whatsappPhone?: string;
     whatsappDailyEnabled?: boolean;
+    remindEmptyWardrobe?: boolean;
   };
 }
 
@@ -73,6 +74,7 @@ export function SettingsClient({
   const [weeklyLaundryDay, setWeeklyLaundryDay] = useState(initialPreferences.weeklyLaundryDay);
   const [whatsappPhone, setWhatsappPhone] = useState(initialPreferences.whatsappPhone || "");
   const [whatsappDailyEnabled, setWhatsappDailyEnabled] = useState(initialPreferences.whatsappDailyEnabled ?? false);
+  const [remindEmptyWardrobe, setRemindEmptyWardrobe] = useState(initialPreferences.remindEmptyWardrobe ?? true);
 
   // UI Feedback
   const [profilePending, startProfileTransition] = useTransition();
@@ -118,6 +120,7 @@ export function SettingsClient({
         weeklyLaundryDay,
         whatsappPhone,
         whatsappDailyEnabled,
+        remindEmptyWardrobe,
       });
 
       if (res.ok) {
@@ -514,6 +517,30 @@ export function SettingsClient({
             <p className="text-[11px] text-muted">
               Enter with international country code (e.g. <span className="font-mono text-foreground">+234</span> for Nigeria, <span className="font-mono text-foreground">+44</span> for UK, <span className="font-mono text-foreground">+1</span> for US).
             </p>
+          </div>
+
+          {/* Empty Wardrobe Onboarding Reminder */}
+          <div className="rounded-xl border border-border/80 bg-surface-muted/20 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <Shirt className="h-5 w-5 text-accent shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Empty Wardrobe Reminder
+                  </h3>
+                  <p className="text-xs text-muted mt-0.5">
+                    Receive a friendly afternoon nudge on days when your wardrobe is empty. Stops automatically once you add your first item. Only sent during your first 30 days.
+                  </p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={remindEmptyWardrobe}
+                onChange={(e) => setRemindEmptyWardrobe(e.target.checked)}
+                className="h-4 w-4 rounded border-border-strong text-accent focus:ring-accent mt-0.5"
+                aria-label="Enable empty wardrobe reminder emails"
+              />
+            </div>
           </div>
 
           {emailMessage && (

@@ -5,7 +5,7 @@ import { getAppUrl } from "@/lib/env";
 import { logger } from "@/lib/logger";
 
 const uuidSchema = z.uuid();
-const typeSchema = z.enum(["daily", "weekly", "all"]).catch("all");
+const typeSchema = z.enum(["daily", "weekly", "empty_wardrobe", "all"]).catch("all");
 
 function renderHtmlPage(title: string, bodyHtml: string, status = 200): NextResponse {
   const html = `<!DOCTYPE html>
@@ -63,7 +63,9 @@ export async function GET(request: NextRequest) {
       ? "daily outfit emails"
       : type === "weekly"
         ? "weekly laundry digest emails"
-        : "all ClosetAI notification emails";
+        : type === "empty_wardrobe"
+          ? "empty wardrobe reminder emails"
+          : "all ClosetAI notification emails";
 
   return renderHtmlPage(
     "Confirm Unsubscribe",
@@ -157,6 +159,9 @@ export async function POST(request: NextRequest) {
     if (type === "weekly" || type === "all") {
       baseUpdate.weekly_enabled = false;
     }
+    if (type === "empty_wardrobe" || type === "all") {
+      baseUpdate.remind_empty_wardrobe = false;
+    }
 
     const fullUpdate =
       type === "all"
@@ -168,10 +173,14 @@ export async function POST(request: NextRequest) {
       .update(fullUpdate)
       .eq("user_id", pref.user_id);
 
-    if (updateErr && (updateErr.code === "42703" || updateErr.code === "PGRST204" || updateErr.message?.includes("whatsapp"))) {
+    if (updateErr && (updateErr.code === "42703" || updateErr.code === "PGRST204" || updateErr.message?.includes("whatsapp") || updateErr.message?.includes("remind_empty_wardrobe"))) {
+      // Strip columns that don't exist yet and retry with only safe fields.
+      const safeUpdate: Record<string, unknown> = { updated_at: baseUpdate.updated_at };
+      if ("daily_enabled" in baseUpdate) safeUpdate.daily_enabled = baseUpdate.daily_enabled;
+      if ("weekly_enabled" in baseUpdate) safeUpdate.weekly_enabled = baseUpdate.weekly_enabled;
       const retry = await adminClient
         .from("email_preferences")
-        .update(baseUpdate)
+        .update(safeUpdate)
         .eq("user_id", pref.user_id);
       updateErr = retry.error;
     }

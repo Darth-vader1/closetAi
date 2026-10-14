@@ -90,6 +90,7 @@ export async function updateEmailPreferencesAction(input: unknown): Promise<Acti
     weekly_day: weeklyDayInt,
     whatsapp_phone: parsed.data.whatsappPhone || null,
     whatsapp_daily_enabled: parsed.data.whatsappDailyEnabled,
+    remind_empty_wardrobe: parsed.data.remindEmptyWardrobe,
     updated_at: new Date().toISOString(),
   };
 

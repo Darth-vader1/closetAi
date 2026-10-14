@@ -348,3 +348,100 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#039;");
 }
 
+
+export interface EmptyWardrobeReminderProps {
+  displayName: string;
+  unsubscribeToken?: string;
+}
+
+export function renderEmptyWardrobeReminderHtml({
+  displayName,
+  unsubscribeToken,
+}: EmptyWardrobeReminderProps): string {
+  const appUrl = getAppUrl();
+  const addClothesUrl = `${appUrl}/wardrobe/new`;
+  const settingsUrl = `${appUrl}/settings`;
+  const unsubscribeUrl = unsubscribeToken
+    ? `${appUrl}/api/email/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}&type=empty_wardrobe`
+    : settingsUrl;
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your ClosetAI wardrobe is empty — let's fix that</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1c1917; line-height: 1.5;">
+  <div style="max-width: 540px; margin: 40px auto; background-color: #ffffff; border: 1px solid #e7e5e4; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+
+    <!-- Header -->
+    <div style="background-color: #1c1917; padding: 32px 36px; text-align: left;">
+      <span style="display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #d6d3d1; margin-bottom: 8px;">CLOSET·AI</span>
+      <h1 style="margin: 0; font-family: Georgia, serif; font-size: 24px; font-weight: normal; color: #f5f5f4;">
+        Hi ${escapeHtml(displayName)}, your wardrobe is empty 👗
+      </h1>
+    </div>
+
+    <!-- Body -->
+    <div style="padding: 36px;">
+      <p style="margin: 0 0 18px 0; font-size: 15px; color: #44403c; line-height: 1.65;">
+        ClosetAI is ready to help you decide what to wear every day — but first it needs to know what's in your wardrobe.
+      </p>
+      <p style="margin: 0 0 18px 0; font-size: 15px; color: #44403c; line-height: 1.65;">
+        Adding a few items takes less than two minutes. Photograph each piece with your phone, and ClosetAI's AI will suggest the name, colour and category for you.
+      </p>
+      <p style="margin: 0 0 32px 0; font-size: 15px; color: #44403c; line-height: 1.65;">
+        Once you have a handful of tops, bottoms and shoes saved, you'll start receiving personalised outfit ideas every morning.
+      </p>
+
+      <!-- CTA -->
+      <div style="text-align: center; margin: 0 0 12px 0;">
+        <a href="${addClothesUrl}"
+           style="display: inline-block; background-color: #9a4a2f; color: #fffaf5; text-decoration: none; padding: 15px 32px; border-radius: 30px; font-size: 15px; font-weight: 500; letter-spacing: 0.3px;">
+          Add your first item →
+        </a>
+      </div>
+      <div style="text-align: center;">
+        <a href="${settingsUrl}" style="color: #78716c; font-size: 12px; text-decoration: underline;">
+          Manage notification preferences
+        </a>
+      </div>
+    </div>
+
+    <!-- Steps hint -->
+    <div style="background-color: #faf7f2; border-top: 1px solid #e7e5e4; padding: 24px 36px;">
+      <p style="margin: 0 0 12px 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #78716c;">
+        How it works
+      </p>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 6px 12px 6px 0; font-size: 13px; color: #57534e; vertical-align: top; width: 24px;">1.</td>
+          <td style="padding: 6px 0; font-size: 13px; color: #57534e;">Photograph or upload a photo of each garment.</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 12px 6px 0; font-size: 13px; color: #57534e; vertical-align: top;">2.</td>
+          <td style="padding: 6px 0; font-size: 13px; color: #57534e;">AI suggests the name, colour and category — you confirm.</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 12px 6px 0; font-size: 13px; color: #57534e; vertical-align: top;">3.</td>
+          <td style="padding: 6px 0; font-size: 13px; color: #57534e;">Receive daily outfit suggestions built only from clean items.</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Footer -->
+    <div style="background-color: #f5f5f4; border-top: 1px solid #e7e5e4; padding: 20px 36px; text-align: center; font-size: 12px; color: #a8a29e;">
+      <p style="margin: 0 0 6px 0;">You're receiving this because your ClosetAI wardrobe is currently empty.</p>
+      <p style="margin: 0;">
+        <a href="${settingsUrl}" style="color: #78716c; text-decoration: underline;">Settings</a>
+        &nbsp;·&nbsp;
+        <a href="${unsubscribeUrl}" style="color: #78716c; text-decoration: underline;">Stop these reminders</a>
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+}
