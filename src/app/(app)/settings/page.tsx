@@ -4,6 +4,7 @@ import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { SettingsClient } from "@/components/settings/settings-client";
 import { requireUser, getProfile } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
+import { userTag } from "@/lib/connect/user-tag";
 
 export const metadata: Metadata = {
   title: "Settings · ClosetAI",
@@ -15,12 +16,24 @@ export default async function SettingsPage() {
   const profile = await getProfile();
   const supabase = await createClient();
 
-  // Load user's email preferences from database
-  const { data: emailPrefs } = await supabase
-    .from("email_preferences")
-    .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const [{ data: emailPrefs }, profileRow] = await Promise.all([
+    supabase
+      .from("email_preferences")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("profiles")
+      .select("closet_id")
+      .eq("id", user.id)
+      .maybeSingle(),
+  ]);
+
+  // Use DB closet_id when available; fall back to UUID-derived tag for
+  // pre-migration deployments.
+  const closetId =
+    (profileRow.data?.closet_id as string | null | undefined) ??
+    userTag(user.id);
 
   const initialProfile = {
     displayName: profile?.display_name || "",
@@ -62,6 +75,7 @@ export default async function SettingsPage() {
       <ContextualGuide section="settings" />
       <SettingsClient
         userEmail={user.email || ""}
+        connectTag={closetId}
         initialProfile={initialProfile}
         initialPreferences={initialPreferences}
       />

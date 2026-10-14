@@ -12,5 +12,10 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts", "src/**/*.test.ts"],
+    // PGlite-backed DB tests each apply the full migration set in beforeAll.
+    // With several DB test files running in parallel, migration apply can
+    // exceed Vitest's default 10s hook timeout. Bump it to avoid false
+    // failures while still catching genuine hangs.
+    hookTimeout: 30000,
   },
 });

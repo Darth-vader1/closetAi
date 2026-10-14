@@ -2,8 +2,8 @@ import Link from "next/link";
 import type { ConversationSummary } from "@/lib/connect/queries";
 import { cn } from "@/lib/utils/cn";
 
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+function formatRelative(iso: string, now: number): string {
+  const diff = now - new Date(iso).getTime();
   const mins = Math.floor(diff / 60_000);
   if (mins < 1) return "Just now";
   if (mins < 60) return `${mins}m ago`;
@@ -17,14 +17,16 @@ function formatRelative(iso: string): string {
 interface Props {
   conversations: ConversationSummary[];
   currentUserId: string;
+  now: number; // passed from the server component
 }
 
-export function ConversationList({ conversations }: Props) {
+export function ConversationList({ conversations, now }: Props) {
   return (
     <ul className="divide-y divide-border rounded-[1.25rem] border border-border bg-surface overflow-hidden" role="list">
       {conversations.map((conv) => {
         const name = conv.otherMember.displayName ?? "Unknown User";
-        const initial = name.charAt(0).toUpperCase();
+        const initial = name.trim().charAt(0).normalize("NFC").toUpperCase() || "?";
+
         const preview = conv.lastMessage
           ? conv.lastMessage.body.length > 60
             ? conv.lastMessage.body.slice(0, 57) + "…"
@@ -37,7 +39,6 @@ export function ConversationList({ conversations }: Props) {
               href={`/connect/${conv.id}`}
               className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
             >
-              {/* Avatar */}
               <span
                 className="grid size-11 shrink-0 place-items-center rounded-full bg-accent-soft text-base font-semibold text-accent"
                 aria-hidden
@@ -45,13 +46,12 @@ export function ConversationList({ conversations }: Props) {
                 {initial}
               </span>
 
-              {/* Content */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <p className="truncate text-sm font-semibold text-foreground">{name}</p>
                   {conv.lastMessage && (
                     <span className="shrink-0 text-xs text-muted">
-                      {formatRelative(conv.lastMessage.createdAt)}
+                      {formatRelative(conv.lastMessage.createdAt, now)}
                     </span>
                   )}
                 </div>
@@ -63,7 +63,6 @@ export function ConversationList({ conversations }: Props) {
                 </p>
               </div>
 
-              {/* Unread badge */}
               {conv.unreadCount > 0 && (
                 <span
                   className="grid size-5 shrink-0 place-items-center rounded-full bg-accent text-[0.65rem] font-bold text-accent-foreground"

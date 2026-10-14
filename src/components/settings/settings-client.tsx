@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/input";
 import { Chip, toggleValue } from "@/components/ui/chip";
 import { WhatsAppVerification } from "@/components/settings/whatsapp-verification";
+import { ClosetIdCard } from "@/components/connect/closet-id-card";
 import { STYLE_OPTIONS, OCCASION_OPTIONS, WEEKDAYS } from "@/lib/profile/options";
 import { GENDER_OPTIONS } from "@/lib/validation/settings";
 import {
@@ -34,6 +35,7 @@ import {
 
 interface SettingsClientProps {
   userEmail: string;
+  connectTag: string;
   initialProfile: {
     displayName: string;
     gender: string;
@@ -57,6 +59,7 @@ interface SettingsClientProps {
 
 export function SettingsClient({
   userEmail,
+  connectTag,
   initialProfile,
   initialPreferences,
 }: SettingsClientProps) {
@@ -210,6 +213,19 @@ export function SettingsClient({
             <Field id="email" label="Account Email" hint="Your login and primary notification address.">
               <Input id="email" value={userEmail} disabled className="bg-surface-muted/60 text-muted" />
             </Field>
+          </div>
+
+          {/* Closet ID */}
+          <div className="rounded-xl border border-border/80 bg-surface-muted/20 p-5 space-y-2">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Your Closet ID</h3>
+                <p className="text-xs text-muted mt-0.5">
+                  A unique identifier for your account. Share it with friends so they can find the right you when starting a conversation.
+                </p>
+              </div>
+            </div>
+            <ClosetIdCard closetId={connectTag} />
           </div>
 
           {/* Gender Expression */}

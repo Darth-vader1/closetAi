@@ -12,7 +12,7 @@ interface Props {
 
 export function NewConversationDialog({ onClose }: Props) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Array<{ id: string; displayName: string | null }>>([]);
+  const [results, setResults] = useState<Array<{ id: string; displayName: string | null; tag: string; closetId: string | null }>>([]);
   const [searching, setSearching] = useState(false);
   const [starting, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +96,7 @@ export function NewConversationDialog({ onClose }: Props) {
             <input
               ref={inputRef}
               type="search"
-              placeholder="Search by name…"
+              placeholder="Search by name or Closet ID…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
               className="w-full rounded-xl border border-border-strong bg-background py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none"
@@ -134,13 +134,21 @@ export function NewConversationDialog({ onClose }: Props) {
                         starting && "opacity-50 pointer-events-none",
                       )}
                     >
+                      {/* Avatar */}
                       <span
                         className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent"
                         aria-hidden
                       >
                         {name.charAt(0).toUpperCase()}
                       </span>
-                      <span className="text-sm font-medium text-foreground">{name}</span>
+
+                      {/* Name + unique Closet ID */}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{name}</p>
+                        <p className="font-mono text-xs text-muted">
+                          {user.closetId ?? user.tag}
+                        </p>
+                      </div>
                     </button>
                   </li>
                 );
@@ -150,7 +158,7 @@ export function NewConversationDialog({ onClose }: Props) {
 
           {!searching && !query.trim() && (
             <p className="py-4 text-center text-xs text-muted">
-              Type a name to find other ClosetAI users.
+              Type a name or Closet ID (e.g. <span className="font-mono">CLOS-A3F8C249</span>) to find other ClosetAI users.
             </p>
           )}
         </div>

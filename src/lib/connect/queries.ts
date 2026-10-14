@@ -82,7 +82,7 @@ export async function listConversations(
 
   if (uniqueOtherIds.length > 0) {
     const { data: profiles } = await supabase
-      .from("profiles")
+      .from("connect_user_profiles")
       .select("id, display_name")
       .in("id", uniqueOtherIds);
 
@@ -176,7 +176,7 @@ export async function getConversation(
   let displayName: string | null = null;
   if (otherUserId) {
     const { data: profile } = await supabase
-      .from("profiles")
+      .from("connect_user_profiles")
       .select("display_name")
       .eq("id", otherUserId)
       .maybeSingle();
@@ -229,7 +229,7 @@ export async function listMessages(
   const nameMap = new Map<string, string | null>();
   if (senderIds.length > 0) {
     const { data: profiles } = await supabase
-      .from("profiles")
+      .from("connect_user_profiles")
       .select("id, display_name")
       .in("id", senderIds);
     for (const p of profiles ?? []) {
@@ -279,7 +279,7 @@ export async function findDirectConversation(
 }
 
 /**
- * Search for other users by display name or email prefix.
+ * Search for other users by display name or Closet ID.
  * Never returns the caller themselves.
  */
 export async function searchUsers(
@@ -287,19 +287,20 @@ export async function searchUsers(
   callerId: string,
   q: string,
   limit = 10,
-): Promise<Array<{ id: string; displayName: string | null; email: string | null }>> {
+): Promise<Array<{ id: string; displayName: string | null; closetId: string | null }>> {
   if (!q.trim()) return [];
 
+  const term = q.trim().replace(/[%_\\]/g, (c) => `\\${c}`);
   const { data } = await supabase
-    .from("profiles")
-    .select("id, display_name")
-    .ilike("display_name", `%${q.trim()}%`)
+    .from("connect_user_profiles")
+    .select("id, display_name, closet_id")
+    .or(`display_name.ilike.%${term}%,closet_id.ilike.%${term}%`)
     .neq("id", callerId)
     .limit(limit);
 
   return (data ?? []).map((p) => ({
     id: p.id as string,
     displayName: (p.display_name as string | null) ?? null,
-    email: null, // profiles table doesn't expose email; fine for search
+    closetId: (p.closet_id as string | null) ?? null,
   }));
 }
