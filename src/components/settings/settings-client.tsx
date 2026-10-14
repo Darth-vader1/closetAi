@@ -21,6 +21,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/input";
 import { Chip, toggleValue } from "@/components/ui/chip";
+import { WhatsAppVerification } from "@/components/settings/whatsapp-verification";
 import { STYLE_OPTIONS, OCCASION_OPTIONS, WEEKDAYS } from "@/lib/profile/options";
 import { GENDER_OPTIONS } from "@/lib/validation/settings";
 import {
@@ -50,6 +51,7 @@ interface SettingsClientProps {
     whatsappPhone?: string;
     whatsappDailyEnabled?: boolean;
     remindEmptyWardrobe?: boolean;
+    whatsappVerified?: boolean;
   };
 }
 
@@ -75,6 +77,10 @@ export function SettingsClient({
   const [whatsappPhone, setWhatsappPhone] = useState(initialPreferences.whatsappPhone || "");
   const [whatsappDailyEnabled, setWhatsappDailyEnabled] = useState(initialPreferences.whatsappDailyEnabled ?? false);
   const [remindEmptyWardrobe, setRemindEmptyWardrobe] = useState(initialPreferences.remindEmptyWardrobe ?? true);
+  // The number as last SAVED on the server; verification always applies to this one.
+  const [savedWhatsappPhone, setSavedWhatsappPhone] = useState(initialPreferences.whatsappPhone || "");
+  const phoneDigits = (value: string) => value.replace(/\D/g, "");
+  const whatsappNeedsSave = !savedWhatsappPhone || phoneDigits(whatsappPhone) !== phoneDigits(savedWhatsappPhone);
 
   // UI Feedback
   const [profilePending, startProfileTransition] = useTransition();
@@ -124,7 +130,9 @@ export function SettingsClient({
       });
 
       if (res.ok) {
+        setSavedWhatsappPhone(whatsappPhone);
         setEmailMessage({ type: "success", text: res.message || "Notification preferences saved!" });
+        router.refresh();
       } else {
         setEmailMessage({ type: "error", text: res.error });
       }
@@ -513,6 +521,12 @@ export function SettingsClient({
                   Send Test Preview
                 </Button>
               </div>
+            )}
+            {whatsappDailyEnabled && whatsappPhone.trim() && (
+              <WhatsAppVerification
+                verified={Boolean(initialPreferences.whatsappVerified)}
+                needsSave={whatsappNeedsSave}
+              />
             )}
             <p className="text-[11px] text-muted">
               Enter with international country code (e.g. <span className="font-mono text-foreground">+234</span> for Nigeria, <span className="font-mono text-foreground">+44</span> for UK, <span className="font-mono text-foreground">+1</span> for US).

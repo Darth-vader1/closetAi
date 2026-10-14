@@ -1,10 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { geocodePlace, getPlanWeather } from "./service";
 
 // Mock fetch globally
 global.fetch = vi.fn();
 
 describe("Weather Service", () => {
+  // Queued mockResolvedValueOnce values must not leak into the next test.
+  beforeEach(() => {
+    vi.mocked(fetch).mockReset();
+  });
+
   describe("geocodePlace", () => {
     it("returns built-in coordinates for known cities", async () => {
       const result = await geocodePlace("Lagos");
@@ -114,21 +119,8 @@ describe("Weather Service", () => {
     });
 
     it("includes seasonal norms notice for long stays", async () => {
-      // Mock successful geocoding
+      // Paris is a built-in city, so geocoding makes no network call: the first fetch is the forecast.
       vi.mocked(fetch)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({
-            results: [
-              {
-                latitude: 48.8566,
-                longitude: 2.3522,
-                name: "Paris",
-                country: "France",
-              },
-            ],
-          }),
-        } as Response)
         // Mock forecast API (returns 16 days but plan is 30)
         .mockResolvedValueOnce({
           ok: true,

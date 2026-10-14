@@ -13,6 +13,7 @@ import { countByStatus } from "@/lib/wardrobe/status";
 import { getWhatsAppConfig, sendWhatsAppMessage, formatDailyOutfitWhatsApp } from "@/lib/whatsapp/service";
 import { takeAiQuota } from "@/lib/ai/rate-limit";
 import { getAppUrl } from "@/lib/env";
+import { normaliseWhatsAppPhone } from "@/lib/whatsapp/phone";
 
 export type ActionResult<T = unknown> =
   | { ok: true; data?: T; message?: string }
@@ -83,12 +84,21 @@ export async function updateEmailPreferencesAction(input: unknown): Promise<Acti
   };
   const weeklyDayInt = weekdayIndexMap[parsed.data.weeklyLaundryDay] ?? 0;
 
+  // A saved number must be a real, normalised phone number (never free text). Changing it drops
+  // verification automatically in the database, so a number is only ever messaged after the
+  // person who controls it has proved so.
+  const rawPhone = parsed.data.whatsappPhone.trim();
+  const phone = rawPhone ? normaliseWhatsAppPhone(rawPhone) : null;
+  if (rawPhone && !phone) {
+    return fail("Please enter a valid WhatsApp number in international format, e.g. +2348012345678.");
+  }
+
   const fullPayload = {
     daily_enabled: parsed.data.dailyEnabled,
     daily_time: parsed.data.dailyTime,
     weekly_enabled: parsed.data.weeklyLaundryEnabled,
     weekly_day: weeklyDayInt,
-    whatsapp_phone: parsed.data.whatsappPhone || null,
+    whatsapp_phone: phone?.e164 ?? null,
     whatsapp_daily_enabled: parsed.data.whatsappDailyEnabled,
     remind_empty_wardrobe: parsed.data.remindEmptyWardrobe,
     updated_at: new Date().toISOString(),
@@ -236,13 +246,16 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
   // Require the target phone number to match the user's saved whatsapp_phone preference
   const { data: savedPref } = await supabase
     .from("email_preferences")
-    .select("whatsapp_phone")
+    .select("whatsapp_phone, whatsapp_phone_verified")
     .eq("user_id", user.id)
     .maybeSingle();
 
   const normalizeDigits = (val: string) => val.replace(/[^\d]/g, "");
   if (!savedPref?.whatsapp_phone || normalizeDigits(savedPref.whatsapp_phone) !== normalizeDigits(phone)) {
     return fail("Please save your WhatsApp phone number in preferences before sending a test message.");
+  }
+  if (!savedPref.whatsapp_phone_verified) {
+    return fail("Verify your WhatsApp number first. Use the Verify button, then try the test again.");
   }
 
   const { data: profile } = await supabase
@@ -316,9 +329,10 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
   });
 
   const res = await sendWhatsAppMessage({
-    to: phone,
+    to: savedPref.whatsapp_phone,
     message,
     imageUrls: signedImageUrls,
+    userId: user.id,
   });
 
   if (!res.success) {

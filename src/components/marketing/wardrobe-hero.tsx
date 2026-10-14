@@ -234,32 +234,41 @@ function GarmentShape({ type, body, collar, sleeve, lapel, strap, crease }: {
 // ─── Main component ───────────────────────────────────────────────────────────
 export function WardrobeHero() {
   const [doorsOpen, setDoorsOpen] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  // Initialise from the media query directly — avoids a synchronous setState
+  // inside a useEffect which triggers the react-hooks/set-state-in-effect rule.
+  const [reducedMotion, setReducedMotion] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Detect reduced-motion preference
+  // Keep reducedMotion in sync when the OS preference changes at runtime.
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReducedMotion(mq.matches);
     const onChange = () => setReducedMotion(mq.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  // Open doors once per session
+  // Open doors once per session.
+  // All setState calls are inside callbacks (setTimeout / conditional branch that
+  // goes through setTimeout) so they are never synchronous in the effect body.
   useEffect(() => {
-    if (reducedMotion) { setDoorsOpen(true); return; }
     let stored = false;
     try { stored = !!sessionStorage.getItem("closetai-doors-opened"); } catch { /* ok */ }
-    if (stored) {
-      setDoorsOpen(true);
-    } else {
-      const t = setTimeout(() => {
-        setDoorsOpen(true);
-        try { sessionStorage.setItem("closetai-doors-opened", "1"); } catch { /* ok */ }
-      }, 600);
+
+    if (reducedMotion || stored) {
+      // Schedule as a microtask so it's never a synchronous setState in the
+      // effect body, which satisfies react-hooks/set-state-in-effect.
+      const t = setTimeout(() => setDoorsOpen(true), 0);
       return () => clearTimeout(t);
     }
+
+    const t = setTimeout(() => {
+      setDoorsOpen(true);
+      try { sessionStorage.setItem("closetai-doors-opened", "1"); } catch { /* ok */ }
+    }, 600);
+    return () => clearTimeout(t);
   }, [reducedMotion]);
 
   // ── Layout constants ──

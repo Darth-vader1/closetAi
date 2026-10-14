@@ -25,7 +25,7 @@ interface DailyPrefRow {
   whatsapp_phone?: string | null;
   whatsapp_daily_enabled?: boolean | null;
   whatsapp_phone_verified?: boolean | null;
-  last_whatsapp_message_at?: string | null;
+  whatsapp_last_inbound_at?: string | null;
 }
 
 const CONCURRENCY_LIMIT = 5;
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     let prefsData: DailyPrefRow[] | null = null;
     const { data: fullPrefs, error: fullErr } = await adminClient
       .from("email_preferences")
-      .select("user_id, daily_enabled, daily_time, unsubscribe_token, whatsapp_phone, whatsapp_daily_enabled, whatsapp_phone_verified, last_whatsapp_message_at");
+      .select("user_id, daily_enabled, daily_time, unsubscribe_token, whatsapp_phone, whatsapp_daily_enabled, whatsapp_phone_verified, whatsapp_last_inbound_at");
 
     if (fullErr && (fullErr.code === "42703" || fullErr.code === "PGRST204" || fullErr.message?.includes("whatsapp"))) {
       const { data: basePrefs, error: baseErr } = await adminClient
@@ -279,7 +279,7 @@ export async function GET(request: NextRequest) {
           });
 
           // Check if within 24-hour window
-          const within24h = isWithin24HourWindow(pref.last_whatsapp_message_at || null);
+          const within24h = isWithin24HourWindow(pref.whatsapp_last_inbound_at || null);
           
           let waRes: { success: boolean; id?: string; error?: string };
           

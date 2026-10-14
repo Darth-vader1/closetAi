@@ -20,39 +20,37 @@ vi.mock("@/lib/ai/service", () => ({
   }),
 }));
 
+// The route runs TWO wardrobe queries: clean items (.eq().in().limit()) and everything the user
+// owns (.eq().limit()). The mock must answer both chains, or the route throws and returns 500.
+const wardrobeRows = Array.from({ length: 20 }, (_, i) => ({
+  id: `item-${i}`,
+  name: `Test Item ${i}`,
+  category: i < 8 ? "tops" : i < 15 ? "bottoms" : "footwear",
+  subcategory: null,
+  primary_colour: i % 2 === 0 ? "black" : "white",
+  pattern: null,
+  material: "cotton",
+  style: null,
+  occasions: ["casual"],
+  warmth_level: 2,
+  image_path: `path-${i}`,
+  wear_count: 0,
+}));
+const rowsResult = () => Promise.resolve({ data: wardrobeRows, error: null });
+
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn().mockReturnValue({
     from: vi.fn().mockReturnValue({
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
-          in: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue({
-              data: Array.from({ length: 20 }, (_, i) => ({
-                id: `item-${i}`,
-                name: `Test Item ${i}`,
-                category: i < 8 ? "tops" : i < 15 ? "bottoms" : "footwear",
-                subcategory: null,
-                primary_colour: i % 2 === 0 ? "black" : "white",
-                pattern: null,
-                material: "cotton",
-                style: null,
-                occasions: ["casual"],
-                warmth_level: 2,
-                image_path: `path-${i}`,
-                wear_count: 0,
-              })),
-              error: null,
-            }),
-          }),
+          in: vi.fn().mockReturnValue({ limit: vi.fn().mockImplementation(() => rowsResult()) }),
+          limit: vi.fn().mockImplementation(() => rowsResult()),
         }),
       }),
     }),
     storage: {
       from: vi.fn().mockReturnValue({
-        createSignedUrls: vi.fn().mockResolvedValue({
-          data: [],
-          error: null,
-        }),
+        createSignedUrls: vi.fn().mockResolvedValue({ data: [], error: null }),
       }),
     },
   }),

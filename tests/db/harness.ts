@@ -11,6 +11,13 @@ import { PGlite } from "@electric-sql/pglite";
 const SUPABASE_STUBS = `
   create role anon nologin;
   create role authenticated nologin;
+  create role service_role nologin;
+  -- Supabase default privileges: every function created in public is executable by anon and
+  -- authenticated until a migration REVOKEs it. Reproducing that lets the tests catch RPCs that
+  -- were never locked down (a SECURITY DEFINER function with no REVOKE is callable by anyone).
+  alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
+  -- Same for tables: Supabase grants table privileges at creation time, so a migration's REVOKE sticks.
+  alter default privileges in schema public grant select, insert, update, delete on tables to authenticated;
   create schema auth;
   create table auth.users (
     id uuid primary key default gen_random_uuid(),
@@ -36,15 +43,18 @@ const SUPABASE_STUBS = `
     parts := string_to_array(name, '/');
     return parts[1:array_length(parts, 1) - 1];
   end $$;
-  grant usage on schema auth, storage to anon, authenticated;
+  grant usage on schema auth, storage to anon, authenticated, service_role;
   grant execute on function auth.uid() to anon, authenticated;
   grant execute on function storage.foldername(text) to anon, authenticated;
 `;
 
 const POST_MIGRATION_GRANTS = `
   grant usage on schema public to anon, authenticated;
-  grant select, insert, update, delete on all tables in schema public to authenticated;
   grant select, insert, update, delete on all tables in schema storage to authenticated;
+  -- Supabase's service_role bypasses RLS and holds full table privileges.
+  grant usage on schema public to service_role;
+  grant all on all tables in schema public to service_role;
+  alter role service_role bypassrls;
 `;
 
 export async function createTestDb(): Promise<PGlite> {
@@ -77,5 +87,26 @@ export async function asUser<T>(db: PGlite, userId: string, fn: () => Promise<T>
   } finally {
     await db.exec(`reset role`);
     await db.query(`select set_config('request.jwt.claim.sub', '', false)`);
+  }
+}
+
+/** Run a callback as the anonymous (not logged in) API role. */
+export async function asAnon<T>(db: PGlite, fn: () => Promise<T>): Promise<T> {
+  await db.exec(`set role anon`);
+  await db.query(`select set_config('request.jwt.claim.sub', '', false)`);
+  try {
+    return await fn();
+  } finally {
+    await db.exec(`reset role`);
+  }
+}
+
+/** Run a callback as the service role (what the server's admin client uses). */
+export async function asService<T>(db: PGlite, fn: () => Promise<T>): Promise<T> {
+  await db.exec(`set role service_role`);
+  try {
+    return await fn();
+  } finally {
+    await db.exec(`reset role`);
   }
 }

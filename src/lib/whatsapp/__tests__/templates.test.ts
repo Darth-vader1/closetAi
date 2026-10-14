@@ -4,7 +4,7 @@
  * Run with: npm test templates.test.ts
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 import {
   WHATSAPP_TEMPLATES,
   buildTemplateMessagePayload,

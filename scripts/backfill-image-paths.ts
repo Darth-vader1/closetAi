@@ -129,7 +129,7 @@ async function main() {
 
   const limiter = createLimiter(CONCURRENCY);
 
-  // eslint-disable-next-line no-constant-condition
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   while (true) {
     // 1. Fetch a batch of items that need checking.
     let query = supabase

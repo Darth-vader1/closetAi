@@ -20,6 +20,7 @@ import { sendTemplateMessage } from '@/lib/whatsapp/service';
 import { WHATSAPP_TEMPLATES } from '@/lib/whatsapp/templates';
 import { createClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logger';
+import { takeAiQuota } from '@/lib/ai/rate-limit';
 
 export interface StartVerificationResult {
   success: boolean;
@@ -34,90 +35,47 @@ export interface StartVerificationResult {
 export async function startPhoneVerification(): Promise<StartVerificationResult> {
   try {
     const supabase = await createClient();
-    
-    // Get current user
+
+    // Identity comes from the verified session, never from the client.
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
-      return {
-        success: false,
-        error: 'Not authenticated',
-        errorCode: 'UNAUTHORIZED',
-      };
+      return { success: false, error: 'Not authenticated', errorCode: 'UNAUTHORIZED' };
     }
-    
-    // Get user's WhatsApp phone number from email_preferences
-    const { data: prefs, error: prefsError } = await supabase
-      .from('email_preferences')
-      .select('whatsapp_phone, whatsapp_enabled')
-      .eq('user_id', user.id)
-      .single();
-    
-    if (prefsError || !prefs) {
-      return {
-        success: false,
-        error: 'Failed to fetch preferences',
-        errorCode: 'DATABASE_ERROR',
-      };
-    }
-    
-    if (!prefs.whatsapp_enabled || !prefs.whatsapp_phone) {
-      return {
-        success: false,
-        error: 'WhatsApp notifications not enabled. Please enable and set your phone number first.',
-        errorCode: 'NOT_ENABLED',
-      };
-    }
-    
-    // Generate verification code
+
+    // The database enforces: a saved number, not already verified, not opted out, not verified by
+    // another account, and per-user (5/hour) and per-number (3/day) limits.
     const result = await generateVerificationCode(user.id);
-    
-    if (!result.success || !result.code) {
-      return {
-        success: false,
-        error: result.error || 'Failed to generate code',
-        errorCode: result.errorCode,
-      };
+    if (!result.success || !result.code || !result.phoneDigits) {
+      return { success: false, error: result.error || 'Failed to generate code', errorCode: result.errorCode };
     }
-    
-    // Send code via WhatsApp template
-    const sendResult = await sendTemplateMessage(
-      prefs.whatsapp_phone,
-      WHATSAPP_TEMPLATES.VERIFICATION_CODE,
-      { code: result.code }
-    );
-    
+
+    // Send the code ONLY to the number the code is bound to. It is never returned to the browser:
+    // receiving it on that WhatsApp number is the proof of ownership.
+    const sendResult = await sendTemplateMessage(result.phoneDigits, WHATSAPP_TEMPLATES.VERIFICATION_CODE, {
+      code: result.code,
+    });
+
     if (!sendResult.success) {
-      // Code was generated but couldn't be sent
-      // User can still verify manually if they received it
       logger.error('whatsapp.send_verification_code_failed', {
         err: new Error('Failed to send verification code'),
         userId: user.id,
         sendError: sendResult.error,
       });
-      
       return {
         success: false,
-        error: `Code generated but couldn't be sent: ${sendResult.error}`,
+        error: "We couldn't send the code to that number. Check it is a WhatsApp number and try again.",
         errorCode: 'SEND_FAILED',
       };
     }
-    
-    // Calculate expiry time
-    const expiresInMinutes = result.expiresAt 
+
+    const expiresInMinutes = result.expiresAt
       ? Math.ceil((result.expiresAt.getTime() - Date.now()) / (1000 * 60))
       : 15;
-    
-    return {
-      success: true,
-      expiresInMinutes,
-    };
+
+    return { success: true, expiresInMinutes };
   } catch (error) {
     logger.error('whatsapp.start_verification_error', { err: error });
-    return {
-      success: false,
-      error: 'An unexpected error occurred',
-      errorCode: 'SERVER_ERROR',
-    };
+    return { success: false, error: 'An unexpected error occurred', errorCode: 'SERVER_ERROR' };
   }
 }
 
@@ -232,6 +190,10 @@ export async function sendTestWhatsAppMessage(): Promise<SendTestMessageResult> 
         success: false,
         error: 'Phone number not verified',
       };
+    }
+    const quota = await takeAiQuota(supabase, user.id, 'CHAT');
+    if (!quota.allowed) {
+      return { success: false, error: 'Too many test messages sent recently. Please try again later.' };
     }
     
     // Get preferences from email_preferences

@@ -390,7 +390,9 @@ export function finaliseSuggestions(
   }
 
   list = list.map((s) => {
-    if (s.category !== "clothing_gaps" && s.category !== "weather_gear") return { ...s, alreadyOwned: false };
+    // Documents are never wardrobe items; everything else (clothing gaps, weather gear, tech
+    // like a power bank, toiletries) is checked against what the user already owns.
+    if (s.category === "documents") return { ...s, alreadyOwned: false };
     const match = findOwned(s.name, owned);
     return match
       ? { ...s, alreadyOwned: true, ownedItemName: match.name, reason: `You already own "${match.name}", so pack it rather than buying one. ${s.reason}`.slice(0, 200) }

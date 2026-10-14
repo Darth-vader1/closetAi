@@ -14,6 +14,7 @@ export interface SendWhatsAppPayload {
   imageUrls?: string[]; // Multiple photos of the outfit garments (e.g. top, bottom, shoes)
   userId?: string; // For tracking 24h window and verification status
   skipVerificationCheck?: boolean; // For internal verification messages only
+  skipOptOutCheck?: boolean; // Only for the confirmation reply to the user's own STOP/START
 }
 
 export interface MetaCloudConfig {
@@ -108,6 +109,11 @@ export async function sendTemplateMessage(
   const digitsOnly = cleanDigits(to);
   const config = getWhatsAppConfig();
 
+  if (await isNumberOptedOut(digitsOnly)) {
+    logger.warn('whatsapp.template_blocked_opted_out');
+    return { success: false, error: 'This number has opted out of WhatsApp messages.' };
+  }
+
   if (!config) {
     checkProductionSimulation();
     
@@ -187,14 +193,19 @@ export async function sendTemplateMessage(
 }
 
 /**
- * Updates the last message timestamp for 24h window tracking
+ * Records when WE last sent this user a message (informational only).
+ *
+ * NOTE: this is NOT the 24-hour window. Meta's customer-service window starts when the USER last
+ * messaged us — see `whatsapp_last_inbound_at`, which the webhook maintains.
+ *
+ * Uses the service-role client: sends run from cron and webhooks where there is no user session,
+ * so a cookie client would be blocked by Row Level Security and silently update nothing.
  */
 async function updateLastMessageTime(userId: string): Promise<void> {
   try {
-    const { createClient } = await import('@/lib/supabase/server');
-    const supabase = await createClient();
-    
-    await supabase
+    const { createAdminClient } = await import('@/lib/supabase/admin');
+    const admin = createAdminClient();
+    await admin
       .from('email_preferences')
       .update({ last_whatsapp_message_at: new Date().toISOString() })
       .eq('user_id', userId);
@@ -205,28 +216,51 @@ async function updateLastMessageTime(userId: string): Promise<void> {
 }
 
 /**
- * Checks if user has verified their phone number
+ * True only if the user completed verification for the number currently saved on their account.
+ * Fails closed: any error means "not verified".
  */
 async function isPhoneVerified(userId: string): Promise<boolean> {
   try {
-    const { createClient } = await import('@/lib/supabase/server');
-    const supabase = await createClient();
-    
-    const { data, error } = await supabase
+    const { createAdminClient } = await import('@/lib/supabase/admin');
+    const admin = createAdminClient();
+    const { data, error } = await admin
       .from('email_preferences')
       .select('whatsapp_phone_verified')
       .eq('user_id', userId)
-      .single();
-    
+      .maybeSingle();
+
     if (error) {
       logger.error('whatsapp.phone_verified_check_failed', { err: error, userId });
       return false;
     }
-    
-    return data?.whatsapp_phone_verified || false;
+    return data?.whatsapp_phone_verified === true;
   } catch (error) {
     logger.error('whatsapp.phone_verified_check_error', { err: error, userId });
     return false;
+  }
+}
+
+/**
+ * True if this number texted STOP and has not texted START since. Fails closed (treated as
+ * opted out) if the check itself errors, so an outage can never cause an unwanted message.
+ */
+export async function isNumberOptedOut(digits: string): Promise<boolean> {
+  try {
+    const { createAdminClient } = await import('@/lib/supabase/admin');
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from('whatsapp_optouts')
+      .select('phone_digits')
+      .eq('phone_digits', digits)
+      .maybeSingle();
+    if (error) {
+      logger.error('whatsapp.optout_check_failed', { err: error });
+      return true;
+    }
+    return Boolean(data);
+  } catch (error) {
+    logger.error('whatsapp.optout_check_error', { err: error });
+    return true;
   }
 }
 
@@ -248,6 +282,7 @@ export async function sendWhatsAppMessage({
   imageUrls = [],
   userId,
   skipVerificationCheck = false,
+  skipOptOutCheck = false,
 }: SendWhatsAppPayload): Promise<{ success: boolean; id?: string; error?: string }> {
   const digitsOnly = cleanDigits(to);
   const config = getWhatsAppConfig();
@@ -255,6 +290,11 @@ export async function sendWhatsAppMessage({
   // Production safety check - refuse simulation in production
   if (!config) {
     checkProductionSimulation();
+  }
+
+  if (!skipOptOutCheck && (await isNumberOptedOut(digitsOnly))) {
+    logger.warn('whatsapp.send_blocked_opted_out');
+    return { success: false, error: 'This number has opted out of WhatsApp messages.' };
   }
 
   // Verify phone ownership for user-initiated messages (not for verification codes)
