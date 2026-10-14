@@ -1,4 +1,4 @@
-From 0628e2bea16798bf2f2bd9e02f29a7d27a1f4b0e Mon Sep 17 00:00:00 2001
+From 6e301753cd41d88cfba1b2075e7ec20aa00488ef Mon Sep 17 00:00:00 2001
 From: Gbolahan <gbolahanabiodun92@gmail.com>
 Date: Wed, 14 Oct 2026 11:57:03 +0000
 Subject: [PATCH] Fix WhatsApp verification bypass, harden webhook, repair
@@ -52,21 +52,21 @@ Claude-Session: https://claude.ai/code/session_01XEB5CTk3TefwBKxvAz1q8a
  src/lib/whatsapp/phone.ts                     |  34 ++
  src/lib/whatsapp/service.ts                   |  68 ++-
  src/lib/whatsapp/verification.ts              | 487 ++++++------------
- ...20261013000004_whatsapp_security_fixes.sql | 329 ++++++++++++
+ ...20261014000001_whatsapp_security_fixes.sql | 329 ++++++++++++
  tests/db/harness.ts                           |  35 +-
- tests/db/rls.test.ts                          |  65 +--
+ tests/db/rls.test.ts                          |  37 +-
  tests/db/whatsapp-security.test.ts            | 332 ++++++++++++
  vitest.config.mts                             |   2 +-
- 25 files changed, 1583 insertions(+), 722 deletions(-)
+ 25 files changed, 1581 insertions(+), 696 deletions(-)
  create mode 100644 src/app/api/webhook/whatsapp/route.test.ts
  create mode 100644 src/components/settings/whatsapp-verification.tsx
  create mode 100644 src/lib/whatsapp/__tests__/phone.test.ts
  create mode 100644 src/lib/whatsapp/phone.ts
- create mode 100644 supabase/migrations/20261013000004_whatsapp_security_fixes.sql
+ create mode 100644 supabase/migrations/20261014000001_whatsapp_security_fixes.sql
  create mode 100644 tests/db/whatsapp-security.test.ts
 
 diff --git a/DEPLOYMENT.md b/DEPLOYMENT.md
-index 5a78e2a..b1ac1c2 100644
+index 5a78e2a..e6f7ef5 100644
 --- a/DEPLOYMENT.md
 +++ b/DEPLOYMENT.md
 @@ -212,3 +212,13 @@ SELECT cleanup_old_webhook_messages();
@@ -79,12 +79,12 @@ index 5a78e2a..b1ac1c2 100644
 +- **Required env vars (the webhook fails closed without them):** `WHATSAPP_APP_SECRET` (POSTs return 500 if unset; unsigned or badly signed requests get 401) and `WHATSAPP_VERIFY_TOKEN` (GET returns 500 if unset; there is no default token). Also `WHATSAPP_VERIFICATION_PEPPER` (32+ chars) and `SUPABASE_SERVICE_ROLE_KEY` (the webhook, cron and verification all use the service-role client).
 +- **Approved templates (Utility category, exact names):** `phone_verification` (one body variable: the code), `daily_outfit_suggestion` (two: name, weather), `weekly_laundry_reminder` (two: name, count). Until approved, sends outside the 24-hour window fail.
 +- **24-hour window:** it starts when the USER last messaged your business number (`whatsapp_last_inbound_at`, set by the webhook), not when you last sent something.
-+- **Re-verification:** migration `20261013000004` resets every existing "verified" number, because the earlier check could be bypassed. Users verify again once in Settings.
++- **Re-verification:** migration `20261014000001` resets every existing "verified" number, because the earlier check could be bypassed. Users verify again once in Settings.
 +- **Verification flow:** Settings -> save number -> "Verify this number" -> a code arrives on WhatsApp -> type it in Settings or reply to the message with it. Codes expire in 15 minutes; 5 starts per user per hour and 3 per number per day.
 +- **STOP / START:** STOP records the number in `whatsapp_optouts` and turns off WhatsApp preferences; we never message an opted-out number. START clears it and re-enables a verified number.
 +- **Tests:** `npm test` now runs `tests/**` and `src/**` tests, including `tests/db/whatsapp-security.test.ts` (verification attacks against the real migrations).
 diff --git a/src/app/(app)/settings/actions.ts b/src/app/(app)/settings/actions.ts
-index fd7a8e7..76494f5 100644
+index c28980f..bcc6e44 100644
 --- a/src/app/(app)/settings/actions.ts
 +++ b/src/app/(app)/settings/actions.ts
 @@ -13,6 +13,7 @@ import { countByStatus } from "@/lib/wardrobe/status";
@@ -116,9 +116,9 @@ index fd7a8e7..76494f5 100644
 -    whatsapp_phone: parsed.data.whatsappPhone || null,
 +    whatsapp_phone: phone?.e164 ?? null,
      whatsapp_daily_enabled: parsed.data.whatsappDailyEnabled,
+     remind_empty_wardrobe: parsed.data.remindEmptyWardrobe,
      updated_at: new Date().toISOString(),
-   };
-@@ -235,7 +245,7 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
+@@ -236,7 +246,7 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
    // Require the target phone number to match the user's saved whatsapp_phone preference
    const { data: savedPref } = await supabase
      .from("email_preferences")
@@ -127,7 +127,7 @@ index fd7a8e7..76494f5 100644
      .eq("user_id", user.id)
      .maybeSingle();
  
-@@ -243,6 +253,9 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
+@@ -244,6 +254,9 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
    if (!savedPref?.whatsapp_phone || normalizeDigits(savedPref.whatsapp_phone) !== normalizeDigits(phone)) {
      return fail("Please save your WhatsApp phone number in preferences before sending a test message.");
    }
@@ -137,7 +137,7 @@ index fd7a8e7..76494f5 100644
  
    const { data: profile } = await supabase
      .from("profiles")
-@@ -315,9 +328,10 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
+@@ -316,9 +329,10 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
    });
  
    const res = await sendWhatsAppMessage({
@@ -150,13 +150,13 @@ index fd7a8e7..76494f5 100644
  
    if (!res.success) {
 diff --git a/src/app/(app)/settings/page.tsx b/src/app/(app)/settings/page.tsx
-index 88f0eb0..cdc53d9 100644
+index 08b5bfd..0c92af1 100644
 --- a/src/app/(app)/settings/page.tsx
 +++ b/src/app/(app)/settings/page.tsx
-@@ -49,6 +49,7 @@ export default async function SettingsPage() {
-     weeklyLaundryDay: initialWeeklyDay,
+@@ -50,6 +50,7 @@ export default async function SettingsPage() {
      whatsappPhone: emailPrefs?.whatsapp_phone || "",
      whatsappDailyEnabled: emailPrefs?.whatsapp_daily_enabled ?? false,
+     remindEmptyWardrobe: emailPrefs?.remind_empty_wardrobe ?? true,
 +    whatsappVerified: emailPrefs?.whatsapp_phone_verified ?? false,
    };
  
@@ -1032,7 +1032,7 @@ index b874290..fdf0773 100644
 +  return NextResponse.json({ status: "ok" }, { status: 200 });
  }
 diff --git a/src/components/settings/settings-client.tsx b/src/components/settings/settings-client.tsx
-index b51289c..d694c2c 100644
+index 1c516bd..60c8da7 100644
 --- a/src/components/settings/settings-client.tsx
 +++ b/src/components/settings/settings-client.tsx
 @@ -21,6 +21,7 @@ import { Card } from "@/components/ui/card";
@@ -1043,18 +1043,18 @@ index b51289c..d694c2c 100644
  import { STYLE_OPTIONS, OCCASION_OPTIONS, WEEKDAYS } from "@/lib/profile/options";
  import { GENDER_OPTIONS } from "@/lib/validation/settings";
  import {
-@@ -49,6 +50,7 @@ interface SettingsClientProps {
-     weeklyLaundryDay: string;
+@@ -50,6 +51,7 @@ interface SettingsClientProps {
      whatsappPhone?: string;
      whatsappDailyEnabled?: boolean;
+     remindEmptyWardrobe?: boolean;
 +    whatsappVerified?: boolean;
    };
  }
  
-@@ -73,6 +75,10 @@ export function SettingsClient({
-   const [weeklyLaundryDay, setWeeklyLaundryDay] = useState(initialPreferences.weeklyLaundryDay);
+@@ -75,6 +77,10 @@ export function SettingsClient({
    const [whatsappPhone, setWhatsappPhone] = useState(initialPreferences.whatsappPhone || "");
    const [whatsappDailyEnabled, setWhatsappDailyEnabled] = useState(initialPreferences.whatsappDailyEnabled ?? false);
+   const [remindEmptyWardrobe, setRemindEmptyWardrobe] = useState(initialPreferences.remindEmptyWardrobe ?? true);
 +  // The number as last SAVED on the server; verification always applies to this one.
 +  const [savedWhatsappPhone, setSavedWhatsappPhone] = useState(initialPreferences.whatsappPhone || "");
 +  const phoneDigits = (value: string) => value.replace(/\D/g, "");
@@ -1062,7 +1062,7 @@ index b51289c..d694c2c 100644
  
    // UI Feedback
    const [profilePending, startProfileTransition] = useTransition();
-@@ -121,7 +127,9 @@ export function SettingsClient({
+@@ -124,7 +130,9 @@ export function SettingsClient({
        });
  
        if (res.ok) {
@@ -1072,7 +1072,7 @@ index b51289c..d694c2c 100644
        } else {
          setEmailMessage({ type: "error", text: res.error });
        }
-@@ -511,6 +519,12 @@ export function SettingsClient({
+@@ -514,6 +522,12 @@ export function SettingsClient({
                  </Button>
                </div>
              )}
@@ -1553,7 +1553,7 @@ index 4259c99..8f22135 100644
    if (userId && !skipVerificationCheck) {
      const verified = await isPhoneVerified(userId);
 diff --git a/src/lib/whatsapp/verification.ts b/src/lib/whatsapp/verification.ts
-index 91fbdae..c47fd92 100644
+index 91fbdae..b8afa34 100644
 --- a/src/lib/whatsapp/verification.ts
 +++ b/src/lib/whatsapp/verification.ts
 @@ -1,345 +1,201 @@
@@ -1575,7 +1575,7 @@ index 91fbdae..c47fd92 100644
 + *    pick another user's id, or flip `whatsapp_phone_verified` itself.
 + *  - A code is bound to the number it was issued for; changing the number invalidates it.
 + *  - Rate limits and "one verified owner per number" live in the database (see migration
-+ *    20261013000004), so they hold no matter which code path calls them.
++ *    20261014000001), so they hold no matter which code path calls them.
   */
  
 -import { createClient } from '@/lib/supabase/server';
@@ -2128,11 +2128,11 @@ index 91fbdae..c47fd92 100644
  export const VERIFICATION_CONSTANTS = {
    CODE_PREFIX,
    CODE_LENGTH,
-diff --git a/supabase/migrations/20261013000004_whatsapp_security_fixes.sql b/supabase/migrations/20261013000004_whatsapp_security_fixes.sql
+diff --git a/supabase/migrations/20261014000001_whatsapp_security_fixes.sql b/supabase/migrations/20261014000001_whatsapp_security_fixes.sql
 new file mode 100644
 index 0000000..bbad9cf
 --- /dev/null
-+++ b/supabase/migrations/20261013000004_whatsapp_security_fixes.sql
++++ b/supabase/migrations/20261014000001_whatsapp_security_fixes.sql
 @@ -0,0 +1,329 @@
 +-- Migration: WhatsApp verification security fixes
 +--
@@ -2528,30 +2528,10 @@ index 4cba8f5..3fcb8e1 100644
 +  }
 +}
 diff --git a/tests/db/rls.test.ts b/tests/db/rls.test.ts
-index a7393cb..6061bf4 100644
+index ba18be8..6dfd4ba 100644
 --- a/tests/db/rls.test.ts
 +++ b/tests/db/rls.test.ts
-@@ -2,51 +2,44 @@ import type { PGlite } from "@electric-sql/pglite";
- import { afterAll, beforeAll, describe, expect, it } from "vitest";
- import { asUser, createTestDb, createUser } from "./harness";
- 
--let db: PGlite | undefined;
-+let db: PGlite;
- let alice: string;
- let bob: string;
- let aliceItem: string;
- let aliceOutfit: string;
- 
- async function insertItem(userId: string, name: string, imagePath: string): Promise<string> {
--  if (!db) throw new Error("Database not initialized");
-   const res = await db.query<{ id: string }>(
--    `insert into public.wardrobe_items (user_id, name, category, image_path, care_type)
--     values ($1, $2, 'tshirts', $3, 'WASHABLE') returning id`,
-+    `insert into public.wardrobe_items (user_id, name, category, image_path)
-+     values ($1, $2, 'tshirts', $3) returning id`,
-     [userId, name, imagePath],
-   );
-   return res.rows[0].id;
+@@ -25,25 +25,22 @@ function getDb(): PGlite {
  }
  
  beforeAll(async () => {
@@ -2570,10 +2550,12 @@ index a7393cb..6061bf4 100644
 -      aliceItem,
 -      alice,
 -    ]);
--  } catch (error) {
+-  } catch {
 -    // PGlite not available - skip these tests
 -    console.warn("Skipping database tests: PGlite not available");
 -  }
++  // No try/catch here on purpose: if the migrations fail to apply, every test in this file must
++  // FAIL loudly. A swallowed error here once turned the whole RLS suite into silent no-ops.
 +  db = await createTestDb();
 +  alice = await createUser(db, "Alice");
 +  bob = await createUser(db, "Bob");
@@ -2591,178 +2573,18 @@ index a7393cb..6061bf4 100644
  });
  
  afterAll(async () => {
--  if (db) await db.close();
-+  await db.close();
+@@ -51,7 +48,7 @@ afterAll(async () => {
  });
  
  describe("schema bootstrap", () => {
 -  it.skipIf(!db)("creates a profile and DISABLED email preferences when a user signs up", async () => {
--    if (!db) return;
 +  it("creates a profile and DISABLED email preferences when a user signs up", async () => {
+     const db = getDb();
      const profile = await db.query<{ display_name: string; timezone: string }>(
        `select display_name, timezone from public.profiles where id = $1`,
-       [alice],
-@@ -60,7 +53,6 @@ describe("schema bootstrap", () => {
-   });
- 
-   it("creates the wardrobe storage bucket as private", async () => {
--    if (!db) return; // Skip if PGlite not available
-     const res = await db.query<{ public: boolean }>(`select public from storage.buckets where id = 'wardrobe'`);
-     expect(res.rows[0].public).toBe(false);
-   });
-@@ -68,13 +60,11 @@ describe("schema bootstrap", () => {
- 
- describe("Row Level Security isolation (Flow G)", () => {
-   it("lets a user read their own items", async () => {
--    if (!db) return;
-     const rows = await asUser(db, alice, async () => (await db.query(`select id from public.wardrobe_items`)).rows);
-     expect(rows).toHaveLength(1);
-   });
- 
-   it("hides another user's items, outfits and profile", async () => {
--    if (!db) return;
-     await asUser(db, bob, async () => {
-       expect((await db.query(`select 1 from public.wardrobe_items`)).rows).toHaveLength(0);
-       expect((await db.query(`select 1 from public.outfits`)).rows).toHaveLength(0);
-@@ -85,7 +75,6 @@ describe("Row Level Security isolation (Flow G)", () => {
-   });
- 
-   it("cannot update or delete another user's item by guessing its id", async () => {
--    if (!db) return;
-     await asUser(db, bob, async () => {
-       const upd = await db.query(`update public.wardrobe_items set name = 'hacked' where id = $1`, [aliceItem]);
-       expect(upd.affectedRows).toBe(0);
-@@ -97,7 +86,6 @@ describe("Row Level Security isolation (Flow G)", () => {
-   });
- 
-   it("rejects inserting a row that claims another user's id", async () => {
--    if (!db) return;
-     await asUser(db, bob, async () => {
-       await expect(
-         db.query(`insert into public.wardrobe_items (user_id, name, category, image_path) values ($1, 'x', 'jeans', 'p')`, [
-@@ -108,7 +96,6 @@ describe("Row Level Security isolation (Flow G)", () => {
-   });
- 
-   it("prevents Bob from putting Alice's garment into Bob's outfit (composite FK)", async () => {
--    if (!db) return;
-     const bobOutfit = (
-       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Bob outfit') returning id`, [
-         bob,
-@@ -126,7 +113,6 @@ describe("Row Level Security isolation (Flow G)", () => {
-   });
- 
-   it("blocks users from writing email_logs, which are service-role only", async () => {
--    if (!db) return;
-     await asUser(db, alice, async () => {
-       await expect(
-         db.query(`insert into public.email_logs (user_id, kind, period_key) values ($1, 'DAILY', '2026-10-09')`, [alice]),
-@@ -135,7 +121,6 @@ describe("Row Level Security isolation (Flow G)", () => {
-   });
- 
-   it("isolates private storage objects by folder", async () => {
--    if (!db) return;
-     await db.query(`insert into storage.objects (bucket_id, name) values ('wardrobe', $1)`, [`${alice}/tee.jpg`]);
-     const seenByBob = await asUser(db, bob, async () => (await db.query(`select 1 from storage.objects`)).rows);
-     expect(seenByBob).toHaveLength(0);
-@@ -151,7 +136,6 @@ describe("Row Level Security isolation (Flow G)", () => {
- 
- describe("delete semantics", () => {
-   it("deleting an outfit never deletes garments", async () => {
--    if (!db) return;
-     const item = await insertItem(alice, "Keep me", `${alice}/keep.jpg`);
-     const outfit = (
-       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Temp') returning id`, [alice])
-@@ -163,7 +147,6 @@ describe("delete semantics", () => {
-   });
- 
-   it("deleting a garment removes its outfit links but keeps the outfit", async () => {
--    if (!db) return;
-     const item = await insertItem(alice, "Temp item", `${alice}/temp.jpg`);
-     const outfit = (
-       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Stays') returning id`, [alice])
-@@ -175,7 +158,6 @@ describe("delete semantics", () => {
-   });
- 
-   it("deleting an outfit keeps worn history, nulling the outfit reference", async () => {
--    if (!db) return;
-     const outfit = (
-       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Worn once') returning id`, [alice])
-     ).rows[0].id;
-@@ -194,7 +176,6 @@ describe("delete semantics", () => {
- 
- describe("change_item_status (laundry, Flow D)", () => {
-   it("records events and updates last_washed_at ONLY when washing is confirmed", async () => {
--    if (!db) return;
-     const id = await insertItem(alice, "Laundry tee", `${alice}/laundry.jpg`);
-     await asUser(db, alice, async () => {
-       await db.query(`select public.change_item_status($1, 'DIRTY')`, [id]);
-@@ -223,7 +204,6 @@ describe("change_item_status (laundry, Flow D)", () => {
-   });
- 
-   it("does not touch last_washed_at for a plain status edit back to CLEAN", async () => {
--    if (!db) return;
-     const id = await insertItem(alice, "Edit tee", `${alice}/edit.jpg`);
-     await asUser(db, alice, async () => {
-       await db.query(`select public.change_item_status($1, 'DIRTY')`, [id]);
-@@ -235,7 +215,6 @@ describe("change_item_status (laundry, Flow D)", () => {
-   });
- 
-   it("rejects confirming a wash for a non-CLEAN target", async () => {
--    if (!db) return;
-     const id = await insertItem(alice, "Bad tee", `${alice}/bad.jpg`);
-     await asUser(db, alice, async () => {
-       await expect(db.query(`select public.change_item_status($1, 'DRYING', true)`, [id])).rejects.toThrow(/only be confirmed/i);
-@@ -243,7 +222,6 @@ describe("change_item_status (laundry, Flow D)", () => {
-   });
- 
-   it("cannot change another user's item", async () => {
--    if (!db) return;
-     await asUser(db, bob, async () => {
-       await expect(db.query(`select public.change_item_status($1, 'DIRTY')`, [aliceItem])).rejects.toThrow(/not found/i);
-     });
-@@ -252,7 +230,6 @@ describe("change_item_status (laundry, Flow D)", () => {
- 
- describe("email idempotency key", () => {
-   it("allows only one email_logs row per user, kind and period", async () => {
--    if (!db) return;
-     await db.query(`insert into public.email_logs (user_id, kind, period_key) values ($1, 'DAILY', '2026-10-10')`, [alice]);
-     await expect(
-       db.query(`insert into public.email_logs (user_id, kind, period_key) values ($1, 'DAILY', '2026-10-10')`, [alice]),
-@@ -262,7 +239,6 @@ describe("email idempotency key", () => {
- 
- describe("wear_outfit atomic RPC & profile deletion", () => {
-   it("atomically logs outfit history, increments wear_count, sets last_worn_at, and marks status WORN", async () => {
--    if (!db) return;
-     const itemId = await insertItem(alice, "Wear test shirt", `${alice}/wear-shirt.jpg`);
-     const outfitId = (
-       await db.query<{ id: string }>(`insert into public.outfits (user_id, name) values ($1, 'Wear Test Look') returning id`, [
-@@ -311,7 +287,6 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
-   });
- 
-   it("rejects wear_outfit when an item is DIRTY", async () => {
--    if (!db) return;
-     const dirtyItemId = await insertItem(alice, "Dirty blazer", `${alice}/dirty-blazer.jpg`);
-     await db.query(`update public.wardrobe_items set status = 'DIRTY' where id = $1`, [dirtyItemId]);
-     const outfitId = (
-@@ -331,7 +306,6 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
-   });
- 
-   it("rejects '..' path traversal in storage.objects policies", async () => {
--    if (!db) return;
-     await asUser(db, bob, async () => {
-       await expect(
-         db.query(`insert into storage.objects (bucket_id, name) values ('wardrobe', $1)`, [`${bob}/../${alice}/sneaky.jpg`]),
-@@ -340,7 +314,6 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
-   });
- 
-   it("allows a user to delete their own profile and cascades to owned rows", async () => {
--    if (!db) return;
-     const tempUser = await createUser(db, "TempUser");
-     await insertItem(tempUser, "Temp shirt", `${tempUser}/shirt.jpg`);
-     await asUser(db, tempUser, async () => {
 diff --git a/tests/db/whatsapp-security.test.ts b/tests/db/whatsapp-security.test.ts
 new file mode 100644
-index 0000000..9f43d5c
+index 0000000..d6aabc2
 --- /dev/null
 +++ b/tests/db/whatsapp-security.test.ts
 @@ -0,0 +1,332 @@
@@ -2772,7 +2594,7 @@ index 0000000..9f43d5c
 +
 +/**
 + * Regression tests for the WhatsApp verification audit. Every "cannot" test below was a real,
-+ * reproduced hole against migration 20261013000001/3 before 20261013000004 closed it.
++ * reproduced hole against migration 20261013000001/3 before 20261014000001 closed it.
 + */
 +
 +let db: PGlite;
