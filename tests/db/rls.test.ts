@@ -40,7 +40,7 @@ beforeAll(async () => {
       aliceItem,
       alice,
     ]);
-  } catch (error) {
+  } catch {
     // PGlite not available - skip these tests
     console.warn("Skipping database tests: PGlite not available");
   }

@@ -125,7 +125,7 @@ async function main() {
   let totalChecked = 0;
   let totalDone = 0;
   let totalFailed = 0;
-  let totalSkipped = 0;
+  const totalSkipped = 0;
 
   const limiter = createLimiter(CONCURRENCY);
 

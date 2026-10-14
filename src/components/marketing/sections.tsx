@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Camera, CalendarDays, Mail, ShieldCheck, Shirt, Sparkles, WashingMachine } from "lucide-react";
 import { Logo } from "@/components/layout/logo";
-import { WardrobePreview } from "@/components/marketing/preview";
 import { WardrobeHero } from "@/components/marketing/wardrobe-hero";
 import { Button } from "@/components/ui/button";
 
