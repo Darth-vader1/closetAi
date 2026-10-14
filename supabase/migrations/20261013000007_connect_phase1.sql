@@ -9,10 +9,9 @@
 -- Security model
 --   All three tables have RLS enabled.
 --   A user can only see / write to conversations they are a member of.
---   Membership is verified server-side before any insert; RLS is a second wall.
---   The member lookup sub-query uses (select auth.uid()) rather than auth.uid()
---   directly — this prevents a per-row re-evaluation performance issue on
---   Supabase's PostgREST layer.
+--   Membership checks use a SECURITY DEFINER function to avoid the
+--   classic infinite-recursion trap that occurs when an RLS policy on
+--   connect_members queries connect_members itself.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
@@ -21,7 +20,7 @@
 create table public.connect_conversations (
   id          uuid primary key default gen_random_uuid(),
   created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()   -- bumped on every new message
+  updated_at  timestamptz not null default now()
 );
 
 create trigger connect_conversations_updated_at
@@ -37,8 +36,6 @@ create table public.connect_members (
   user_id         uuid not null
     references public.profiles (id) on delete cascade,
   joined_at       timestamptz not null default now(),
-  -- Track the last message the member has actually seen so we can show
-  -- unread counts without a full message scan.
   last_read_at    timestamptz,
   primary key (conversation_id, user_id)
 );
@@ -58,7 +55,6 @@ create table public.connect_messages (
   body            text not null
     check (char_length(body) between 1 and 4000),
   created_at      timestamptz not null default now(),
-  -- Soft delete: null means the message is visible.
   deleted_at      timestamptz
 );
 
@@ -69,7 +65,7 @@ create index connect_messages_sender_idx
   on public.connect_messages (sender_id);
 
 -- ---------------------------------------------------------------------------
--- Helper: bump conversation.updated_at whenever a message is inserted
+-- Trigger: bump conversation.updated_at on every new message
 -- ---------------------------------------------------------------------------
 create or replace function public.touch_conversation_on_message()
 returns trigger
@@ -90,7 +86,7 @@ create trigger connect_messages_touch_conversation
   for each row execute function public.touch_conversation_on_message();
 
 -- ---------------------------------------------------------------------------
--- Helper: enforce max 2 members for direct conversations
+-- Trigger: enforce max 2 members per conversation
 -- ---------------------------------------------------------------------------
 create or replace function public.check_conversation_member_limit()
 returns trigger
@@ -116,53 +112,50 @@ create trigger connect_members_limit
   for each row execute function public.check_conversation_member_limit();
 
 -- ---------------------------------------------------------------------------
+-- Security-definer membership helper
+--
+-- RLS policies must NOT query connect_members directly from within a
+-- connect_members policy — Postgres detects the recursion and raises an
+-- error.  A SECURITY DEFINER function bypasses RLS on the table it reads,
+-- breaking the cycle while still enforcing the correct logic.
+-- ---------------------------------------------------------------------------
+create or replace function public.is_conversation_member(conv_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.connect_members
+    where  conversation_id = conv_id
+      and  user_id = (select auth.uid())
+  );
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
 alter table public.connect_conversations enable row level security;
 alter table public.connect_members       enable row level security;
 alter table public.connect_messages      enable row level security;
 
--- A helper expression used in multiple policies.
--- Returns true when the calling user is a member of the given conversation.
--- The sub-select form avoids per-row re-evaluation of auth.uid().
-
--- connect_conversations: visible only to members
+-- connect_conversations: visible / updatable only to members
 create policy "connect_conversations_select_member"
   on public.connect_conversations for select
   to authenticated
-  using (
-    exists (
-      select 1 from public.connect_members cm
-      where  cm.conversation_id = id
-        and  cm.user_id = (select auth.uid())
-    )
-  );
+  using (public.is_conversation_member(id));
 
--- No direct INSERT on conversations from clients — server actions create them.
--- UPDATE is needed so the updated_at trigger fires (triggered by message insert
--- via the touch function which runs as security definer).
 create policy "connect_conversations_update_member"
   on public.connect_conversations for update
   to authenticated
-  using (
-    exists (
-      select 1 from public.connect_members cm
-      where  cm.conversation_id = id
-        and  cm.user_id = (select auth.uid())
-    )
-  );
+  using (public.is_conversation_member(id));
 
 -- connect_members: members can see who else is in their conversations
 create policy "connect_members_select_member"
   on public.connect_members for select
   to authenticated
-  using (
-    exists (
-      select 1 from public.connect_members cm
-      where  cm.conversation_id = conversation_id
-        and  cm.user_id = (select auth.uid())
-    )
-  );
+  using (public.is_conversation_member(conversation_id));
 
 -- Users can update their own member row (e.g. last_read_at)
 create policy "connect_members_update_own"
@@ -175,13 +168,7 @@ create policy "connect_members_update_own"
 create policy "connect_messages_select_member"
   on public.connect_messages for select
   to authenticated
-  using (
-    exists (
-      select 1 from public.connect_members cm
-      where  cm.conversation_id = conversation_id
-        and  cm.user_id = (select auth.uid())
-    )
-  );
+  using (public.is_conversation_member(conversation_id));
 
 -- Members can insert messages (sender_id must equal their own uid)
 create policy "connect_messages_insert_member"
@@ -189,11 +176,7 @@ create policy "connect_messages_insert_member"
   to authenticated
   with check (
     sender_id = (select auth.uid())
-    and exists (
-      select 1 from public.connect_members cm
-      where  cm.conversation_id = conversation_id
-        and  cm.user_id = (select auth.uid())
-    )
+    and public.is_conversation_member(conversation_id)
   );
 
 -- Soft-delete: only the sender may delete their own message

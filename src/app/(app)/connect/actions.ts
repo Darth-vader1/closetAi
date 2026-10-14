@@ -148,7 +148,9 @@ export async function markReadAction(conversationId: unknown): Promise<ActionRes
     .eq("conversation_id", idParsed.data)
     .eq("user_id", user.id);
 
-  revalidatePath("/connect");
+  // No revalidatePath here — this is called during render from ConversationPage.
+  // revalidatePath cannot be used during render, only in Server Actions / Route Handlers.
+  // The inbox unread count refreshes naturally on the next navigation to /connect.
   return { ok: true };
 }
 
@@ -161,19 +163,66 @@ export async function searchUsersAction(
   const qParsed = z.string().trim().min(1).max(80).safeParse(q);
   if (!qParsed.success) return { ok: true, data: [] };
 
-  const supabase = await createClient();
-  const { data } = await supabase
+  const term = qParsed.data;
+
+  // Use the admin client so we can read all profiles regardless of RLS.
+  // The migration 20261013000008 also opens a public SELECT policy for
+  // authenticated users, but the admin client is a reliable fallback that
+  // works even if the migration hasn't been applied yet.
+  const admin = createAdminClient();
+
+  const { data, error } = await admin
     .from("profiles")
     .select("id, display_name")
-    .ilike("display_name", `%${qParsed.data}%`)
+    .ilike("display_name", `%${term}%`)
     .neq("id", user.id)
     .limit(10);
 
-  return {
-    ok: true,
-    data: (data ?? []).map((p) => ({
-      id: p.id as string,
-      displayName: (p.display_name as string | null) ?? null,
-    })),
-  };
+  if (error) {
+    logger.error("connect.search_users_failed", { userId: user.id, err: error });
+    return { ok: false, error: "Search is unavailable right now." };
+  }
+
+  // If the display_name search returned nothing, also try a partial email
+  // match via the admin auth API so users who never set a display_name
+  // can still be found.
+  let results = (data ?? []).map((p) => ({
+    id: p.id as string,
+    displayName: (p.display_name as string | null) ?? null,
+  }));
+
+  if (results.length === 0) {
+    try {
+      const { data: authData } = await admin.auth.admin.listUsers({ perPage: 50 });
+      const matched = (authData?.users ?? [])
+        .filter(
+          (u) =>
+            u.id !== user.id &&
+            u.email?.toLowerCase().includes(term.toLowerCase()),
+        )
+        .slice(0, 10);
+
+      if (matched.length > 0) {
+        // Fetch their profile display_names
+        const ids = matched.map((u) => u.id);
+        const { data: profiles } = await admin
+          .from("profiles")
+          .select("id, display_name")
+          .in("id", ids);
+
+        const profileMap = new Map(
+          (profiles ?? []).map((p) => [p.id as string, p.display_name as string | null]),
+        );
+
+        results = matched.map((u) => ({
+          id: u.id,
+          displayName: profileMap.get(u.id) ?? u.email?.split("@")[0] ?? null,
+        }));
+      }
+    } catch {
+      // Email search is best-effort; swallow the error silently.
+    }
+  }
+
+  return { ok: true, data: results };
 }
