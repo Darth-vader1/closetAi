@@ -25,25 +25,22 @@ function getDb(): PGlite {
 }
 
 beforeAll(async () => {
-  try {
-    db = await createTestDb();
-    alice = await createUser(db, "Alice");
-    bob = await createUser(db, "Bob");
-    aliceItem = await insertItem(alice, "Alice tee", `${alice}/tee.jpg`);
-    const o = await db.query<{ id: string }>(
-      `insert into public.outfits (user_id, name) values ($1, 'Alice outfit') returning id`,
-      [alice],
-    );
-    aliceOutfit = o.rows[0].id;
-    await db.query(`insert into public.outfit_items (outfit_id, item_id, user_id) values ($1, $2, $3)`, [
-      aliceOutfit,
-      aliceItem,
-      alice,
-    ]);
-  } catch {
-    // PGlite not available - skip these tests
-    console.warn("Skipping database tests: PGlite not available");
-  }
+  // No try/catch here on purpose: if the migrations fail to apply, every test in this file must
+  // FAIL loudly. A swallowed error here once turned the whole RLS suite into silent no-ops.
+  db = await createTestDb();
+  alice = await createUser(db, "Alice");
+  bob = await createUser(db, "Bob");
+  aliceItem = await insertItem(alice, "Alice tee", `${alice}/tee.jpg`);
+  const o = await db.query<{ id: string }>(
+    `insert into public.outfits (user_id, name) values ($1, 'Alice outfit') returning id`,
+    [alice],
+  );
+  aliceOutfit = o.rows[0].id;
+  await db.query(`insert into public.outfit_items (outfit_id, item_id, user_id) values ($1, $2, $3)`, [
+    aliceOutfit,
+    aliceItem,
+    alice,
+  ]);
 });
 
 afterAll(async () => {
@@ -51,7 +48,7 @@ afterAll(async () => {
 });
 
 describe("schema bootstrap", () => {
-  it.skipIf(!db)("creates a profile and DISABLED email preferences when a user signs up", async () => {
+  it("creates a profile and DISABLED email preferences when a user signs up", async () => {
     const db = getDb();
     const profile = await db.query<{ display_name: string; timezone: string }>(
       `select display_name, timezone from public.profiles where id = $1`,

@@ -50,6 +50,7 @@ export default async function SettingsPage() {
     whatsappPhone: emailPrefs?.whatsapp_phone || "",
     whatsappDailyEnabled: emailPrefs?.whatsapp_daily_enabled ?? false,
     remindEmptyWardrobe: emailPrefs?.remind_empty_wardrobe ?? true,
+    whatsappVerified: emailPrefs?.whatsapp_phone_verified ?? false,
   };
 
   return (

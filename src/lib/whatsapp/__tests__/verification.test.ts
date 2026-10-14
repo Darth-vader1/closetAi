@@ -4,7 +4,7 @@
  * Run with: npm test verification.test.ts
  */
 
-import { describe, it, expect, beforeAll } from '@jest/globals';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   generateCodeDigits,
   formatVerificationCode,
@@ -147,7 +147,7 @@ describe('Verification Constants', () => {
     expect(VERIFICATION_CONSTANTS.CODE_PREFIX).toBe('CLOSET');
     expect(VERIFICATION_CONSTANTS.CODE_LENGTH).toBe(6);
     expect(VERIFICATION_CONSTANTS.CODE_EXPIRY_MINUTES).toBe(15);
-    expect(VERIFICATION_CONSTANTS.MAX_ACTIVE_CODES).toBe(3);
+    expect(VERIFICATION_CONSTANTS.MAX_ACTIVE_CODES).toBe(1); // only the newest code is ever valid
     expect(VERIFICATION_CONSTANTS.RATE_LIMIT_ATTEMPTS).toBe(5);
     expect(VERIFICATION_CONSTANTS.RATE_LIMIT_WINDOW_HOURS).toBe(1);
   });
@@ -187,4 +187,17 @@ describe('Security Properties', () => {
     }
     expect(hashes.size).toBe(1000); // No collisions
   });
+});
+
+describe("parseVerificationCode strictness", () => {
+  it.each(["CLOSET-123456", "closet-123456", "closet 123456", "123456", "  123456  "])("accepts %j", (input) => {
+    expect(parseVerificationCode(input)).toBe("123456");
+  });
+
+  it.each(["my order 123456 please", "1234567", "12345", "call 08012345678", "CLOSET-12 34 56", "code is 123456", ""])(
+    "rejects %j",
+    (input) => {
+      expect(parseVerificationCode(input)).toBeNull();
+    },
+  );
 });

@@ -212,3 +212,13 @@ SELECT cleanup_old_webhook_messages();
 These functions are defined in the migrations and help keep the database lean.
 
 ---
+
+## WhatsApp: security and go-live notes
+
+- **Required env vars (the webhook fails closed without them):** `WHATSAPP_APP_SECRET` (POSTs return 500 if unset; unsigned or badly signed requests get 401) and `WHATSAPP_VERIFY_TOKEN` (GET returns 500 if unset; there is no default token). Also `WHATSAPP_VERIFICATION_PEPPER` (32+ chars) and `SUPABASE_SERVICE_ROLE_KEY` (the webhook, cron and verification all use the service-role client).
+- **Approved templates (Utility category, exact names):** `phone_verification` (one body variable: the code), `daily_outfit_suggestion` (two: name, weather), `weekly_laundry_reminder` (two: name, count). Until approved, sends outside the 24-hour window fail.
+- **24-hour window:** it starts when the USER last messaged your business number (`whatsapp_last_inbound_at`, set by the webhook), not when you last sent something.
+- **Re-verification:** migration `20261014000001` resets every existing "verified" number, because the earlier check could be bypassed. Users verify again once in Settings.
+- **Verification flow:** Settings -> save number -> "Verify this number" -> a code arrives on WhatsApp -> type it in Settings or reply to the message with it. Codes expire in 15 minutes; 5 starts per user per hour and 3 per number per day.
+- **STOP / START:** STOP records the number in `whatsapp_optouts` and turns off WhatsApp preferences; we never message an opted-out number. START clears it and re-enables a verified number.
+- **Tests:** `npm test` now runs `tests/**` and `src/**` tests, including `tests/db/whatsapp-security.test.ts` (verification attacks against the real migrations).

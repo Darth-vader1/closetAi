@@ -63,6 +63,7 @@ describe("Packing Schemas", () => {
           purpose,
           location: "Test City",
           days: 5,
+          ...(purpose === "event" ? { eventName: "Test event" } : {}),
         });
         expect(result.success).toBe(true);
       }

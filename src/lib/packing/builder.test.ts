@@ -307,7 +307,8 @@ describe("Packing Builder", () => {
 
       const sunscreenItems = result.filter((s) => s.name.toLowerCase().includes("sunscreen"));
       expect(sunscreenItems.length).toBe(1); // No duplicates
-      expect(result.length).toBe(2); // Sunscreen + Hat
+      // Sunscreen + Hat, plus the one generic documents reminder that is always added.
+      expect(result.map((s) => s.name.toLowerCase()).sort()).toEqual(["hat", "id and key documents", "sunscreen"]);
     });
 
     it("case-insensitive ownership matching", () => {
