@@ -202,7 +202,7 @@ export function MessageThread({
                         className="mt-auto grid size-7 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-accent"
                         aria-hidden
                       >
-                        {otherMemberName.charAt(0).toUpperCase()}
+                        {(Array.from(otherMemberName)[0] ?? "?").toUpperCase()}
                       </span>
                     )}
 

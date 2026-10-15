@@ -65,7 +65,7 @@ export default async function ConversationPage({ params }: { params: Params }) {
             className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent"
             aria-hidden
           >
-            {otherName.charAt(0).toUpperCase()}
+            {(Array.from(otherName)[0] ?? "?").toUpperCase()}
           </span>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-foreground">{otherName}</p>

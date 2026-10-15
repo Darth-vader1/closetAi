@@ -139,7 +139,7 @@ export function NewConversationDialog({ onClose }: Props) {
                         className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent"
                         aria-hidden
                       >
-                        {name.charAt(0).toUpperCase()}
+                        {(Array.from(name)[0] ?? "?").toUpperCase()}
                       </span>
 
                       {/* Name + unique Closet ID */}

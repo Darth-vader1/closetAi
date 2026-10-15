@@ -25,7 +25,9 @@ export function ConversationList({ conversations, now }: Props) {
     <ul className="divide-y divide-border rounded-[1.25rem] border border-border bg-surface overflow-hidden" role="list">
       {conversations.map((conv) => {
         const name = conv.otherMember.displayName ?? "Unknown User";
-        const initial = name.trim().charAt(0).normalize("NFC").toUpperCase() || "?";
+        // Use Array.from to take the first full code point (emoji/astral chars are
+        // surrogate pairs — charAt(0) would slice them and break SSR hydration).
+        const initial = (Array.from(name.trim())[0] ?? "?").toUpperCase();
 
         const preview = conv.lastMessage
           ? conv.lastMessage.body.length > 60

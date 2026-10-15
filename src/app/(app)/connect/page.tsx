@@ -55,7 +55,11 @@ export default async function ConnectPage() {
           Share your Closet ID with a friend so they can find the right you.
         </EmptyState>
       ) : (
-        <ConversationList conversations={conversations} currentUserId={user.id} />
+        <ConversationList
+          conversations={conversations}
+          currentUserId={user.id}
+          now={Date.now()}
+        />
       )}
     </>
   );
