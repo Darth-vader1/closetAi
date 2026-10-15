@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { markConversationRead } from "@/lib/connect/queries";
 import { userTag } from "@/lib/connect/user-tag";
 import { logger } from "@/lib/logger";
 
@@ -101,15 +102,8 @@ export async function markReadAction(conversationId: unknown): Promise<ActionRes
   if (!idParsed.success) return { ok: false, error: "Invalid conversation." };
 
   const supabase = await createClient();
-  await supabase
-    .from("connect_members")
-    .update({ last_read_at: new Date().toISOString() })
-    .eq("conversation_id", idParsed.data)
-    .eq("user_id", user.id);
+  await markConversationRead(supabase, user.id, idParsed.data);
 
-  // No revalidatePath here — this is called during render from ConversationPage.
-  // revalidatePath cannot be used during render, only in Server Actions / Route Handlers.
-  // The inbox unread count refreshes naturally on the next navigation to /connect.
   return { ok: true };
 }
 

@@ -6,8 +6,8 @@ import { MessageThread } from "@/components/connect/message-thread";
 import { ConversationShareButton } from "@/components/connect/conversation-share-button";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { getConversation, listMessages } from "@/lib/connect/queries";
-import { markReadAction } from "@/app/(app)/connect/actions";
+import { getConversation, listMessages, markConversationRead } from "@/lib/connect/queries";
+import { getProfile } from "@/lib/auth/session";
 import { userTag } from "@/lib/connect/user-tag";
 import { getAppUrl } from "@/lib/env";
 
@@ -20,17 +20,18 @@ export default async function ConversationPage({ params }: { params: Params }) {
   const { id } = await params;
 
   const supabase = await createClient();
-  const [conversation, messages] = await Promise.all([
+  const [conversation, messagePage, profile] = await Promise.all([
     getConversation(supabase, user.id, id),
     listMessages(supabase, user.id, id, 40),
+    getProfile(),
   ]);
 
   if (!conversation) notFound();
 
-  // Mark as read server-side on load
-  await markReadAction(id);
+  await markConversationRead(supabase, user.id, id);
 
-  const orderedMessages = [...messages].reverse();
+  const orderedMessages = [...messagePage.messages].reverse();
+  const timeZone = profile?.timezone?.trim() || "UTC";
   const otherName = conversation.otherMember.displayName ?? "User";
 
   // Fetch other member's closet_id for display in the header

@@ -4,28 +4,9 @@ import { useEffect, useOptimistic, useRef, useState, useTransition } from "react
 import { createClient } from "@/lib/supabase/client";
 import { sendMessageAction, markReadAction } from "@/app/(app)/connect/actions";
 import type { Message } from "@/lib/connect/queries";
+import { formatMessageDayLabel, formatMessageTime } from "@/lib/connect/format-relative";
 import { Send } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatTime(iso: string) {
-  return new Intl.DateTimeFormat("en", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(new Date(iso));
-}
-
-function formatDay(iso: string) {
-  const d = new Date(iso);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return "Today";
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(d);
-}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -34,6 +15,9 @@ interface Props {
   currentUserId: string;
   initialMessages: Message[];
   otherMemberName: string;
+  /** From the server fetch so day/time labels match on hydration (avoids mobile crashes). */
+  referenceNowMs: number;
+  timeZone: string;
 }
 
 export function MessageThread({

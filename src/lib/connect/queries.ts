@@ -203,13 +203,31 @@ export async function getConversation(
 }
 
 /** Returns the most recent `limit` messages before `cursor` (ISO timestamp). Newest first. */
+export interface MessagePage {
+  messages: Message[];
+  /** Fixed at fetch time so thread timestamps hydrate consistently. */
+  referenceNowMs: number;
+}
+
+export async function markConversationRead(
+  supabase: SupabaseClient,
+  userId: string,
+  conversationId: string,
+): Promise<void> {
+  await supabase
+    .from("connect_members")
+    .update({ last_read_at: new Date().toISOString() })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId);
+}
+
 export async function listMessages(
   supabase: SupabaseClient,
   userId: string,
   conversationId: string,
   limit = 40,
   cursor?: string,
-): Promise<Message[]> {
+): Promise<MessagePage> {
   // Verify membership first (belt-and-suspenders on top of RLS)
   const { count } = await supabase
     .from("connect_members")
@@ -217,7 +235,8 @@ export async function listMessages(
     .eq("conversation_id", conversationId)
     .eq("user_id", userId);
 
-  if (!count) return [];
+  const referenceNowMs = Date.now();
+  if (!count) return { messages: [], referenceNowMs };
 
   let query = supabase
     .from("connect_messages")
@@ -246,7 +265,7 @@ export async function listMessages(
     }
   }
 
-  return (data ?? []).map((m) => ({
+  const messages = (data ?? []).map((m) => ({
     id: m.id as string,
     conversationId: m.conversation_id as string,
     senderId: m.sender_id as string,
@@ -255,6 +274,8 @@ export async function listMessages(
     createdAt: m.created_at as string,
     deletedAt: m.deleted_at as string | null,
   }));
+
+  return { messages, referenceNowMs };
 }
 
 /**
