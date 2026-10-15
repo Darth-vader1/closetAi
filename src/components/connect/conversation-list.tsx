@@ -2,25 +2,12 @@ import Link from "next/link";
 import type { ConversationSummary } from "@/lib/connect/queries";
 import { cn } from "@/lib/utils/cn";
 
-function formatRelative(iso: string, now: number): string {
-  const diff = now - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Intl.DateTimeFormat("en", { dateStyle: "short" }).format(new Date(iso));
-}
-
 interface Props {
   conversations: ConversationSummary[];
   currentUserId: string;
-  now: number; // passed from the server component
 }
 
-export function ConversationList({ conversations, now }: Props) {
+export function ConversationList({ conversations }: Props) {
   return (
     <ul className="divide-y divide-border rounded-[1.25rem] border border-border bg-surface overflow-hidden" role="list">
       {conversations.map((conv) => {
@@ -51,9 +38,9 @@ export function ConversationList({ conversations, now }: Props) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <p className="truncate text-sm font-semibold text-foreground">{name}</p>
-                  {conv.lastMessage && (
+                  {conv.lastMessageAtLabel && (
                     <span className="shrink-0 text-xs text-muted">
-                      {formatRelative(conv.lastMessage.createdAt, now)}
+                      {conv.lastMessageAtLabel}
                     </span>
                   )}
                 </div>

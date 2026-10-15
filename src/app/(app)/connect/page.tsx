@@ -58,7 +58,6 @@ export default async function ConnectPage() {
         <ConversationList
           conversations={conversations}
           currentUserId={user.id}
-          now={Date.now()}
         />
       )}
     </>

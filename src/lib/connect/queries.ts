@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { formatRelative } from "@/lib/connect/format-relative";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,8 @@ export interface ConversationSummary {
   updatedAt: string;
   otherMember: ConversationMember;
   lastMessage: { body: string; senderId: string; createdAt: string } | null;
+  /** Precomputed on the server so list UI does not call impure time APIs during render. */
+  lastMessageAtLabel: string | null;
   unreadCount: number;
 }
 
@@ -130,13 +133,16 @@ export async function listConversations(
     unreadMap.set(cid, count);
   }
 
-  // 7. Assemble results
+  // 7. Assemble results (one reference time keeps relative labels stable for SSR)
+  const nowMs = Date.now();
   return (convRows ?? []).map((conv) => {
     const cid = conv.id as string;
     const otherMemberRow = (allMembers ?? []).find(
       (m) => m.conversation_id === cid && m.user_id !== userId,
     );
     const otherUserId = (otherMemberRow?.user_id as string | undefined) ?? "";
+
+    const lastMessage = lastMsgMap.get(cid) ?? null;
 
     return {
       id: cid,
@@ -146,7 +152,10 @@ export async function listConversations(
         displayName: profileMap.get(otherUserId) ?? null,
         lastReadAt: (otherMemberRow?.last_read_at as string | null) ?? null,
       },
-      lastMessage: lastMsgMap.get(cid) ?? null,
+      lastMessage,
+      lastMessageAtLabel: lastMessage
+        ? formatRelative(lastMessage.createdAt, nowMs)
+        : null,
       unreadCount: unreadMap.get(cid) ?? 0,
     };
   });
