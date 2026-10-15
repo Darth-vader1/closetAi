@@ -25,6 +25,8 @@ export function MessageThread({
   currentUserId,
   initialMessages,
   otherMemberName,
+  referenceNowMs,
+  timeZone,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [optimisticMessages, addOptimistic] = useOptimistic(
@@ -139,7 +141,7 @@ export function MessageThread({
   type DayGroup = { day: string; messages: Message[] };
   const groups: DayGroup[] = [];
   for (const msg of optimisticMessages) {
-    const day = formatDay(msg.createdAt);
+    const day = formatMessageDayLabel(msg.createdAt, referenceNowMs, timeZone);
     const last = groups[groups.length - 1];
     if (last && last.day === day) {
       last.messages.push(msg);
@@ -210,7 +212,7 @@ export function MessageThread({
                         {msg.body}
                       </div>
                       <span className="px-1 text-[0.65rem] text-muted">
-                        {formatTime(msg.createdAt)}
+                        {formatMessageTime(msg.createdAt, timeZone)}
                       </span>
                     </div>
                   </div>

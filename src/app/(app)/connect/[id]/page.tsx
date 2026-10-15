@@ -84,6 +84,8 @@ export default async function ConversationPage({ params }: { params: Params }) {
         currentUserId={user.id}
         initialMessages={orderedMessages}
         otherMemberName={otherName}
+        referenceNowMs={messagePage.referenceNowMs}
+        timeZone={timeZone}
       />
     </div>
   );

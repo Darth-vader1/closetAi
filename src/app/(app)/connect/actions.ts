@@ -5,9 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { markConversationRead } from "@/lib/connect/queries";
-import { userTag } from "@/lib/connect/user-tag";
 import { logger } from "@/lib/logger";
 
 type ActionResult<T = unknown> =
@@ -44,6 +42,8 @@ export async function startConversationAction(otherUserId: unknown): Promise<Act
     const msg = error?.message ?? "";
     if (msg.includes("yourself")) return { ok: false, error: "You can't start a conversation with yourself." };
     if (msg.includes("not found")) return { ok: false, error: "That user doesn't exist." };
+    if (msg.includes("blocked") || msg.includes("cannot start a conversation")) return { ok: false, error: "You cannot message this user." };
+    if (msg.includes("RATE_LIMITED")) return { ok: false, error: "You've started too many conversations recently. Try again later." };
     return { ok: false, error: "Could not create conversation. Please try again." };
   }
 
@@ -87,6 +87,11 @@ export async function sendMessageAction(
 
   if (error || !data) {
     logger.error("connect.send_message_failed", { userId: user.id, err: error });
+    const msg = error?.message ?? "";
+    if (msg.includes("accept this conversation")) return { ok: false, error: "The other person needs to accept this conversation first." };
+    if (msg.includes("one message until")) return { ok: false, error: "You can only send one message until they accept." };
+    if (msg.includes("RATE_LIMITED")) return { ok: false, error: "You're sending messages too quickly. Slow down." };
+    if (msg.includes("cannot send messages")) return { ok: false, error: "You cannot message this user." };
     return { ok: false, error: "Could not send message. Please try again." };
   }
 
@@ -111,76 +116,35 @@ export async function markReadAction(conversationId: unknown): Promise<ActionRes
 
 export async function searchUsersAction(
   q: unknown,
-): Promise<ActionResult<Array<{ id: string; displayName: string | null; tag: string; closetId: string | null }>>> {
+): Promise<ActionResult<Array<{ id: string; displayName: string | null; closetId: string | null }>>> {
   const user = await requireUser();
   const qParsed = z.string().trim().min(1).max(80).safeParse(q);
   if (!qParsed.success) return { ok: true, data: [] };
 
-  const term = qParsed.data;
   const supabase = await createClient();
 
-  // Search by display_name OR closet_id via the restricted connect_user_profiles
-  // view (exposes only id + display_name + closet_id to authenticated users).
-  // closet_id is stored uppercase; ilike is case-insensitive so "clos-a3f8c249"
-  // matches "CLOS-A3F8C249".
-  const safeTerm = term.replace(/[%_\\]/g, (c) => `\\${c}`);
-  const { data: profileRows, error } = await supabase
-    .from("connect_user_profiles")
-    .select("id, display_name, closet_id")
-    .or(`display_name.ilike.%${safeTerm}%,closet_id.ilike.%${safeTerm}%`)
-    .neq("id", user.id)
-    .limit(10);
+  // Search via the SECURITY DEFINER RPC connect_search_users(), which:
+  //   • matches closet_id exactly (case-insensitive),
+  //   • matches display_name only for profiles with discoverable = true,
+  //   • rate-limits to 20 searches/minute/user,
+  //   • never returns email or other private profile data.
+  const { data: rows, error } = await supabase.rpc("connect_search_users", {
+    p_term: qParsed.data,
+  });
 
   if (error) {
     logger.error("connect.search_users_failed", { userId: user.id, err: error });
+    if (error.message?.includes("RATE_LIMITED")) {
+      return { ok: false, error: "You're searching too quickly. Slow down." };
+    }
     return { ok: false, error: "Search is unavailable right now." };
   }
 
-  let results = (profileRows ?? []).map((p) => ({
-    id: p.id as string,
-    displayName: (p.display_name as string | null) ?? null,
-    closetId: (p.closet_id as string | null) ?? null,
-    tag: userTag(p.id as string), // fallback only
+  const data = (rows ?? []).map((r: Record<string, unknown>) => ({
+    id: r.id as string,
+    displayName: (r.display_name as string | null) ?? null,
+    closetId: (r.closet_id as string | null) ?? null,
   }));
 
-  // If display_name search returned nothing, fall back to email search
-  // so users who haven't set a display name can still be found.
-  if (results.length === 0) {
-    try {
-      const admin = createAdminClient();
-      const { data: authData } = await admin.auth.admin.listUsers({ perPage: 1000 });
-      const matched = (authData?.users ?? [])
-        .filter((u) =>
-          u.id !== user.id &&
-          u.email?.toLowerCase().includes(term.toLowerCase()),
-        )
-        .slice(0, 10);
-
-      if (matched.length > 0) {
-        const ids = matched.map((u) => u.id);
-        const { data: profiles } = await supabase
-          .from("connect_user_profiles")
-          .select("id, display_name, closet_id")
-          .in("id", ids);
-
-        const profileMap = new Map(
-          (profiles ?? []).map((p) => [
-            p.id as string,
-            { displayName: p.display_name as string | null, closetId: p.closet_id as string | null },
-          ]),
-        );
-
-        results = matched.map((u) => ({
-          id: u.id,
-          displayName: profileMap.get(u.id)?.displayName ?? u.email?.split("@")[0] ?? null,
-          closetId: profileMap.get(u.id)?.closetId ?? null,
-          tag: userTag(u.id),
-        }));
-      }
-    } catch {
-      // Email fallback is best-effort.
-    }
-  }
-
-  return { ok: true, data: results };
+  return { ok: true, data };
 }

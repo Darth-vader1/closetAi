@@ -309,26 +309,24 @@ export async function findDirectConversation(
 }
 
 /**
- * Search for other users by display name or Closet ID.
- * Never returns the caller themselves.
+ * Search for other users via the connect_search_users RPC.
+ * The RPC matches closet_id exactly (case-insensitive) and display_name only
+ * for profiles with discoverable = true. It rate-limits searches and never
+ * returns email or other private profile data.
  */
 export async function searchUsers(
   supabase: SupabaseClient,
-  callerId: string,
+  _callerId: string,
   q: string,
   limit = 10,
 ): Promise<Array<{ id: string; displayName: string | null; closetId: string | null }>> {
   if (!q.trim()) return [];
 
-  const term = q.trim().replace(/[%_\\]/g, (c) => `\\${c}`);
   const { data } = await supabase
-    .from("connect_user_profiles")
-    .select("id, display_name, closet_id")
-    .or(`display_name.ilike.%${term}%,closet_id.ilike.%${term}%`)
-    .neq("id", callerId)
+    .rpc("connect_search_users", { p_term: q.trim() })
     .limit(limit);
 
-  return (data ?? []).map((p) => ({
+  return (data ?? []).map((p: Record<string, unknown>) => ({
     id: p.id as string,
     displayName: (p.display_name as string | null) ?? null,
     closetId: (p.closet_id as string | null) ?? null,
