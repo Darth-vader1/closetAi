@@ -107,7 +107,7 @@ function SharedAttachmentView({
               onClick={() => onRevoke(attachment.id)}
               disabled={revokingId === attachment.id}
               title="Unshare this item from the conversation"
-              className="shrink-0 rounded-lg border border-border px-2 py-1 text-[0.68rem] font-medium text-muted transition-colors hover:border-danger/40 hover:bg-danger-soft hover:text-danger disabled:opacity-40"
+              className="shrink-0 rounded-lg border border-border px-2.5 py-1.5 sm:px-2 sm:py-1 min-h-[30px] sm:min-h-0 text-[0.68rem] font-medium text-muted transition-colors hover:border-danger/40 hover:bg-danger-soft hover:text-danger disabled:opacity-40"
             >
               {revokingId === attachment.id ? "…" : "Unshare"}
             </button>
@@ -145,7 +145,7 @@ function SharedAttachmentView({
               onClick={() => onRevoke(attachment.id)}
               disabled={revokingId === attachment.id}
               title="Unshare this outfit from the conversation"
-              className="shrink-0 rounded-lg border border-border px-2 py-1 text-[0.68rem] font-medium text-muted transition-colors hover:border-danger/40 hover:bg-danger-soft hover:text-danger disabled:opacity-40"
+              className="shrink-0 rounded-lg border border-border px-2.5 py-1.5 sm:px-2 sm:py-1 min-h-[30px] sm:min-h-0 text-[0.68rem] font-medium text-muted transition-colors hover:border-danger/40 hover:bg-danger-soft hover:text-danger disabled:opacity-40"
             >
               {revokingId === attachment.id ? "…" : "Unshare"}
             </button>
@@ -154,7 +154,7 @@ function SharedAttachmentView({
 
         {/* Constituent items */}
         {outfit.items.length > 0 && (
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-1.5 min-[380px]:grid-cols-2 sm:grid-cols-3">
             {outfit.items.map((it) => (
               <div
                 key={it.id}

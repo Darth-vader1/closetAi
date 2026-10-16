@@ -153,12 +153,12 @@ export function SharePickerDialog({
         >
           <div className="flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-xl sm:rounded-2xl">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div>
-                <h2 id="share-picker-title" className="text-base font-semibold text-foreground">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3.5 sm:px-5 sm:py-4">
+              <div className="min-w-0 flex-1 pr-2">
+                <h2 id="share-picker-title" className="truncate text-sm sm:text-base font-semibold text-foreground">
                   Share with {otherMemberName}
                 </h2>
-                <p className="text-xs text-muted">
+                <p className="line-clamp-1 text-xs text-muted sm:line-clamp-none">
                   Only the items or outfits you select will be visible in this conversation.
                 </p>
               </div>
@@ -166,27 +166,27 @@ export function SharePickerDialog({
                 type="button"
                 onClick={resetAndClose}
                 aria-label="Close share picker"
-                className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground"
+                className="grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground"
               >
                 <X className="size-4" aria-hidden />
               </button>
             </div>
 
             {/* Tabs + Search */}
-            <div className="border-b border-border px-5 py-3 space-y-3">
-              <div className="flex items-center gap-2">
+            <div className="border-b border-border px-4 py-3 sm:px-5 space-y-3">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar sm:overflow-visible sm:pb-0">
                 <button
                   type="button"
                   onClick={() => setTab("items")}
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                    "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
                     tab === "items"
                       ? "bg-accent text-accent-foreground"
                       : "bg-surface-muted text-muted hover:text-foreground",
                   )}
                 >
-                  <Shirt className="size-3.5" aria-hidden />
-                  Clothing Items ({items.length})
+                  <Shirt className="size-3.5 shrink-0" aria-hidden />
+                  <span>Clothing Items</span> ({items.length})
                   {selectedItemIds.length > 0 && (
                     <span className="ml-1 rounded-full bg-background/20 px-1.5 py-0.2 text-[0.65rem]">
                       {selectedItemIds.length}
@@ -197,14 +197,14 @@ export function SharePickerDialog({
                   type="button"
                   onClick={() => setTab("outfits")}
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                    "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
                     tab === "outfits"
                       ? "bg-accent text-accent-foreground"
                       : "bg-surface-muted text-muted hover:text-foreground",
                   )}
                 >
-                  <Layers className="size-3.5" aria-hidden />
-                  Saved Outfits ({outfits.length})
+                  <Layers className="size-3.5 shrink-0" aria-hidden />
+                  <span>Saved Outfits</span> ({outfits.length})
                   {selectedOutfitIds.length > 0 && (
                     <span className="ml-1 rounded-full bg-background/20 px-1.5 py-0.2 text-[0.65rem]">
                       {selectedOutfitIds.length}
@@ -426,14 +426,14 @@ export function SharePickerDialog({
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted focus-visible:border-accent focus-visible:outline-none"
               />
 
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-muted">
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <p className="min-w-0 flex-1 truncate text-xs text-muted">
                   {totalSelected === 0
                     ? "No items or outfits selected"
                     : `${selectedItemIds.length} item(s), ${selectedOutfitIds.length} outfit(s) selected`}
                 </p>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2 ml-auto">
                   <button
                     type="button"
                     onClick={resetAndClose}

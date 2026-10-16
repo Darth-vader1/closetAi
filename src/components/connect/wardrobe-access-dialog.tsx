@@ -121,24 +121,37 @@ export function WardrobeAccessDialog({
           setOpen(true);
         }}
         className={cn(
-          "inline-flex min-h-9 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
+          "inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border px-2.5 sm:px-3 py-1.5 text-xs font-medium transition-colors",
           isActive
             ? "border-accent/40 bg-accent-soft text-accent hover:bg-accent-soft/80"
             : "border-border bg-surface text-foreground hover:bg-surface-muted",
         )}
       >
         {isActive ? (
-          <ShieldCheck className="size-3.5 text-accent" aria-hidden />
+          <ShieldCheck className="size-3.5 shrink-0 text-accent" aria-hidden />
         ) : (
-          <Lock className="size-3.5 text-muted" aria-hidden />
+          <Lock className="size-3.5 shrink-0 text-muted" aria-hidden />
         )}
-        <span>
+        <span className="hidden sm:inline">
           {triggerLabel ??
             (isActive
               ? existingGrant?.scope === "wardrobe"
                 ? "Wardrobe Shared"
                 : `${existingGrant?.selectedItemIds.length ?? 0} Items Shared`
               : "Wardrobe Access")}
+        </span>
+        <span className="sm:hidden">
+          {triggerLabel ? (
+            triggerLabel
+          ) : isActive ? (
+            existingGrant?.scope === "wardrobe" ? (
+              "Shared"
+            ) : (
+              `${existingGrant?.selectedItemIds.length ?? 0} Items`
+            )
+          ) : (
+            "Access"
+          )}
         </span>
       </button>
 
@@ -151,12 +164,12 @@ export function WardrobeAccessDialog({
         >
           <div className="flex max-h-[90dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-xl sm:rounded-2xl">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div>
-                <h2 id="wardrobe-access-title" className="text-base font-semibold text-foreground">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3.5 sm:px-5 sm:py-4">
+              <div className="min-w-0 flex-1 pr-2">
+                <h2 id="wardrobe-access-title" className="truncate text-sm sm:text-base font-semibold text-foreground">
                   Wardrobe Access for {granteeName}
                 </h2>
-                <p className="text-xs text-muted">
+                <p className="line-clamp-1 text-xs text-muted sm:line-clamp-none">
                   Control what {granteeName} can view or recommend. Your wardrobe stays read-only.
                 </p>
               </div>
@@ -164,7 +177,7 @@ export function WardrobeAccessDialog({
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Close wardrobe access dialog"
-                className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground"
+                className="grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground"
               >
                 <X className="size-4" aria-hidden />
               </button>

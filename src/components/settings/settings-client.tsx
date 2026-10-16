@@ -23,6 +23,7 @@ import { Field, Input, Select } from "@/components/ui/input";
 import { Chip, toggleValue } from "@/components/ui/chip";
 import { WhatsAppVerification } from "@/components/settings/whatsapp-verification";
 import { ClosetIdCard } from "@/components/connect/closet-id-card";
+import { PushNotificationSettingsControl } from "@/components/connect/connect-notification-provider";
 import { STYLE_OPTIONS, OCCASION_OPTIONS, WEEKDAYS } from "@/lib/profile/options";
 import { GENDER_OPTIONS } from "@/lib/validation/settings";
 import {
@@ -399,13 +400,15 @@ export function SettingsClient({
           </div>
           <div>
             <h2 className="font-serif text-xl font-medium tracking-tight text-foreground">
-              Automated Notification Schedules
+              Push &amp; Automated Notifications
             </h2>
             <p className="text-xs text-muted">
-              Get weather-aware outfit inspiration and proactive laundry reminders delivered via Email and WhatsApp.
+              Manage real-time push alerts for Connect messages, plus weather-aware outfit inspiration and laundry reminders via Email and WhatsApp.
             </p>
           </div>
         </div>
+
+        <PushNotificationSettingsControl />
 
         <form onSubmit={handleSaveEmail} className="space-y-6">
           {/* Daily Morning Outfit */}

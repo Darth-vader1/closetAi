@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/card";
 import { ConversationList } from "@/components/connect/conversation-list";
 import { NewConversationButton } from "@/components/connect/new-conversation-button";
 import { ClosetIdCard } from "@/components/connect/closet-id-card";
+import { ConnectPushPrompt } from "@/components/connect/connect-notification-provider";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -63,6 +64,11 @@ export default async function ConnectPage() {
           </div>
         }
       />
+
+      {/* Push notification opt-in prompt */}
+      <div className="mb-4">
+        <ConnectPushPrompt />
+      </div>
 
       {/* Closet ID card — always visible so users can share their ID with friends */}
       <ClosetIdCard closetId={closetId} shareUrl={shareUrl} />
