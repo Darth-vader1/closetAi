@@ -180,34 +180,38 @@ describe("conversation membership & message isolation", () => {
   });
 });
 
-describe("connect_user_profiles restricted view", () => {
-  it("exposes id, display_name and closet_id for all users to authenticated callers", async () => {
+describe("connect_user_profiles locked down & partner profile resolution", () => {
+  it("normal authenticated users cannot select from connect_user_profiles or list non-discoverable users", async () => {
     const db = getDb();
+    const priv = await db.query<{ auth: boolean; anon: boolean }>(
+      `select
+         has_table_privilege('authenticated', 'public.connect_user_profiles', 'select') as auth,
+         has_table_privilege('anon',          'public.connect_user_profiles', 'select') as anon`,
+    );
+    expect(priv.rows[0]).toEqual({ auth: false, anon: false });
+
+    await asUser(db, alice, async () => {
+      await expect(
+        db.query(`select id, display_name, closet_id from public.connect_user_profiles`),
+      ).rejects.toThrow();
+    });
+  });
+
+  it("connect_resolve_partner_profiles resolves conversation partners but NOT arbitrary strangers", async () => {
+    const db = getDb();
+    // Alice and Bob already share a conversation from earlier tests; Carol does not share one with Alice.
     const rows = await asUser(db, alice, async () =>
       (
         await db.query<{ id: string; display_name: string | null; closet_id: string }>(
-          `select id, display_name, closet_id from public.connect_user_profiles order by display_name`,
+          `select id, display_name, closet_id from public.connect_resolve_partner_profiles($1::uuid[])`,
+          [[bob, carol]],
         )
       ).rows,
     );
 
-    const names = rows.map((r) => r.display_name).sort();
-    expect(names).toEqual(["Alice", "Bob", "Carol"]);
-    for (const r of rows) {
-      expect(r.closet_id).toMatch(/^CLOS-[A-Z0-9]{8}$/);
-    }
-  });
-
-  it("does not expose private profile columns (location, timezone, style preferences)", async () => {
-    const db = getDb();
-    await asUser(db, alice, async () => {
-      await expect(
-        db.query(`select location from public.connect_user_profiles limit 1`),
-      ).rejects.toThrow();
-      await expect(
-        db.query(`select timezone from public.connect_user_profiles limit 1`),
-      ).rejects.toThrow();
-    });
+    expect(rows.map((r) => r.id)).toEqual([bob]);
+    expect(rows[0].display_name).toBe("Bob");
+    expect(rows[0].closet_id).toMatch(/^CLOS-[A-Z0-9]{8}$/);
   });
 
   it("restores strict profiles RLS: a user can only read their own profiles row", async () => {
@@ -584,15 +588,17 @@ describe("blocks", () => {
 // ── #4 Reports ────────────────────────────────────────────────────────────────
 
 describe("connect_reports", () => {
-  it("a user can file a report as themselves", async () => {
+  it("a user can file a report against someone they share a conversation with", async () => {
     const db = getDb();
     const a = await createUser(db, "ReportA");
     const b = await createUser(db, "ReportB");
+    const convId = await startConv(a, b);
 
     await asUser(db, a, async () => {
       await db.query(
-        `insert into public.connect_reports (reporter, reported_user, reason) values ($1, $2, 'spam')`,
-        [a, b],
+        `insert into public.connect_reports (reporter, reported_user, conversation_id, reason)
+         values ($1, $2, $3, 'spam')`,
+        [a, b, convId],
       );
     });
 
@@ -616,6 +622,67 @@ describe("connect_reports", () => {
           [b, c],
         ),
       ).rejects.toThrow(/row-level security/i);
+    });
+  });
+
+  it("rejects reporting a user when the reporter does not share a conversation with them", async () => {
+    const db = getDb();
+    const a = await createUser(db, "ReportStrangerA");
+    const stranger = await createUser(db, "ReportStrangerB");
+
+    await asUser(db, a, async () => {
+      await expect(
+        db.query(
+          `insert into public.connect_reports (reporter, reported_user, reason) values ($1, $2, 'stranger report')`,
+          [a, stranger],
+        ),
+      ).rejects.toThrow(/row-level security|share a conversation/i);
+    });
+  });
+
+  it("enforces at most one open report per (reporter, reported_user)", async () => {
+    const db = getDb();
+    const a = await createUser(db, "ReportDupA");
+    const b = await createUser(db, "ReportDupB");
+    await startConv(a, b);
+
+    await asUser(db, a, async () => {
+      await db.query(
+        `insert into public.connect_reports (reporter, reported_user, reason) values ($1, $2, 'first report')`,
+        [a, b],
+      );
+      await expect(
+        db.query(
+          `insert into public.connect_reports (reporter, reported_user, reason) values ($1, $2, 'second open report')`,
+          [a, b],
+        ),
+      ).rejects.toThrow(/already have an open report|unique/i);
+    });
+  });
+
+  it("rate-limits to 5 reports per day per user", async () => {
+    const db = getDb();
+    const reporter = await createUser(db, "ReportRlUser");
+    const targets: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const t = await createUser(db, `ReportRlTarget${i}`);
+      await startConv(reporter, t);
+      targets.push(t);
+    }
+
+    await asUser(db, reporter, async () => {
+      for (let i = 0; i < 5; i++) {
+        await db.query(
+          `insert into public.connect_reports (reporter, reported_user, reason) values ($1, $2, $3)`,
+          [reporter, targets[i], `reason ${i}`],
+        );
+      }
+      await expect(
+        db.query(
+          `insert into public.connect_reports (reporter, reported_user, reason) values ($1, $2, 'sixth')`,
+          [reporter, targets[5]],
+        ),
+      ).rejects.toThrow(/RATE_LIMITED/);
     });
   });
 });
@@ -769,3 +836,600 @@ describe("closet_id helper functions are locked down", () => {
     });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 2: Wardrobe & Outfit Sharing + Controlled Grants
+// (migration 20261016000001_connect_phase2_sharing)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function createTestItem(
+  ownerId: string,
+  name: string,
+  imagePath = `${ownerId}/${name.toLowerCase().replace(/\s+/g, "-")}.jpg`,
+): Promise<string> {
+  const db = getDb();
+  return asUser(db, ownerId, async () => {
+    await db.query(
+      `insert into storage.objects (bucket_id, name) values ('wardrobe', $1)`,
+      [imagePath],
+    );
+    const r = await db.query<{ id: string }>(
+      `insert into public.wardrobe_items (user_id, name, category, primary_colour, image_path)
+       values ($1, $2, 'tops', 'black', $3) returning id`,
+      [ownerId, name, imagePath],
+    );
+    return r.rows[0].id;
+  });
+}
+
+async function createTestOutfit(
+  ownerId: string,
+  name: string,
+  itemIds: string[],
+): Promise<string> {
+  const db = getDb();
+  return asUser(db, ownerId, async () => {
+    const r = await db.query<{ id: string }>(
+      `insert into public.outfits (user_id, name, occasion, source)
+       values ($1, $2, 'casual', 'MANUAL') returning id`,
+      [ownerId, name],
+    );
+    const outfitId = r.rows[0].id;
+    for (let i = 0; i < itemIds.length; i++) {
+      await db.query(
+        `insert into public.outfit_items (outfit_id, item_id, user_id, position)
+         values ($1, $2, $3, $4)`,
+        [outfitId, itemIds[i], ownerId, i],
+      );
+    }
+    return outfitId;
+  });
+}
+
+describe("Phase 2: connect_message_attachments & shared item/outfit RLS", () => {
+  it("allows sharing an owned item in a conversation without exposing unshared items", async () => {
+    const db = getDb();
+    const owner = await createUser(db, "ShareOwnerA");
+    const partner = await createUser(db, "SharePartnerB");
+    const outsider = await createUser(db, "ShareOutsiderC");
+
+    const sharedPath = `${owner}/shared-jacket.jpg`;
+    const privatePath = `${owner}/private-shirt.jpg`;
+    const sharedItemId = await createTestItem(owner, "Shared Jacket", sharedPath);
+    const privateItemId = await createTestItem(owner, "Private Shirt", privatePath);
+
+    const convId = await startConv(owner, partner);
+    await acceptConv(partner, convId);
+
+    let msgId = "";
+    await asUser(db, owner, async () => {
+      const m = await db.query<{ id: string }>(
+        `insert into public.connect_messages (conversation_id, sender_id, body)
+         values ($1, $2, 'What do you think of this jacket?') returning id`,
+        [convId, owner],
+      );
+      msgId = m.rows[0].id;
+
+      await db.query(
+        `insert into public.connect_message_attachments
+           (message_id, conversation_id, owner_id, kind, item_id)
+         values ($1, $2, $3, 'item', $4)`,
+        [msgId, convId, owner, sharedItemId],
+      );
+    });
+
+    // Partner can read the shared item and its storage object, but NOT the private item
+    await asUser(db, partner, async () => {
+      const items = await db.query<{ id: string; name: string }>(
+        `select id, name from public.wardrobe_items where user_id = $1`,
+        [owner],
+      );
+      expect(items.rows.map((r) => r.id)).toEqual([sharedItemId]);
+      expect(items.rows.map((r) => r.id)).not.toContain(privateItemId);
+
+      const objs = await db.query<{ name: string }>(
+        `select name from storage.objects where bucket_id = 'wardrobe' and name in ($1, $2)`,
+        [sharedPath, privatePath],
+      );
+      expect(objs.rows.map((r) => r.name)).toEqual([sharedPath]);
+    });
+
+    // Outsider cannot read the attachment or the shared item
+    await asUser(db, outsider, async () => {
+      const att = await db.query(
+        `select id from public.connect_message_attachments where conversation_id = $1`,
+        [convId],
+      );
+      expect(att.rows).toHaveLength(0);
+
+      const items = await db.query(
+        `select id from public.wardrobe_items where id = $1`,
+        [sharedItemId],
+      );
+      expect(items.rows).toHaveLength(0);
+    });
+  });
+
+  it("allows sharing an owned outfit and grants read access to its constituent items", async () => {
+    const db = getDb();
+    const owner = await createUser(db, "OutfitOwner");
+    const partner = await createUser(db, "OutfitPartner");
+
+    const topId = await createTestItem(owner, "Linen Shirt");
+    const pantsId = await createTestItem(owner, "Tailored Trousers");
+    const unsharedShoeId = await createTestItem(owner, "Unshared Boots");
+    const outfitId = await createTestOutfit(owner, "Friday Dinner", [topId, pantsId]);
+
+    const convId = await startConv(owner, partner);
+    await acceptConv(partner, convId);
+
+    let attachmentId = "";
+    await asUser(db, owner, async () => {
+      const m = await db.query<{ id: string }>(
+        `insert into public.connect_messages (conversation_id, sender_id, body)
+         values ($1, $2, 'Friday look') returning id`,
+        [convId, owner],
+      );
+      const a = await db.query<{ id: string }>(
+        `insert into public.connect_message_attachments
+           (message_id, conversation_id, owner_id, kind, outfit_id)
+         values ($1, $2, $3, 'outfit', $4) returning id`,
+        [m.rows[0].id, convId, owner, outfitId],
+      );
+      attachmentId = a.rows[0].id;
+    });
+
+    await asUser(db, partner, async () => {
+      const outfits = await db.query<{ id: string; name: string }>(
+        `select id, name from public.outfits where id = $1`,
+        [outfitId],
+      );
+      expect(outfits.rows).toHaveLength(1);
+
+      const links = await db.query<{ item_id: string }>(
+        `select item_id from public.outfit_items where outfit_id = $1 order by position`,
+        [outfitId],
+      );
+      expect(links.rows.map((r) => r.item_id)).toEqual([topId, pantsId]);
+
+      const visibleItems = await db.query<{ id: string }>(
+        `select id from public.wardrobe_items where user_id = $1`,
+        [owner],
+      );
+      expect(visibleItems.rows.map((r) => r.id).sort()).toEqual([topId, pantsId].sort());
+      expect(visibleItems.rows.map((r) => r.id)).not.toContain(unsharedShoeId);
+    });
+
+    // Revoking the outfit attachment immediately blocks reading the outfit and its items
+    await asUser(db, owner, async () => {
+      await db.query(
+        `update public.connect_message_attachments set revoked_at = now() where id = $1`,
+        [attachmentId],
+      );
+    });
+
+    await asUser(db, partner, async () => {
+      const outfits = await db.query(`select id from public.outfits where id = $1`, [outfitId]);
+      expect(outfits.rows).toHaveLength(0);
+
+      const visibleItems = await db.query(
+        `select id from public.wardrobe_items where user_id = $1`,
+        [owner],
+      );
+      expect(visibleItems.rows).toHaveLength(0);
+    });
+  });
+
+  it("rejects sharing another user's item or outfit, and blocks recipient from mutating shared items", async () => {
+    const db = getDb();
+    const owner = await createUser(db, "GuardOwner");
+    const attacker = await createUser(db, "GuardAttacker");
+
+    const ownerItemId = await createTestItem(owner, "Owner Blazer");
+    const convId = await startConv(owner, attacker);
+    await acceptConv(attacker, convId);
+
+    // Attacker tries to attach owner's item to attacker's own message
+    await asUser(db, attacker, async () => {
+      const m = await db.query<{ id: string }>(
+        `insert into public.connect_messages (conversation_id, sender_id, body)
+         values ($1, $2, 'stealing item') returning id`,
+        [convId, attacker],
+      );
+      await expect(
+        db.query(
+          `insert into public.connect_message_attachments
+             (message_id, conversation_id, owner_id, kind, item_id)
+           values ($1, $2, $3, 'item', $4)`,
+          [m.rows[0].id, convId, attacker, ownerItemId],
+        ),
+      ).rejects.toThrow(/only share clothing items that you own/i);
+    });
+
+    // Owner legitimately shares the item
+    await asUser(db, owner, async () => {
+      const m = await db.query<{ id: string }>(
+        `insert into public.connect_messages (conversation_id, sender_id, body)
+         values ($1, $2, 'here is my blazer') returning id`,
+        [convId, owner],
+      );
+      await db.query(
+        `insert into public.connect_message_attachments
+           (message_id, conversation_id, owner_id, kind, item_id)
+         values ($1, $2, $3, 'item', $4)`,
+        [m.rows[0].id, convId, owner, ownerItemId],
+      );
+    });
+
+    // Recipient cannot update or delete the shared item
+    await asUser(db, attacker, async () => {
+      const upd = await db.query(
+        `update public.wardrobe_items set name = 'Hacked', status = 'IN_LAUNDRY' where id = $1`,
+        [ownerItemId],
+      );
+      expect(upd.affectedRows).toBe(0);
+
+      const del = await db.query(
+        `delete from public.wardrobe_items where id = $1`,
+        [ownerItemId],
+      );
+      expect(del.affectedRows).toBe(0);
+    });
+
+    const check = await db.query<{ name: string; status: string }>(
+      `select name, status from public.wardrobe_items where id = $1`,
+      [ownerItemId],
+    );
+    expect(check.rows[0]).toEqual({ name: "Owner Blazer", status: "CLEAN" });
+  });
+});
+
+describe("Phase 2: connect_wardrobe_grants & connect_grant_items", () => {
+  it("supports selected_items and wardrobe scopes with immediate revocation", async () => {
+    const db = getDb();
+    const owner = await createUser(db, "GrantOwner");
+    const stylist = await createUser(db, "GrantStylist");
+
+    const item1 = await createTestItem(owner, "Silk Blouse");
+    const item2 = await createTestItem(owner, "Denim Skirt");
+    const item3 = await createTestItem(owner, "Cashmere Coat");
+
+    // 1. Owner creates a selected_items grant with only item1 and item2
+    let grantId = "";
+    await asUser(db, owner, async () => {
+      const g = await db.query<{ id: string }>(
+        `insert into public.connect_wardrobe_grants
+           (owner_id, grantee_id, scope, can_view_items, can_recommend)
+         values ($1, $2, 'selected_items', true, true) returning id`,
+        [owner, stylist],
+      );
+      grantId = g.rows[0].id;
+
+      await db.query(
+        `insert into public.connect_grant_items (grant_id, item_id, owner_id)
+         values ($1, $2, $4), ($1, $3, $4)`,
+        [grantId, item1, item2, owner],
+      );
+    });
+
+    // Stylist sees only item1 and item2
+    await asUser(db, stylist, async () => {
+      const items = await db.query<{ id: string }>(
+        `select id from public.wardrobe_items where user_id = $1`,
+        [owner],
+      );
+      expect(items.rows.map((r) => r.id).sort()).toEqual([item1, item2].sort());
+    });
+
+    // 2. Owner upgrades scope to 'wardrobe' -> stylist now sees all 3 items
+    await asUser(db, owner, async () => {
+      await db.query(
+        `update public.connect_wardrobe_grants set scope = 'wardrobe' where id = $1`,
+        [grantId],
+      );
+    });
+
+    await asUser(db, stylist, async () => {
+      const items = await db.query<{ id: string }>(
+        `select id from public.wardrobe_items where user_id = $1`,
+        [owner],
+      );
+      expect(items.rows.map((r) => r.id).sort()).toEqual([item1, item2, item3].sort());
+    });
+
+    // 3. Owner revokes grant -> stylist immediately sees 0 items and cannot see the revoked grant
+    await asUser(db, owner, async () => {
+      await db.query(
+        `update public.connect_wardrobe_grants set revoked_at = now() where id = $1`,
+        [grantId],
+      );
+    });
+
+    await asUser(db, stylist, async () => {
+      const items = await db.query<{ id: string }>(
+        `select id from public.wardrobe_items where user_id = $1`,
+        [owner],
+      );
+      expect(items.rows).toHaveLength(0);
+
+      const grants = await db.query<{ id: string }>(
+        `select id from public.connect_wardrobe_grants where id = $1`,
+        [grantId],
+      );
+      expect(grants.rows).toHaveLength(0);
+    });
+  });
+
+  it("blocks access immediately when owner or grantee blocks the other", async () => {
+    const db = getDb();
+    const owner = await createUser(db, "BlockGrantOwner");
+    const grantee = await createUser(db, "BlockGrantGrantee");
+    const itemId = await createTestItem(owner, "Wool Sweater");
+
+    await asUser(db, owner, async () => {
+      await db.query(
+        `insert into public.connect_wardrobe_grants
+           (owner_id, grantee_id, scope, can_view_items)
+         values ($1, $2, 'wardrobe', true)`,
+        [owner, grantee],
+      );
+    });
+
+    // Before block, grantee can read
+    await asUser(db, grantee, async () => {
+      const r = await db.query(`select id from public.wardrobe_items where id = $1`, [itemId]);
+      expect(r.rows).toHaveLength(1);
+    });
+
+    // Owner blocks grantee
+    await asUser(db, owner, async () => {
+      await db.query(
+        `insert into public.connect_blocks (blocker, blocked) values ($1, $2)`,
+        [owner, grantee],
+      );
+    });
+
+    // After block, grantee immediately loses read access
+    await asUser(db, grantee, async () => {
+      const r = await db.query(`select id from public.wardrobe_items where id = $1`, [itemId]);
+      expect(r.rows).toHaveLength(0);
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Round 3 Hardening Attack Tests (migration 20261016000002_connect_hardening_round3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Round 3 #1: connect_conversations UPDATE lockdown", () => {
+  it("revokes UPDATE on connect_conversations from anon and authenticated", async () => {
+    const db = getDb();
+    const priv = await db.query<{ auth: boolean; anon: boolean }>(
+      `select
+         has_table_privilege('authenticated', 'public.connect_conversations', 'update') as auth,
+         has_table_privilege('anon',          'public.connect_conversations', 'update') as anon`,
+    );
+    expect(priv.rows[0]).toEqual({ auth: false, anon: false });
+  });
+
+  it("requester cannot set status or requester directly; recipient cannot either", async () => {
+    const db = getDb();
+    const requester = await createUser(db, "UpdLockReq");
+    const recipient = await createUser(db, "UpdLockRecip");
+    const convId = await startConv(requester, recipient);
+
+    // Requester tries to force status = 'active' or swap requester
+    await asUser(db, requester, async () => {
+      await expect(
+        db.query(
+          `update public.connect_conversations set status = 'active' where id = $1`,
+          [convId],
+        ),
+      ).rejects.toThrow();
+
+      await expect(
+        db.query(
+          `update public.connect_conversations set requester = $1 where id = $2`,
+          [recipient, convId],
+        ),
+      ).rejects.toThrow();
+    });
+
+    // Recipient tries to update status or requester directly without accept_conversation RPC
+    await asUser(db, recipient, async () => {
+      await expect(
+        db.query(
+          `update public.connect_conversations set status = 'active' where id = $1`,
+          [convId],
+        ),
+      ).rejects.toThrow();
+
+      await expect(
+        db.query(
+          `update public.connect_conversations set requester = $1 where id = $2`,
+          [recipient, convId],
+        ),
+      ).rejects.toThrow();
+    });
+
+    const check = await db.query<{ status: string; requester: string }>(
+      `select status, requester from public.connect_conversations where id = $1`,
+      [convId],
+    );
+    expect(check.rows[0]).toEqual({ status: "pending", requester });
+  });
+
+  it("recipient can decline a pending request via decline_conversation RPC, but requester cannot", async () => {
+    const db = getDb();
+    const requester = await createUser(db, "DeclineReq");
+    const recipient = await createUser(db, "DeclineRecip");
+    const convId = await startConv(requester, recipient);
+
+    await asUser(db, requester, async () => {
+      await expect(
+        db.query(`select public.decline_conversation($1)`, [convId]),
+      ).rejects.toThrow(/only the recipient/i);
+    });
+
+    await asUser(db, recipient, async () => {
+      await db.query(`select public.decline_conversation($1)`, [convId]);
+    });
+
+    const check = await db.query(`select id from public.connect_conversations where id = $1`, [
+      convId,
+    ]);
+    expect(check.rows).toHaveLength(0);
+  });
+});
+
+describe("Round 3 #2: pending request_messages_sent monotonic counter", () => {
+  it("send, delete, resend in a pending conversation must fail", async () => {
+    const db = getDb();
+    const requester = await createUser(db, "MonotonicReq");
+    const recipient = await createUser(db, "MonotonicRecip");
+    const convId = await startConv(requester, recipient);
+
+    // 1. Send first message in pending conversation
+    let msgId = "";
+    await asUser(db, requester, async () => {
+      const r = await db.query<{ id: string }>(
+        `insert into public.connect_messages (conversation_id, sender_id, body)
+         values ($1, $2, 'first intro') returning id`,
+        [convId, requester],
+      );
+      msgId = r.rows[0].id;
+    });
+
+    const afterSend = await db.query<{ request_messages_sent: number }>(
+      `select request_messages_sent from public.connect_conversations where id = $1`,
+      [convId],
+    );
+    expect(afterSend.rows[0].request_messages_sent).toBe(1);
+
+    // 2. Delete the sent message
+    await asUser(db, requester, async () => {
+      const del = await db.query(`delete from public.connect_messages where id = $1`, [msgId]);
+      expect(del.affectedRows).toBe(1);
+    });
+
+    const afterDel = await db.query<{ request_messages_sent: number }>(
+      `select request_messages_sent from public.connect_conversations where id = $1`,
+      [convId],
+    );
+    expect(afterDel.rows[0].request_messages_sent).toBe(1);
+
+    // 3. Attempt to resend while still pending must fail
+    await asUser(db, requester, async () => {
+      await expect(
+        db.query(
+          `insert into public.connect_messages (conversation_id, sender_id, body)
+           values ($1, $2, 'resend after delete')`,
+          [convId, requester],
+        ),
+      ).rejects.toThrow(/one message until/i);
+    });
+  });
+});
+
+describe("Round 3 #4: connect_is_blocked revoked from authenticated", () => {
+  it("authenticated and anon cannot execute connect_is_blocked directly", async () => {
+    const db = getDb();
+    const priv = await db.query<{ auth: boolean; anon: boolean }>(
+      `select
+         has_function_privilege('authenticated', 'public.connect_is_blocked(uuid, uuid)', 'execute') as auth,
+         has_function_privilege('anon',          'public.connect_is_blocked(uuid, uuid)', 'execute') as anon`,
+    );
+    expect(priv.rows[0]).toEqual({ auth: false, anon: false });
+
+    const u1 = await createUser(db, "BlockProbe1");
+    const u2 = await createUser(db, "BlockProbe2");
+    await asUser(db, u1, async () => {
+      await expect(
+        db.query(`select public.connect_is_blocked($1, $2)`, [u1, u2]),
+      ).rejects.toThrow();
+    });
+  });
+});
+
+describe("Round 3 #6: connect_search_users min 3 chars, wildcard escaping & rate event cleanup", () => {
+  it("rejects/ignores name searches shorter than 3 characters", async () => {
+    const db = getDb();
+    const searcher = await createUser(db, "MinLenSearcher");
+    const target = await createUser(db, "AbShortTarget");
+    await db.query(`update public.profiles set discoverable = true where id = $1`, [target]);
+
+    const res1 = await asUser(db, searcher, async () =>
+      db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["A"]),
+    );
+    expect(res1.rows.map((r) => r.id)).not.toContain(target);
+
+    const res2 = await asUser(db, searcher, async () =>
+      db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["Ab"]),
+    );
+    expect(res2.rows.map((r) => r.id)).not.toContain(target);
+
+    const res3 = await asUser(db, searcher, async () =>
+      db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["AbS"]),
+    );
+    expect(res3.rows.map((r) => r.id)).toContain(target);
+  });
+
+  it("escapes %, _ and \\ in search terms so wildcards cannot dump all discoverable users", async () => {
+    const db = getDb();
+    const searcher = await createUser(db, "WildcardSearcher");
+    const normalDisc = await createUser(db, "NormalDiscoverableUser");
+    const literalSpecial = await createUser(db, "Lit%User_With\\Special");
+    await db.query(`update public.profiles set discoverable = true where id in ($1, $2)`, [
+      normalDisc,
+      literalSpecial,
+    ]);
+
+    // Searching "%%%" or "___" must NOT match NormalDiscoverableUser
+    const pctRes = await asUser(db, searcher, async () =>
+      db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["%%%"]),
+    );
+    expect(pctRes.rows.map((r) => r.id)).not.toContain(normalDisc);
+
+    const underRes = await asUser(db, searcher, async () =>
+      db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["___"]),
+    );
+    expect(underRes.rows.map((r) => r.id)).not.toContain(normalDisc);
+
+    // Searching literal "Lit%User" or "With\Special" matches only the user with those literal chars
+    const litPct = await asUser(db, searcher, async () =>
+      db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["Lit%User"]),
+    );
+    expect(litPct.rows.map((r) => r.id)).toContain(literalSpecial);
+    expect(litPct.rows.map((r) => r.id)).not.toContain(normalDisc);
+
+    const litBackslash = await asUser(db, searcher, async () =>
+      db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["With\\Special"]),
+    );
+    expect(litBackslash.rows.map((r) => r.id)).toContain(literalSpecial);
+  });
+
+  it("opportunistically deletes connect_rate_events older than 2 days", async () => {
+    const db = getDb();
+    const user = await createUser(db, "CleanupRateUser");
+
+    const inserted = await db.query<{ id: string }>(
+      `insert into public.connect_rate_events (user_id, action, created_at)
+       values ($1, 'search', now() - interval '3 days') returning id`,
+      [user],
+    );
+    const staleId = inserted.rows[0].id;
+
+    // Trigger connect_check_rate_limit via a search call
+    await asUser(db, user, async () => {
+      await db.query(`select * from public.connect_search_users($1)`, ["CLOS-CLEANUP1"]);
+    });
+
+    const check = await db.query(
+      `select id from public.connect_rate_events where id = $1`,
+      [staleId],
+    );
+    expect(check.rows).toHaveLength(0);
+  });
+});
+
+

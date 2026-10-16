@@ -7,13 +7,11 @@ interface Props {
   currentUserId: string;
 }
 
-export function ConversationList({ conversations }: Props) {
+export function ConversationList({ conversations, currentUserId }: Props) {
   return (
     <ul className="divide-y divide-border rounded-[1.25rem] border border-border bg-surface overflow-hidden" role="list">
       {conversations.map((conv) => {
         const name = conv.otherMember.displayName ?? "Unknown User";
-        // Use Array.from to take the first full code point (emoji/astral chars are
-        // surrogate pairs — charAt(0) would slice them and break SSR hydration).
         const initial = (Array.from(name.trim())[0] ?? "?").toUpperCase();
 
         const preview = conv.lastMessage
@@ -21,6 +19,11 @@ export function ConversationList({ conversations }: Props) {
             ? conv.lastMessage.body.slice(0, 57) + "…"
             : conv.lastMessage.body
           : "No messages yet";
+
+        const isIncomingRequest =
+          conv.status === "pending" &&
+          conv.requesterId !== null &&
+          conv.requesterId !== currentUserId;
 
         return (
           <li key={conv.id}>
@@ -37,17 +40,26 @@ export function ConversationList({ conversations }: Props) {
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="truncate text-sm font-semibold text-foreground">{name}</p>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">{name}</p>
+                    {isIncomingRequest && (
+                      <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[0.65rem] font-semibold text-accent">
+                        Request
+                      </span>
+                    )}
+                  </div>
                   {conv.lastMessageAtLabel && (
                     <span className="shrink-0 text-xs text-muted">
                       {conv.lastMessageAtLabel}
                     </span>
                   )}
                 </div>
-                <p className={cn(
-                  "mt-0.5 truncate text-sm",
-                  conv.unreadCount > 0 ? "font-medium text-foreground" : "text-muted",
-                )}>
+                <p
+                  className={cn(
+                    "mt-0.5 truncate text-sm",
+                    conv.unreadCount > 0 ? "font-medium text-foreground" : "text-muted",
+                  )}
+                >
                   {preview}
                 </p>
               </div>

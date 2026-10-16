@@ -14,6 +14,8 @@ import {
   claimEmailLogSlot,
   finalizeEmailLogSlot,
 } from "@/lib/cron/auth";
+import { generateOutfits } from "@/lib/outfits/engine";
+import { listAllWardrobeItems } from "@/lib/wardrobe/queries";
 
 export const maxDuration = 60; // 60s max execution for cron
 
@@ -87,12 +89,31 @@ export async function GET(request: NextRequest) {
     const processUser = async (pref: DailyPrefRow) => {
       const userId = pref.user_id;
 
-      // Fetch user profile for timezone, location, and display_name
-      const { data: profile } = await adminClient
+      // Fetch user profile for timezone, location, display_name, and styling preferences
+      let profile: {
+        display_name?: string | null;
+        location?: string | null;
+        timezone?: string | null;
+        preferred_style?: string | string[] | null;
+        rewear_worn_items?: boolean | null;
+      } | null = null;
+
+      const profileRes = await adminClient
         .from("profiles")
-        .select("display_name, location, timezone")
+        .select("display_name, location, timezone, preferred_style, rewear_worn_items")
         .eq("id", userId)
         .maybeSingle();
+
+      if (profileRes.error) {
+        const fallbackProfile = await adminClient
+          .from("profiles")
+          .select("display_name, location, timezone")
+          .eq("id", userId)
+          .maybeSingle();
+        profile = fallbackProfile.data;
+      } else {
+        profile = profileRes.data;
+      }
 
       const clock = getUserLocalClock(profile?.timezone);
       const targetTime = normalizeTimeHHMM(pref.daily_time, "07:00");
@@ -181,36 +202,62 @@ export async function GET(request: NextRequest) {
               image_path: i.wardrobe_items?.image_path,
             }));
         } else {
-          // Fallback: harmonized clean items from distinct categories (Top, Bottom, Shoes/Outerwear)
-          const { data: cleanItems } = await adminClient
-            .from("wardrobe_items")
-            .select("name, category, primary_colour, image_path")
-            .eq("user_id", userId)
-            .eq("status", "CLEAN")
-            .order("created_at", { ascending: false })
-            .limit(20);
+          // Fallback: Use the intelligent outfit engine to generate a coordinated look (Top + Bottom + Shoes/Accessories)
+          const allUserItems = await listAllWardrobeItems(adminClient, userId, 200).catch((err) => {
+            logger.warn("cron.daily_outfit_load_items_failed", { userId, error: err });
+            return null;
+          });
 
-          if (!cleanItems || cleanItems.length === 0) {
+          if (!allUserItems || allUserItems.length === 0) {
             await finalizeEmailLogSlot(adminClient, slot.logId, {
               status: "SKIPPED",
-              reason: "No clean wardrobe items available.",
+              reason: "No wardrobe items available.",
             });
             return;
           }
 
-          const catMap = new Map<string, (typeof cleanItems)[0]>();
-          for (const item of cleanItems) {
-            if (!catMap.has(item.category)) {
-              catMap.set(item.category, item);
-            }
+          const userStyle = Array.isArray(profile?.preferred_style)
+            ? profile.preferred_style[0]
+            : (typeof profile?.preferred_style === "string" ? profile.preferred_style : null);
+          const allowRewear = profile?.rewear_worn_items ?? false;
+
+          // 1. Generate outfits using eligible garments
+          let suggestions = generateOutfits(allUserItems, {
+            allowRewearWorn: allowRewear,
+            targetStyle: userStyle,
+            limit: 3,
+          });
+
+          // 2. If no outfits found with current rewear setting, attempt with allowRewearWorn: true as fallback
+          if (suggestions.length === 0 && !allowRewear) {
+            suggestions = generateOutfits(allUserItems, {
+              allowRewearWorn: true,
+              targetStyle: userStyle,
+              limit: 3,
+            });
           }
 
-          const distinctPieces = Array.from(catMap.values()).slice(0, 3);
-          items = distinctPieces.map((i) => ({
+          if (suggestions.length === 0) {
+            await finalizeEmailLogSlot(adminClient, slot.logId, {
+              status: "SKIPPED",
+              reason: "Insufficient wardrobe items to assemble a complete outfit (requires top + bottom, or a dress).",
+            });
+            return;
+          }
+
+          const best = suggestions[0];
+          outfitName = best.name;
+          occasion = best.occasion || occasion;
+          styleDescription = best.styleDescription;
+          explanation = best.items.length >= 3
+            ? "Balanced proportions, color harmony, and a complete silhouette ensure effortless confidence."
+            : "A clean, coordinated ensemble styled from your ready-to-wear pieces.";
+          stylingTip = best.stylingTip;
+          items = best.items.map((i) => ({
             name: i.name,
             category: i.category,
-            colour: i.primary_colour,
-            image_path: i.image_path,
+            colour: i.primaryColour,
+            image_path: i.imagePath,
           }));
         }
 

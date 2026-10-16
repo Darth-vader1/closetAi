@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Users } from "lucide-react";
+import Link from "next/link";
+import { ShieldCheck, Users } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/ui/card";
 import { ConversationList } from "@/components/connect/conversation-list";
@@ -7,7 +8,10 @@ import { NewConversationButton } from "@/components/connect/new-conversation-but
 import { ClosetIdCard } from "@/components/connect/closet-id-card";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { listConversations } from "@/lib/connect/queries";
+import {
+  listConversations,
+  listWardrobeGrantsForUser,
+} from "@/lib/connect/queries";
 import { userTag } from "@/lib/connect/user-tag";
 import { getAppUrl } from "@/lib/env";
 
@@ -17,22 +21,23 @@ export default async function ConnectPage() {
   const user = await requireUser();
   const supabase = await createClient();
 
-  const [conversations, profileRow] = await Promise.all([
+  const [conversations, profileRow, grants] = await Promise.all([
     listConversations(supabase, user.id).catch(() => []),
     supabase
       .from("profiles")
       .select("closet_id")
       .eq("id", user.id)
       .maybeSingle(),
+    listWardrobeGrantsForUser(supabase, user.id).catch(() => ({
+      grantedByMe: [],
+      grantedToMe: [],
+    })),
   ]);
 
-  // Use DB closet_id when available; fall back to UUID-derived tag for
-  // pre-migration deployments.
   const closetId =
     (profileRow.data?.closet_id as string | null | undefined) ??
     userTag(user.id);
 
-  // The shareable link lets a user send their inbox directly to a friend.
   const shareUrl = `${getAppUrl()}/connect?invite=${user.id}`;
 
   return (
@@ -40,7 +45,23 @@ export default async function ConnectPage() {
       <PageHeader
         title="Connect"
         description="Message friends, share outfits, and collaborate on style."
-        action={<NewConversationButton />}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/connect/sharing"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-border bg-surface px-3.5 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-surface-muted"
+            >
+              <ShieldCheck className="size-4 text-accent" aria-hidden />
+              <span>Wardrobe Access</span>
+              {(grants.grantedByMe.length > 0 || grants.grantedToMe.length > 0) && (
+                <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[0.68rem] font-bold text-accent">
+                  {grants.grantedByMe.length + grants.grantedToMe.length}
+                </span>
+              )}
+            </Link>
+            <NewConversationButton />
+          </div>
+        }
       />
 
       {/* Closet ID card — always visible so users can share their ID with friends */}
