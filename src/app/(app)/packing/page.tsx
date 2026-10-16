@@ -6,8 +6,8 @@ import { getProfile, requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Travel Packing Capsule · ClosetAI",
-  description: "Curate a carry-on friendly mix-and-match capsule for your upcoming trips.",
+  title: "Pack for… · ClosetAI",
+  description: "Plan a mix-and-match capsule and essentials checklist for trips, school terms, work placements, events, and longer stays.",
 };
 
 export default async function PackingPage() {
@@ -24,8 +24,8 @@ export default async function PackingPage() {
   return (
     <>
       <PageHeader
-        title="Travel Packing Capsule"
-        description="Pick a destination and duration. The AI checks local weather and packs an interchangeable carry-on capsule from your wardrobe."
+        title="Pack for…"
+        description="Plan for a trip, school term, work placement, special event, or long stay. ClosetAI checks local weather or seasonal norms, builds a capsule or laundry-cycle rotation from your wardrobe, and prepares a 'Don't forget' checklist."
       />
       <ContextualGuide section="packing" />
       <PackingClient initialCleanCount={cleanCount ?? 0} />
