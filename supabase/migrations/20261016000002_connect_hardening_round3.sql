@@ -169,6 +169,7 @@ $$;
 -- ===========================================================================
 -- 3. Lock down connect_user_profiles & add partner-scoped resolver RPC
 -- ===========================================================================
+alter view public.connect_user_profiles set (security_invoker = on);
 revoke all on public.connect_user_profiles from public, anon, authenticated;
 
 create or replace function public.connect_resolve_partner_profiles(p_user_ids uuid[])
