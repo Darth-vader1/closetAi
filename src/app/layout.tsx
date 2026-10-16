@@ -30,7 +30,9 @@ function resolveAppOrigin(): string {
 
 const APP_ORIGIN = resolveAppOrigin();
 const OG_IMAGE_URL = `${APP_ORIGIN}/og.png`;
-const GOOGLE_SITE_VERIFICATION = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION?.trim();
+const GOOGLE_SITE_VERIFICATION =
+  process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION?.trim() ||
+  "vfCi0VzZz0VuGWzJoLw7Ao11icGo1fnwf_PxcsrMliw";
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_ORIGIN),

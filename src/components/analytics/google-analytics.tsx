@@ -11,7 +11,8 @@ declare global {
   }
 }
 
-const GA_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID?.trim() ?? "";
+const GA_ID =
+  process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID?.trim() || "G-95KHRZ6S5S";
 const SIGNUP_TRACKED_KEY = "closetai:ga_signup_tracked";
 
 /**
