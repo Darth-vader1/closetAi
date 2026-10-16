@@ -1,14 +1,92 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import type { ConversationSummary } from "@/lib/connect/queries";
 import { PendingRequestActions } from "@/components/connect/conversation-safety-menu";
 import { cn } from "@/lib/utils/cn";
+
+function formatRelativeClient(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Intl.DateTimeFormat("en", { dateStyle: "short" }).format(new Date(iso));
+}
 
 interface Props {
   conversations: ConversationSummary[];
   currentUserId: string;
 }
 
-export function ConversationList({ conversations, currentUserId }: Props) {
+export function ConversationList({ conversations: initial, currentUserId }: Props) {
+  const [conversations, setConversations] = useState<ConversationSummary[]>(initial);
+  const pathname = usePathname();
+  const activeConvId = pathname.startsWith("/connect/")
+    ? pathname.split("/connect/")[1]?.split("/")[0] ?? null
+    : null;
+
+  // Subscribe to new messages across all conversations for live inbox updates
+  useEffect(() => {
+    const convIds = conversations.map((c) => c.id);
+    if (convIds.length === 0) return;
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel("inbox-realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "connect_messages" },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            conversation_id: string;
+            sender_id: string;
+            body: string;
+            created_at: string;
+          };
+          if (!convIds.includes(row.conversation_id)) return;
+
+          const isCurrentlyViewing = row.conversation_id === activeConvId;
+
+          setConversations((prev) =>
+            prev
+              .map((conv) => {
+                if (conv.id !== row.conversation_id) return conv;
+                return {
+                  ...conv,
+                  lastMessage: {
+                    body: row.body,
+                    senderId: row.sender_id,
+                    createdAt: row.created_at,
+                  },
+                  lastMessageAtLabel: formatRelativeClient(row.created_at),
+                  unreadCount:
+                    row.sender_id !== currentUserId && !isCurrentlyViewing
+                      ? conv.unreadCount + 1
+                      : conv.unreadCount,
+                };
+              })
+              .sort((a, b) => {
+                const aTime = a.lastMessage?.createdAt ?? a.updatedAt;
+                const bTime = b.lastMessage?.createdAt ?? b.updatedAt;
+                return bTime.localeCompare(aTime);
+              }),
+          );
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserId, activeConvId, conversations.map((c) => c.id).join(",")]);
+
   const pendingRequests = conversations.filter((c) => c.status === "pending");
   const activeConversations = conversations.filter((c) => c.status !== "pending");
 
@@ -128,12 +206,24 @@ export function ConversationList({ conversations, currentUserId }: Props) {
                   ? conv.lastMessage.body.slice(0, 57) + "…"
                   : conv.lastMessage.body
                 : "No messages yet";
+              const effectiveUnread = conv.id === activeConvId ? 0 : conv.unreadCount;
 
               return (
                 <li key={conv.id}>
                   <Link
                     href={`/connect/${conv.id}`}
-                    className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                    onClick={() => {
+                      if (conv.unreadCount > 0) {
+                        setConversations((prev) =>
+                          prev.map((c) => (c.id === conv.id ? { ...c, unreadCount: 0 } : c)),
+                        );
+                      }
+                    }}
+                    aria-current={conv.id === activeConvId ? "page" : undefined}
+                    className={cn(
+                      "flex items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
+                      conv.id === activeConvId && "bg-accent-soft/30",
+                    )}
                   >
                     <span
                       className="grid size-11 shrink-0 place-items-center rounded-full bg-accent-soft text-base font-semibold text-accent"
@@ -161,19 +251,19 @@ export function ConversationList({ conversations, currentUserId }: Props) {
                       <p
                         className={cn(
                           "mt-0.5 truncate text-sm",
-                          conv.unreadCount > 0 ? "font-medium text-foreground" : "text-muted",
+                          effectiveUnread > 0 ? "font-medium text-foreground" : "text-muted",
                         )}
                       >
                         {preview}
                       </p>
                     </div>
 
-                    {conv.unreadCount > 0 && (
+                    {effectiveUnread > 0 && (
                       <span
                         className="grid size-5 shrink-0 place-items-center rounded-full bg-accent text-[0.65rem] font-bold text-accent-foreground"
-                        aria-label={`${conv.unreadCount} unread`}
+                        aria-label={`${effectiveUnread} unread`}
                       >
-                        {conv.unreadCount > 9 ? "9+" : conv.unreadCount}
+                        {effectiveUnread > 9 ? "9+" : effectiveUnread}
                       </span>
                     )}
                   </Link>

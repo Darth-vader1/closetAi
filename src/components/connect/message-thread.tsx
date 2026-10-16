@@ -3,6 +3,7 @@
 import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  deleteMessageAction,
   hydrateMessageAttachmentsAction,
   loadMoreMessagesAction,
   markReadAction,
@@ -22,10 +23,13 @@ import {
   ChevronUp,
   EyeOff,
   Layers,
+  Loader2,
   Send,
   ShieldAlert,
   Shirt,
   Sparkles,
+  Trash2,
+  WifiOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -239,6 +243,10 @@ export function MessageThread({
 
   const [status, setStatus] = useState<"pending" | "active">(conversationStatus);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null);
+  const [realtimeStatus, setRealtimeStatus] = useState<"connecting" | "connected" | "disconnected">(
+    "connecting",
+  );
 
   const [optimisticMessages, addOptimistic] = useOptimistic(
     messages,
@@ -380,6 +388,25 @@ export function MessageThread({
     }
   };
 
+  // ── Delete own message ──────────────────────────────────────────────────
+  const handleDelete = (messageId: string) => {
+    // Optimistic soft-delete immediately so UI responds without waiting
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId ? { ...m, deletedAt: new Date().toISOString() } : m,
+      ),
+    );
+    deleteMessageAction(messageId).then((res) => {
+      if (!res.ok) {
+        // Rollback on failure
+        setMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? { ...m, deletedAt: null } : m)),
+        );
+        setSendError(res.error);
+      }
+    });
+  };
+
   // ── Send handler ─────────────────────────────────────────────────────────
   const handleSend = () => {
     const trimmed = body.trim();
@@ -441,6 +468,20 @@ export function MessageThread({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-border bg-surface">
+      {/* ── Realtime connection status ──────────────────────────────── */}
+      {realtimeStatus === "disconnected" && (
+        <div className="flex items-center justify-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-2 text-xs font-medium text-warning">
+          <WifiOff className="size-3.5" aria-hidden />
+          Reconnecting… new messages may be delayed.
+        </div>
+      )}
+      {realtimeStatus === "connecting" && (
+        <div className="flex items-center justify-center gap-2 border-b border-border bg-surface-muted px-4 py-1.5 text-xs text-muted">
+          <Loader2 className="size-3 animate-spin" aria-hidden />
+          Connecting…
+        </div>
+      )}
+
       {/* Consent Banner for Pending Conversations */}
       {isRecipientOfPending && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-accent-soft/40 px-4 py-3">
@@ -518,12 +559,15 @@ export function MessageThread({
               {group.messages.map((msg) => {
                 const isMine = msg.senderId === currentUserId;
                 const isOptimistic = msg.id.startsWith("optimistic-");
+                const isDeleted = Boolean(msg.deletedAt);
                 const attachments = msg.attachments ?? [];
 
                 return (
                   <div
                     key={msg.id}
-                    className={cn("flex gap-2", isMine ? "justify-end" : "justify-start")}
+                    className={cn("group flex gap-2", isMine ? "justify-end" : "justify-start")}
+                    onMouseEnter={() => !isDeleted && !isOptimistic && setHoveredMsgId(msg.id)}
+                    onMouseLeave={() => setHoveredMsgId(null)}
                   >
                     {/* Other person's avatar */}
                     {!isMine && (
@@ -542,18 +586,35 @@ export function MessageThread({
                         "flex flex-col",
                       )}
                     >
-                      {/* Text bubble */}
-                      <div
-                        className={cn(
-                          "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-                          isMine
-                            ? "rounded-br-sm bg-accent text-accent-foreground"
-                            : "rounded-bl-sm bg-surface-muted text-foreground",
-                          isOptimistic && "opacity-70",
-                          msg.deletedAt && "italic text-muted",
+                      {/* Bubble row — wraps text + delete button side by side */}
+                      <div className={cn("flex items-end gap-1.5", isMine && "flex-row-reverse")}>
+                        {/* Delete button: own messages only, on hover, not yet deleted */}
+                        {isMine && !isDeleted && !isOptimistic && hoveredMsgId === msg.id && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(msg.id)}
+                            aria-label="Delete message"
+                            className="mb-1 grid size-6 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-surface-muted hover:text-danger"
+                          >
+                            <Trash2 className="size-3" aria-hidden />
+                          </button>
                         )}
-                      >
-                        <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+
+                        {/* Text bubble */}
+                        <div
+                          className={cn(
+                            "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+                            isMine
+                              ? "rounded-br-sm bg-accent text-accent-foreground"
+                              : "rounded-bl-sm bg-surface-muted text-foreground",
+                            isOptimistic && "opacity-70",
+                            isDeleted && "italic opacity-60",
+                          )}
+                        >
+                          <p className="whitespace-pre-wrap break-words">
+                            {isDeleted ? "This message was deleted." : msg.body}
+                          </p>
+                        </div>
                       </div>
 
                       {/* Rich Shared Item & Outfit Attachment Cards */}
@@ -640,7 +701,7 @@ export function MessageThread({
             <Send className="size-4" aria-hidden />
           </button>
         </div>
-        <p className="mt-1.5 text-[0.65rem] text-muted">
+        <p className="mt-1.5 hidden text-[0.65rem] text-muted sm:block">
           Enter to send · Shift+Enter for new line · Use &ldquo;Share closet&rdquo; to attach
           clothes or outfits
         </p>

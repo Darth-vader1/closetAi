@@ -557,7 +557,7 @@ export async function markReadAction(conversationId: unknown): Promise<ActionRes
   return { ok: true };
 }
 
-// ─── Delete own message (soft delete) ────────────────────────────────────────
+// ─── Delete own message ──────────────────────────────────────────────────────
 
 export async function deleteMessageAction(messageId: unknown): Promise<ActionResult> {
   const user = await requireUser();
@@ -566,11 +566,12 @@ export async function deleteMessageAction(messageId: unknown): Promise<ActionRes
 
   const supabase = await createClient();
 
-  // RLS policy (connect_messages_delete_own) already enforces sender_id = auth.uid().
-  // We still verify explicitly here for belt-and-suspenders clarity.
+  // RLS policy (connect_messages_delete_own) enforces FOR DELETE where sender_id = auth.uid().
+  // Note: connect_conversations.request_messages_sent is monotonic so deleting a pending
+  // intro message does not reset the 1-message limit.
   const { data, error } = await supabase
     .from("connect_messages")
-    .update({ deleted_at: new Date().toISOString() })
+    .delete()
     .eq("id", idParsed.data)
     .eq("sender_id", user.id)
     .select("conversation_id")
