@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/fraunces";
 import "./globals.css";
+import { GoogleAnalytics } from "@/components/analytics/google-analytics";
 
 const PRODUCTION_URL = "https://closet-ai-official.vercel.app";
 
@@ -29,9 +30,13 @@ function resolveAppOrigin(): string {
 
 const APP_ORIGIN = resolveAppOrigin();
 const OG_IMAGE_URL = `${APP_ORIGIN}/og.png`;
+const GOOGLE_SITE_VERIFICATION = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION?.trim();
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_ORIGIN),
+  alternates: {
+    canonical: "/",
+  },
   title: {
     default: "ClosetAI — Decide What to Wear from Clothes You Already Own",
     template: "%s · ClosetAI",
@@ -39,6 +44,7 @@ export const metadata: Metadata = {
   description:
     "Digital wardrobe & personal AI stylist. Catalogue clothes, track laundry, and get outfit ideas from ready-to-wear pieces.",
   applicationName: "ClosetAI",
+  category: "lifestyle",
   authors: [{ name: "ClosetAI Team" }],
   generator: "Next.js",
   keywords: [
@@ -51,6 +57,8 @@ export const metadata: Metadata = {
     "clean clothes tracker",
     "Pinterest aesthetic outfits",
     "outfit generator",
+    "travel packing planner",
+    "collaborative closet sharing",
   ],
   referrer: "origin-when-cross-origin",
   creator: "ClosetAI",
@@ -102,6 +110,11 @@ export const metadata: Metadata = {
       "Digital wardrobe & personal AI stylist. Outfit ideas built only from clothes ready to wear.",
     images: [OG_IMAGE_URL],
   },
+  verification: GOOGLE_SITE_VERIFICATION
+    ? {
+        google: GOOGLE_SITE_VERIFICATION,
+      }
+    : undefined,
   robots: {
     index: true,
     follow: true,
@@ -130,6 +143,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" data-scroll-behavior="smooth">
       <body className="min-h-dvh antialiased">
+        <GoogleAnalytics />
         <a
           href="#main"
           className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-foreground focus:px-4 focus:py-2 focus:text-background"

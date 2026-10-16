@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { Search, X } from "lucide-react";
 import { searchUsersAction, startConversationAction } from "@/app/(app)/connect/actions";
 import { Button } from "@/components/ui/button";
@@ -97,21 +98,20 @@ export function NewConversationDialog({ onClose }: Props) {
     });
   };
 
-  return (
-    <>
-      <div
-        className="fixed inset-0 z-40 bg-foreground/30 backdrop-blur-sm"
-        aria-hidden
-        onClick={onClose}
-      />
-
+  const content = (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-xs"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Start a new conversation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Start a new conversation"
         onKeyDown={trapFocus}
-        className="fixed inset-x-4 top-1/4 z-50 mx-auto max-w-md rounded-[1.25rem] border border-border bg-surface shadow-xl focus:outline-none"
+        className="w-full max-w-md overflow-hidden rounded-[1.25rem] border border-border bg-surface shadow-2xl focus:outline-none"
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-base font-semibold text-foreground">Start a conversation</h2>
@@ -214,6 +214,12 @@ export function NewConversationDialog({ onClose }: Props) {
           </Button>
         </div>
       </div>
-    </>
+    </div>
   );
+
+  if (typeof document !== "undefined") {
+    return createPortal(content, document.body);
+  }
+
+  return content;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Ban,
@@ -135,114 +136,120 @@ export function ConversationSafetyMenu({
         </>
       )}
 
-      {modalMode && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="safety-modal-title"
-        >
-          <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-5 shadow-xl space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 id="safety-modal-title" className="text-base font-semibold text-foreground">
-                  {modalMode === "block" ? `Block ${otherName}?` : `Report ${otherName}`}
-                </h2>
-                <p className="font-mono text-xs text-muted">{otherClosetId}</p>
+      {modalMode &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-xs"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="safety-modal-title"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setModalMode(null);
+            }}
+          >
+            <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-5 shadow-xl space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 id="safety-modal-title" className="text-base font-semibold text-foreground">
+                    {modalMode === "block" ? `Block ${otherName}?` : `Report ${otherName}`}
+                  </h2>
+                  <p className="font-mono text-xs text-muted">{otherClosetId}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalMode(null)}
+                  aria-label="Close dialog"
+                  className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground"
+                >
+                  <X className="size-4" aria-hidden />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setModalMode(null)}
-                aria-label="Close dialog"
-                className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground"
-              >
-                <X className="size-4" aria-hidden />
-              </button>
+
+              {modalMode === "block" ? (
+                <div className="space-y-4">
+                  <p className="text-xs leading-relaxed text-muted">
+                    Blocking <strong>{otherName}</strong> ({otherClosetId}) immediately prevents
+                    them from sending you messages, starting conversations with you, or viewing any
+                    shared wardrobe items.
+                  </p>
+
+                  {error && (
+                    <p className="text-xs font-medium text-danger" role="alert">
+                      {error}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setModalMode(null)}
+                      className="rounded-lg px-3 py-2 text-xs font-medium text-muted hover:bg-surface-muted hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleBlock}
+                      disabled={isPending}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-danger px-4 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                    >
+                      <Ban className="size-3.5" aria-hidden />
+                      {isPending ? "Blocking…" : "Block user"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleReport} className="space-y-4">
+                  <p className="text-xs leading-relaxed text-muted">
+                    Let us know what happened with <strong>{otherName}</strong> ({otherClosetId}).
+                    You can submit up to 5 reports per day and have one open report per user.
+                  </p>
+
+                  <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Describe the issue (spam, harassment, inappropriate content)…"
+                    rows={3}
+                    maxLength={1000}
+                    required
+                    className="w-full rounded-xl border border-border bg-background p-3 text-xs text-foreground placeholder:text-muted focus-visible:border-accent focus-visible:outline-none"
+                  />
+
+                  {error && (
+                    <p className="text-xs font-medium text-danger" role="alert">
+                      {error}
+                    </p>
+                  )}
+                  {notice && (
+                    <p className="text-xs font-medium text-accent" role="status">
+                      {notice}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setModalMode(null)}
+                      className="rounded-lg px-3 py-2 text-xs font-medium text-muted hover:bg-surface-muted hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isPending || !reason.trim()}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      <Flag className="size-3.5" aria-hidden />
+                      {isPending ? "Submitting…" : "Submit report"}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
-
-            {modalMode === "block" ? (
-              <div className="space-y-4">
-                <p className="text-xs leading-relaxed text-muted">
-                  Blocking <strong>{otherName}</strong> ({otherClosetId}) immediately prevents
-                  them from sending you messages, starting conversations with you, or viewing any
-                  shared wardrobe items.
-                </p>
-
-                {error && (
-                  <p className="text-xs font-medium text-danger" role="alert">
-                    {error}
-                  </p>
-                )}
-
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setModalMode(null)}
-                    className="rounded-lg px-3 py-2 text-xs font-medium text-muted hover:bg-surface-muted hover:text-foreground"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleBlock}
-                    disabled={isPending}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-danger px-4 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
-                  >
-                    <Ban className="size-3.5" aria-hidden />
-                    {isPending ? "Blocking…" : "Block user"}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleReport} className="space-y-4">
-                <p className="text-xs leading-relaxed text-muted">
-                  Let us know what happened with <strong>{otherName}</strong> ({otherClosetId}).
-                  You can submit up to 5 reports per day and have one open report per user.
-                </p>
-
-                <textarea
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="Describe the issue (spam, harassment, inappropriate content)…"
-                  rows={3}
-                  maxLength={1000}
-                  required
-                  className="w-full rounded-xl border border-border bg-background p-3 text-xs text-foreground placeholder:text-muted focus-visible:border-accent focus-visible:outline-none"
-                />
-
-                {error && (
-                  <p className="text-xs font-medium text-danger" role="alert">
-                    {error}
-                  </p>
-                )}
-                {notice && (
-                  <p className="text-xs font-medium text-accent" role="status">
-                    {notice}
-                  </p>
-                )}
-
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setModalMode(null)}
-                    className="rounded-lg px-3 py-2 text-xs font-medium text-muted hover:bg-surface-muted hover:text-foreground"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isPending || !reason.trim()}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground hover:bg-accent-hover disabled:opacity-50"
-                  >
-                    <Flag className="size-3.5" aria-hidden />
-                    {isPending ? "Submitting…" : "Submit report"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

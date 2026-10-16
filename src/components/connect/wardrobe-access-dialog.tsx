@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { Check, Lock, ShieldCheck, Shirt, Trash2, X } from "lucide-react";
 import {
   revokeWardrobeGrantAction,
@@ -155,14 +156,15 @@ export function WardrobeAccessDialog({
         </span>
       </button>
 
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="wardrobe-access-title"
-        >
-          <div className="flex max-h-[90dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-xl sm:rounded-2xl">
+      {open && (() => {
+        const modal = (
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4 backdrop-blur-xs"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wardrobe-access-title"
+          >
+            <div className="flex max-h-[90dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-xl sm:rounded-2xl">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-4 py-3.5 sm:px-5 sm:py-4">
               <div className="min-w-0 flex-1 pr-2">
@@ -461,8 +463,10 @@ export function WardrobeAccessDialog({
               </div>
             </div>
           </div>
-        </div>
-      )}
+          </div>
+        );
+        return typeof document !== "undefined" ? createPortal(modal, document.body) : modal;
+      })()}
     </>
   );
 }
