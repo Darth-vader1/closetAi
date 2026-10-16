@@ -12,6 +12,10 @@ const PUBLIC_EXACT = new Set([
   "/privacy",
   "/terms",
   "/contact",
+  "/robots.txt",
+  "/sitemap.xml",
+  "/sw.js",
+  "/google96e8abdd2270e5c3.html",
   "/manifest.webmanifest",
   "/manifest.json",
   "/opengraph-image",
@@ -35,7 +39,11 @@ const AUTH_ONLY_GUEST = new Set(["/login", "/signup"]);
 const AUTH_SESSION_AWARE = new Set(["/login", "/signup", "/reset-password"]);
 
 export function isPublicPath(pathname: string): boolean {
-  return PUBLIC_EXACT.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
+  return (
+    PUBLIC_EXACT.has(pathname) ||
+    PUBLIC_PREFIXES.some((p) => pathname.startsWith(p)) ||
+    /^\/google[a-z0-9]+\.html$/i.test(pathname)
+  );
 }
 
 /**
