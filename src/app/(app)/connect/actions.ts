@@ -228,6 +228,7 @@ export async function shareInConversationAction(
     conversationId,
     senderId: user.id,
     senderName: "You",
+    senderClosetId: null,
     body: msgRow.body as string,
     createdAt: msgRow.created_at as string,
     deletedAt: null,
@@ -644,3 +645,108 @@ export async function searchUsersAction(
 
   return { ok: true, data };
 }
+
+// ─── Decline a pending conversation request ───────────────────────────────────
+
+export async function declineConversationAction(
+  conversationId: unknown,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  const idParsed = uuidSchema.safeParse(conversationId);
+  if (!idParsed.success) return { ok: false, error: "Invalid conversation." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("decline_conversation", {
+    p_conv_id: idParsed.data,
+  });
+
+  if (error) {
+    logger.error("connect.decline_conversation_failed", { userId: user.id, err: error });
+    const msg = error.message ?? "";
+    if (msg.includes("Only the recipient")) {
+      return { ok: false, error: "Only the recipient can decline this request." };
+    }
+    return { ok: false, error: "Could not decline conversation request." };
+  }
+
+  revalidatePath("/connect");
+  return { ok: true };
+}
+
+// ─── Block a user ─────────────────────────────────────────────────────────────
+
+export async function blockUserAction(
+  blockedUserId: unknown,
+  conversationId?: unknown,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  const idParsed = uuidSchema.safeParse(blockedUserId);
+  if (!idParsed.success) return { ok: false, error: "Invalid user." };
+  if (idParsed.data === user.id) return { ok: false, error: "You cannot block yourself." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("connect_blocks")
+    .insert({ blocker: user.id, blocked: idParsed.data });
+
+  if (error && !error.message?.includes("duplicate key")) {
+    logger.error("connect.block_user_failed", { userId: user.id, err: error });
+    return { ok: false, error: "Could not block this user." };
+  }
+
+  if (typeof conversationId === "string" && uuidSchema.safeParse(conversationId).success) {
+    revalidatePath(`/connect/${conversationId}`);
+  }
+  revalidatePath("/connect");
+  revalidatePath("/connect/sharing");
+  return { ok: true };
+}
+
+// ─── Report a user (must share a conversation, 5/day limit, 1 open per pair) ──
+
+const reportUserSchema = z.object({
+  reportedUserId: z.uuid(),
+  conversationId: z.uuid().nullable().optional(),
+  reason: z.string().trim().min(1, "Please provide a reason.").max(1000),
+});
+
+export async function reportUserAction(
+  rawInput: unknown,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  const parsed = reportUserSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    return { ok: false, error: "Please provide a brief reason for your report (1–1000 characters)." };
+  }
+
+  const { reportedUserId, conversationId, reason } = parsed.data;
+  if (reportedUserId === user.id) {
+    return { ok: false, error: "You cannot report yourself." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("connect_reports").insert({
+    reporter: user.id,
+    reported_user: reportedUserId,
+    conversation_id: conversationId ?? null,
+    reason,
+  });
+
+  if (error) {
+    logger.error("connect.report_user_failed", { userId: user.id, err: error });
+    const msg = error.message ?? "";
+    if (msg.includes("open report") || msg.includes("connect_reports_one_open_per_pair_idx")) {
+      return { ok: false, error: "You already have an open report for this user." };
+    }
+    if (msg.includes("RATE_LIMITED")) {
+      return { ok: false, error: "You have reached the daily report limit (5/day). Try again tomorrow." };
+    }
+    if (msg.includes("share a conversation")) {
+      return { ok: false, error: "You can only report someone you share a conversation with." };
+    }
+    return { ok: false, error: "Could not submit report. Please try again." };
+  }
+
+  return { ok: true };
+}
+

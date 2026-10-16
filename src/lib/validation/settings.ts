@@ -17,6 +17,7 @@ export const updateProfileSchema = z.object({
   location: z.string().trim().max(100).nullable().default(null),
   timezone: z.string().trim().default("UTC"),
   rewearWornItems: z.boolean().default(true),
+  discoverable: z.boolean().default(false),
 });
 
 export const updateEmailPreferencesSchema = z.object({

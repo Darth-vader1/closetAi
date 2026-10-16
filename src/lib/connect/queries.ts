@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatRelative } from "@/lib/connect/format-relative";
+import { userTag } from "@/lib/connect/user-tag";
 import { signImageUrls } from "@/lib/wardrobe/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -8,6 +9,7 @@ import { signImageUrls } from "@/lib/wardrobe/queries";
 export interface ConversationMember {
   userId: string;
   displayName: string | null;
+  closetId: string;
   lastReadAt: string | null;
 }
 
@@ -70,6 +72,7 @@ export interface Message {
   conversationId: string;
   senderId: string;
   senderName: string | null;
+  senderClosetId: string | null;
   body: string;
   createdAt: string;
   deletedAt: string | null;
@@ -87,10 +90,10 @@ export interface WardrobeGrantSummary {
   id: string;
   ownerId: string;
   ownerName: string | null;
-  ownerClosetId: string | null;
+  ownerClosetId: string;
   granteeId: string;
   granteeName: string | null;
-  granteeClosetId: string | null;
+  granteeClosetId: string;
   conversationId: string | null;
   scope: "selected_items" | "wardrobe";
   canViewItems: boolean;
@@ -102,7 +105,46 @@ export interface WardrobeGrantSummary {
   updatedAt: string;
 }
 
-// ─── Internal Row Helpers ─────────────────────────────────────────────────────
+// ─── Internal Helpers ─────────────────────────────────────────────────────────
+
+interface PartnerProfileInfo {
+  displayName: string | null;
+  closetId: string;
+}
+
+/**
+ * Resolves display_name and closet_id for users who share a conversation or
+ * active wardrobe grant with the caller via the SECURITY DEFINER RPC
+ * connect_resolve_partner_profiles().
+ */
+export async function resolvePartnerProfiles(
+  supabase: SupabaseClient,
+  userIds: string[],
+): Promise<Map<string, PartnerProfileInfo>> {
+  const uniqueIds = [...new Set(userIds.filter(Boolean))];
+  const map = new Map<string, PartnerProfileInfo>();
+  if (uniqueIds.length === 0) return map;
+
+  const { data } = await supabase.rpc("connect_resolve_partner_profiles", {
+    p_user_ids: uniqueIds,
+  });
+
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const id = row.id as string;
+    map.set(id, {
+      displayName: (row.display_name as string | null) ?? null,
+      closetId: (row.closet_id as string | null) ?? userTag(id),
+    });
+  }
+
+  for (const id of uniqueIds) {
+    if (!map.has(id)) {
+      map.set(id, { displayName: null, closetId: userTag(id) });
+    }
+  }
+
+  return map;
+}
 
 interface RawItemRow {
   id: string;
@@ -144,71 +186,63 @@ function mapRawItem(row: RawItemRow, urlMap: Map<string, string>): SharedItemCar
 
 /**
  * Returns all conversations the caller belongs to, newest first.
- * Each row includes the other member's profile name, the last message preview,
- * and an unread count (messages after last_read_at).
+ * Excludes conversations where the caller has blocked the other member.
  */
 export async function listConversations(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<ConversationSummary[]> {
-  // 1. Fetch conversation IDs where the user is a member
-  const { data: memberRows, error: memberErr } = await supabase
-    .from("connect_members")
-    .select("conversation_id, last_read_at")
-    .eq("user_id", userId)
-    .order("conversation_id");
+  const [{ data: memberRows, error: memberErr }, { data: blockRows }] = await Promise.all([
+    supabase
+      .from("connect_members")
+      .select("conversation_id, last_read_at")
+      .eq("user_id", userId)
+      .order("conversation_id"),
+    supabase
+      .from("connect_blocks")
+      .select("blocked")
+      .eq("blocker", userId),
+  ]);
 
   if (memberErr) throw new Error(`Could not load conversations: ${memberErr.message}`);
   if (!memberRows || memberRows.length === 0) return [];
 
+  const blockedByMe = new Set((blockRows ?? []).map((b) => b.blocked as string));
   const conversationIds = memberRows.map((r) => r.conversation_id as string);
 
-  // 2. Fetch conversation metadata (updated_at, status, requester)
-  const { data: convRows, error: convErr } = await supabase
-    .from("connect_conversations")
-    .select("id, updated_at, status, requester")
-    .in("id", conversationIds)
-    .order("updated_at", { ascending: false });
+  const [convRes, allMembersRes, lastMessagesRes] = await Promise.all([
+    supabase
+      .from("connect_conversations")
+      .select("id, updated_at, status, requester")
+      .in("id", conversationIds)
+      .order("updated_at", { ascending: false }),
+    supabase
+      .from("connect_members")
+      .select("conversation_id, user_id, last_read_at")
+      .in("conversation_id", conversationIds),
+    supabase
+      .from("connect_messages")
+      .select("id, conversation_id, sender_id, body, created_at")
+      .in("conversation_id", conversationIds)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false }),
+  ]);
 
-  if (convErr) throw new Error(`Could not load conversation metadata: ${convErr.message}`);
+  if (convRes.error) throw new Error(`Could not load conversation metadata: ${convRes.error.message}`);
+  if (allMembersRes.error) throw new Error(`Could not load members: ${allMembersRes.error.message}`);
 
-  // 3. Fetch all members of those conversations (to find the "other" member)
-  const { data: allMembers, error: allMembersErr } = await supabase
-    .from("connect_members")
-    .select("conversation_id, user_id, last_read_at")
-    .in("conversation_id", conversationIds);
+  const convRows = convRes.data ?? [];
+  const allMembers = allMembersRes.data ?? [];
+  const lastMessages = lastMessagesRes.data ?? [];
 
-  if (allMembersErr) throw new Error(`Could not load members: ${allMembersErr.message}`);
-
-  // 4. Collect other-member user IDs, then fetch their profiles in one query
-  const otherUserIds = (allMembers ?? [])
+  const otherUserIds = allMembers
     .filter((m) => m.user_id !== userId)
     .map((m) => m.user_id as string);
 
-  const uniqueOtherIds = [...new Set(otherUserIds)];
-  const profileMap = new Map<string, string | null>();
-
-  if (uniqueOtherIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from("connect_user_profiles")
-      .select("id, display_name")
-      .in("id", uniqueOtherIds);
-
-    for (const p of profiles ?? []) {
-      profileMap.set(p.id as string, (p.display_name as string | null) ?? null);
-    }
-  }
-
-  // 5. Fetch the last message for each conversation (one query, post-filter)
-  const { data: lastMessages } = await supabase
-    .from("connect_messages")
-    .select("id, conversation_id, sender_id, body, created_at")
-    .in("conversation_id", conversationIds)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+  const profileMap = await resolvePartnerProfiles(supabase, otherUserIds);
 
   const lastMsgMap = new Map<string, { body: string; senderId: string; createdAt: string }>();
-  for (const msg of lastMessages ?? []) {
+  for (const msg of lastMessages) {
     const cid = msg.conversation_id as string;
     if (!lastMsgMap.has(cid)) {
       lastMsgMap.set(cid, {
@@ -219,7 +253,6 @@ export async function listConversations(
     }
   }
 
-  // 6. Fetch unread counts per conversation for this user
   const lastReadMap = new Map<string, string | null>();
   for (const row of memberRows) {
     lastReadMap.set(row.conversation_id as string, row.last_read_at as string | null);
@@ -228,7 +261,7 @@ export async function listConversations(
   const unreadMap = new Map<string, number>();
   for (const cid of conversationIds) {
     const lr = lastReadMap.get(cid) ?? null;
-    const count = (lastMessages ?? []).filter(
+    const count = lastMessages.filter(
       (m) =>
         m.conversation_id === cid &&
         m.sender_id !== userId &&
@@ -237,25 +270,31 @@ export async function listConversations(
     unreadMap.set(cid, count);
   }
 
-  // 7. Assemble results (one reference time keeps relative labels stable for SSR)
   const nowMs = Date.now();
-  return (convRows ?? []).map((conv) => {
+  const summaries: ConversationSummary[] = [];
+
+  for (const conv of convRows) {
     const cid = conv.id as string;
-    const otherMemberRow = (allMembers ?? []).find(
+    const otherMemberRow = allMembers.find(
       (m) => m.conversation_id === cid && m.user_id !== userId,
     );
     const otherUserId = (otherMemberRow?.user_id as string | undefined) ?? "";
 
+    // Hide conversations with users the caller has blocked
+    if (otherUserId && blockedByMe.has(otherUserId)) continue;
+
+    const partnerProfile = profileMap.get(otherUserId);
     const lastMessage = lastMsgMap.get(cid) ?? null;
 
-    return {
+    summaries.push({
       id: cid,
       updatedAt: conv.updated_at as string,
       status: (conv.status === "pending" ? "pending" : "active") as "pending" | "active",
       requesterId: (conv.requester as string | null) ?? null,
       otherMember: {
         userId: otherUserId,
-        displayName: profileMap.get(otherUserId) ?? null,
+        displayName: partnerProfile?.displayName ?? null,
+        closetId: partnerProfile?.closetId ?? userTag(otherUserId),
         lastReadAt: (otherMemberRow?.last_read_at as string | null) ?? null,
       },
       lastMessage,
@@ -263,8 +302,10 @@ export async function listConversations(
         ? formatRelative(lastMessage.createdAt, nowMs)
         : null,
       unreadCount: unreadMap.get(cid) ?? 0,
-    };
-  });
+    });
+  }
+
+  return summaries;
 }
 
 /** Returns conversation metadata + other member detail, or null if the user is not a member. */
@@ -288,22 +329,16 @@ export async function getConversation(
   if (error) throw new Error(`Could not load conversation: ${error.message}`);
   if (!members || members.length === 0 || !convRow) return null;
 
-  // Verify caller is a member
   const isMember = members.some((m) => m.user_id === userId);
   if (!isMember) return null;
 
   const other = members.find((m) => m.user_id !== userId);
   const otherUserId = (other?.user_id as string | undefined) ?? "";
 
-  let displayName: string | null = null;
-  if (otherUserId) {
-    const { data: profile } = await supabase
-      .from("connect_user_profiles")
-      .select("display_name")
-      .eq("id", otherUserId)
-      .maybeSingle();
-    displayName = (profile?.display_name as string | null) ?? null;
-  }
+  const profileMap = otherUserId
+    ? await resolvePartnerProfiles(supabase, [otherUserId])
+    : new Map<string, PartnerProfileInfo>();
+  const partnerProfile = profileMap.get(otherUserId);
 
   return {
     id: conversationId,
@@ -311,7 +346,8 @@ export async function getConversation(
     requesterId: (convRow.requester as string | null) ?? null,
     otherMember: {
       userId: otherUserId,
-      displayName,
+      displayName: partnerProfile?.displayName ?? null,
+      closetId: partnerProfile?.closetId ?? userTag(otherUserId),
       lastReadAt: (other?.last_read_at as string | null) ?? null,
     },
   };
@@ -373,7 +409,6 @@ export async function hydrateAttachmentsForMessages(
     ),
   ];
 
-  // Fetch directly shared items and outfits (RLS automatically scopes to authorized rows)
   const [itemsResult, outfitsResult] = await Promise.all([
     activeItemIds.length > 0
       ? supabase.from("wardrobe_items").select(SHARED_ITEM_COLUMNS).in("id", activeItemIds)
@@ -411,7 +446,6 @@ export async function hydrateAttachmentsForMessages(
   };
   const rawOutfits = (outfitsResult.data ?? []) as unknown as RawSharedOutfit[];
 
-  // Collect all storage paths to sign in a single batch
   const pathsToSign: string[] = [];
   for (const it of rawItems) {
     if (it.image_path) pathsToSign.push(it.image_path);
@@ -490,7 +524,6 @@ export async function listMessages(
   limit = 40,
   cursor?: string,
 ): Promise<MessagePage> {
-  // Verify membership first (belt-and-suspenders on top of RLS)
   const { count } = await supabase
     .from("connect_members")
     .select("*", { count: "exact", head: true })
@@ -522,30 +555,25 @@ export async function listMessages(
       ? (pageRows[pageRows.length - 1].created_at as string)
       : null;
 
-  // Collect unique sender IDs and resolve names, plus hydrate attachments in parallel
   const senderIds = [...new Set(pageRows.map((m) => m.sender_id as string))];
   const messageIds = pageRows.map((m) => m.id as string);
 
-  const [profilesRes, attachmentsMap] = await Promise.all([
-    senderIds.length > 0
-      ? supabase.from("connect_user_profiles").select("id, display_name").in("id", senderIds)
-      : Promise.resolve({ data: [] }),
+  const [profileMap, attachmentsMap] = await Promise.all([
+    resolvePartnerProfiles(supabase, senderIds),
     hydrateAttachmentsForMessages(supabase, messageIds),
   ]);
 
-  const nameMap = new Map<string, string | null>();
-  for (const p of profilesRes.data ?? []) {
-    nameMap.set(p.id as string, (p.display_name as string | null) ?? null);
-  }
-
   const messages: Message[] = pageRows.map((m) => {
     const id = m.id as string;
+    const senderId = m.sender_id as string;
     const isDeleted = Boolean(m.deleted_at);
+    const senderProfile = profileMap.get(senderId);
     return {
       id,
       conversationId: m.conversation_id as string,
-      senderId: m.sender_id as string,
-      senderName: nameMap.get(m.sender_id as string) ?? null,
+      senderId,
+      senderName: senderProfile?.displayName ?? null,
+      senderClosetId: senderProfile?.closetId ?? userTag(senderId),
       body: (isDeleted ? "[Message deleted]" : m.body) as string,
       createdAt: m.created_at as string,
       deletedAt: m.deleted_at as string | null,
@@ -670,19 +698,7 @@ export async function listWardrobeGrantsForUser(
     ),
   ];
 
-  const profileMap = new Map<string, { displayName: string | null; closetId: string | null }>();
-  if (profileIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from("connect_user_profiles")
-      .select("id, display_name, closet_id")
-      .in("id", profileIds);
-    for (const p of profiles ?? []) {
-      profileMap.set(p.id as string, {
-        displayName: (p.display_name as string | null) ?? null,
-        closetId: (p.closet_id as string | null) ?? null,
-      });
-    }
-  }
+  const profileMap = await resolvePartnerProfiles(supabase, profileIds);
 
   type RawGrantRow = {
     id: string;
@@ -706,10 +722,10 @@ export async function listWardrobeGrantsForUser(
       id: g.id,
       ownerId: g.owner_id,
       ownerName: ownerProfile?.displayName ?? null,
-      ownerClosetId: ownerProfile?.closetId ?? null,
+      ownerClosetId: ownerProfile?.closetId ?? userTag(g.owner_id),
       granteeId: g.grantee_id,
       granteeName: granteeProfile?.displayName ?? null,
-      granteeClosetId: granteeProfile?.closetId ?? null,
+      granteeClosetId: granteeProfile?.closetId ?? userTag(g.grantee_id),
       conversationId: g.conversation_id,
       scope: g.scope === "wardrobe" ? "wardrobe" : "selected_items",
       canViewItems: Boolean(g.can_view_items),
@@ -779,7 +795,6 @@ export async function getSharedWardrobeByGrant(
 
 /**
  * Finds an existing 1:1 conversation between two users.
- * Returns the conversation ID, or null if none exists yet.
  */
 export async function findDirectConversation(
   supabase: SupabaseClient,

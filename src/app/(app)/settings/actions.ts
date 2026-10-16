@@ -44,6 +44,7 @@ export async function updateProfileSettingsAction(input: unknown): Promise<Actio
     location: parsed.data.location,
     timezone: parsed.data.timezone,
     rewear_worn_items: parsed.data.rewearWornItems,
+    discoverable: parsed.data.discoverable,
     updated_at: new Date().toISOString(),
   };
 

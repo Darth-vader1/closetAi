@@ -24,7 +24,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from("profiles")
-      .select("closet_id")
+      .select("closet_id, discoverable")
       .eq("id", user.id)
       .maybeSingle(),
   ]);
@@ -47,6 +47,7 @@ export default async function SettingsPage() {
     location: profile?.location || "",
     timezone: profile?.timezone || "UTC",
     rewearWornItems: profile?.rewear_worn_items ?? true,
+    discoverable: Boolean(profileRow.data?.discoverable),
   };
 
   const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

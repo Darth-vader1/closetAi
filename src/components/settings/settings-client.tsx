@@ -44,6 +44,7 @@ interface SettingsClientProps {
     location: string;
     timezone: string;
     rewearWornItems: boolean;
+    discoverable?: boolean;
   };
   initialPreferences: {
     dailyEnabled: boolean;
@@ -71,6 +72,7 @@ export function SettingsClient({
   const [selectedOccasions, setSelectedOccasions] = useState<string[]>(initialProfile.commonOccasions);
   const [location, setLocation] = useState(initialProfile.location);
   const [rewearWornItems, setRewearWornItems] = useState(initialProfile.rewearWornItems);
+  const [discoverable, setDiscoverable] = useState(Boolean(initialProfile.discoverable));
 
   // Email & WhatsApp Preferences State
   const [dailyEnabled, setDailyEnabled] = useState(initialPreferences.dailyEnabled);
@@ -107,6 +109,7 @@ export function SettingsClient({
         location: location || null,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         rewearWornItems,
+        discoverable,
       });
 
       if (res.ok) {
@@ -215,8 +218,8 @@ export function SettingsClient({
             </Field>
           </div>
 
-          {/* Closet ID */}
-          <div className="rounded-xl border border-border/80 bg-surface-muted/20 p-5 space-y-2">
+          {/* Closet ID + Discoverable Toggle */}
+          <div className="rounded-xl border border-border/80 bg-surface-muted/20 p-5 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-sm font-semibold text-foreground">Your Closet ID</h3>
@@ -226,6 +229,23 @@ export function SettingsClient({
               </div>
             </div>
             <ClosetIdCard closetId={connectTag} />
+
+            <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-border bg-surface p-3.5">
+              <div>
+                <p className="text-xs font-semibold text-foreground">
+                  Let people find me by name
+                </p>
+                <p className="mt-0.5 text-[0.7rem] text-muted">
+                  When off, people can only find you if they know your exact Closet ID ({connectTag}). Turn on to let others search for you by your display name.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={discoverable}
+                onChange={(e) => setDiscoverable(e.target.checked)}
+                className="mt-0.5 size-4 shrink-0 accent-accent"
+              />
+            </label>
           </div>
 
           {/* Gender Expression */}

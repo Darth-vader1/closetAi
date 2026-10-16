@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ExternalLink, Shirt } from "lucide-react";
 import { MessageThread } from "@/components/connect/message-thread";
 import { ConversationShareButton } from "@/components/connect/conversation-share-button";
+import { ConversationSafetyMenu } from "@/components/connect/conversation-safety-menu";
 import { WardrobeAccessDialog } from "@/components/connect/wardrobe-access-dialog";
 import { requireUser, getProfile } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -14,7 +15,6 @@ import {
   listWardrobeGrantsForUser,
   markConversationRead,
 } from "@/lib/connect/queries";
-import { userTag } from "@/lib/connect/user-tag";
 import { getAppUrl } from "@/lib/env";
 
 export const metadata: Metadata = { title: "Conversation · ClosetAI" };
@@ -42,17 +42,7 @@ export default async function ConversationPage({ params }: { params: Params }) {
   const timeZone = profile?.timezone?.trim() || "UTC";
   const otherName = conversation.otherMember.displayName ?? "User";
   const otherUserId = conversation.otherMember.userId;
-
-  // Fetch other member's closet_id via the restricted connect_user_profiles view
-  const { data: otherProfile } = await supabase
-    .from("connect_user_profiles")
-    .select("closet_id")
-    .eq("id", otherUserId)
-    .maybeSingle();
-
-  const otherClosetId =
-    (otherProfile?.closet_id as string | null | undefined) ??
-    userTag(otherUserId);
+  const otherClosetId = conversation.otherMember.closetId;
 
   const myGrantForPartner =
     grants.grantedByMe.find((g) => g.granteeId === otherUserId) ?? null;
@@ -81,8 +71,10 @@ export default async function ConversationPage({ params }: { params: Params }) {
             {(Array.from(otherName)[0] ?? "?").toUpperCase()}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-foreground">{otherName}</p>
-            <p className="font-mono text-xs text-muted">{otherClosetId}</p>
+            <div className="flex items-center gap-2">
+              <p className="truncate text-sm font-semibold text-foreground">{otherName}</p>
+              <span className="font-mono text-xs text-muted">{otherClosetId}</span>
+            </div>
           </div>
         </div>
 
@@ -95,6 +87,12 @@ export default async function ConversationPage({ params }: { params: Params }) {
             myItems={shareable.items}
           />
           <ConversationShareButton shareUrl={shareUrl} />
+          <ConversationSafetyMenu
+            conversationId={id}
+            otherUserId={otherUserId}
+            otherName={otherName}
+            otherClosetId={otherClosetId}
+          />
         </div>
       </div>
 
@@ -104,7 +102,8 @@ export default async function ConversationPage({ params }: { params: Params }) {
           <div className="flex items-center gap-2 text-foreground">
             <Shirt className="size-4 shrink-0 text-accent" aria-hidden />
             <span>
-              <strong>{otherName}</strong> shared{" "}
+              <strong>{otherName}</strong>{" "}
+              <span className="font-mono text-muted">({otherClosetId})</span> shared{" "}
               {partnerGrantForMe.scope === "wardrobe"
                 ? "their wardrobe"
                 : `${partnerGrantForMe.selectedItemIds.length} clothing item(s)`}{" "}
@@ -130,7 +129,9 @@ export default async function ConversationPage({ params }: { params: Params }) {
         initialNextCursor={messagePage.nextCursor}
         conversationStatus={conversation.status}
         requesterId={conversation.requesterId}
+        otherMemberId={otherUserId}
         otherMemberName={otherName}
+        otherMemberClosetId={otherClosetId}
         shareableItems={shareable.items}
         shareableOutfits={shareable.outfits}
         referenceNowMs={messagePage.referenceNowMs}

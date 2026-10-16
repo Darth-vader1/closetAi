@@ -66,8 +66,10 @@ export function NewConversationDialog({ onClose }: Props) {
     setQuery(q);
     setError(null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!q.trim()) {
+    const trimmed = q.trim();
+    if (trimmed.length < 3) {
       setResults([]);
+      setSearching(false);
       return;
     }
 
@@ -75,7 +77,7 @@ export function NewConversationDialog({ onClose }: Props) {
       const reqId = ++requestIdRef.current;
       setSearching(true);
       try {
-        const res = await searchUsersAction(q);
+        const res = await searchUsersAction(trimmed);
         if (reqId !== requestIdRef.current) return;
         if (res.ok) setResults(res.data ?? []);
         else setError(res.error);
@@ -129,7 +131,7 @@ export function NewConversationDialog({ onClose }: Props) {
             <input
               ref={inputRef}
               type="search"
-              placeholder="Search by name or Closet ID…"
+              placeholder="Search by exact Closet ID or name (3+ chars)…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
               className="w-full rounded-xl border border-border-strong bg-background py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none"
@@ -144,9 +146,15 @@ export function NewConversationDialog({ onClose }: Props) {
             <p className="py-4 text-center text-sm text-muted">Searching…</p>
           )}
 
-          {!searching && query.trim() && results.length === 0 && (
+          {!searching && query.trim().length > 0 && query.trim().length < 3 && (
+            <p className="py-4 text-center text-xs text-muted">
+              Type at least 3 characters to search by name, or paste an exact Closet ID.
+            </p>
+          )}
+
+          {!searching && query.trim().length >= 3 && results.length === 0 && (
             <p className="py-4 text-center text-sm text-muted">
-              No users found for &quot;{query}&quot;
+              No users found for &quot;{query.trim()}&quot;
             </p>
           )}
 
@@ -173,11 +181,11 @@ export function NewConversationDialog({ onClose }: Props) {
                         {(Array.from(name)[0] ?? "?").toUpperCase()}
                       </span>
 
-                      <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
                         <p className="truncate text-sm font-medium text-foreground">{name}</p>
-                        <p className="font-mono text-xs text-muted">
+                        <span className="shrink-0 font-mono text-xs text-muted">
                           {user.closetId ?? ""}
-                        </p>
+                        </span>
                       </div>
                     </button>
                   </li>
@@ -188,8 +196,8 @@ export function NewConversationDialog({ onClose }: Props) {
 
           {!searching && !query.trim() && (
             <p className="py-4 text-center text-xs text-muted">
-              Search by name or Closet ID (e.g.{" "}
-              <span className="font-mono">CLOS-A3F8C249</span>).
+              Search by exact Closet ID (e.g.{" "}
+              <span className="font-mono">CLOS-A3F8C249</span>) or by name (if they enabled name discovery).
             </p>
           )}
         </div>

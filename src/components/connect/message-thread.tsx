@@ -3,8 +3,6 @@
 import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
-  acceptConversationAction,
-  deleteMessageAction,
   hydrateMessageAttachmentsAction,
   loadMoreMessagesAction,
   markReadAction,
@@ -19,18 +17,15 @@ import type {
 } from "@/lib/connect/queries";
 import { formatMessageDayLabel, formatMessageTime } from "@/lib/connect/format-relative";
 import { SharePickerDialog } from "@/components/connect/share-picker-dialog";
+import { PendingRequestActions } from "@/components/connect/conversation-safety-menu";
 import {
-  CheckCircle2,
   ChevronUp,
   EyeOff,
   Layers,
-  Loader2,
   Send,
   ShieldAlert,
   Shirt,
   Sparkles,
-  Trash2,
-  WifiOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -153,6 +148,7 @@ function SharedAttachmentView({
           )}
         </div>
 
+        {/* Constituent items */}
         {outfit.items.length > 0 && (
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
             {outfit.items.map((it) => (
@@ -202,8 +198,6 @@ function SharedAttachmentView({
 
 // ─── Main MessageThread Component ─────────────────────────────────────────────
 
-type RealtimeStatus = "connecting" | "connected" | "disconnected";
-
 interface Props {
   conversationId: string;
   currentUserId: string;
@@ -212,7 +206,9 @@ interface Props {
   initialNextCursor?: string | null;
   conversationStatus?: "pending" | "active";
   requesterId?: string | null;
+  otherMemberId?: string;
   otherMemberName: string;
+  otherMemberClosetId?: string;
   shareableItems?: SharedItemCardData[];
   shareableOutfits?: SharedOutfitCardData[];
   /** From the server fetch so day/time labels match on hydration. */
@@ -228,7 +224,9 @@ export function MessageThread({
   initialNextCursor = null,
   conversationStatus = "active",
   requesterId = null,
+  otherMemberId = "",
   otherMemberName,
+  otherMemberClosetId = "",
   shareableItems = [],
   shareableOutfits = [],
   referenceNowMs,
@@ -240,12 +238,7 @@ export function MessageThread({
   const [loadingOlder, setLoadingOlder] = useState(false);
 
   const [status, setStatus] = useState<"pending" | "active">(conversationStatus);
-  const [accepting, setAccepting] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null);
-
-  // Realtime connection status
-  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("connecting");
 
   const [optimisticMessages, addOptimistic] = useOptimistic(
     messages,
@@ -255,7 +248,6 @@ export function MessageThread({
   const [sendError, setSendError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Scroll to bottom on new messages ────────────────────────────────────
@@ -270,8 +262,9 @@ export function MessageThread({
     const refreshAttachments = async (msgId: string) => {
       const res = await hydrateMessageAttachmentsAction(conversationId, msgId);
       if (res.ok && res.data) {
+        const hydrated = res.data.attachments;
         setMessages((prev) =>
-          prev.map((m) => (m.id === msgId ? { ...m, attachments: res.data!.attachments } : m)),
+          prev.map((m) => (m.id === msgId ? { ...m, attachments: hydrated } : m)),
         );
       }
     };
@@ -298,22 +291,23 @@ export function MessageThread({
 
           setMessages((prev) => {
             if (prev.some((m) => m.id === row.id)) return prev;
-            return [
-              ...prev,
-              {
-                id: row.id,
-                conversationId: row.conversation_id,
-                senderId: row.sender_id,
-                senderName: row.sender_id === currentUserId ? "You" : otherMemberName,
-                body: row.body,
-                createdAt: row.created_at,
-                deletedAt: row.deleted_at,
-                attachments: [],
-              },
-            ];
+            const newMsg: Message = {
+              id: row.id,
+              conversationId: row.conversation_id,
+              senderId: row.sender_id,
+              senderName: row.sender_id === currentUserId ? "You" : otherMemberName,
+              senderClosetId: row.sender_id === currentUserId ? null : otherMemberClosetId,
+              body: row.body,
+              createdAt: row.created_at,
+              deletedAt: row.deleted_at,
+              attachments: [],
+            };
+            return [...prev, newMsg];
           });
 
-          setTimeout(() => refreshAttachments(row.id).catch(() => {}), 300);
+          setTimeout(() => {
+            refreshAttachments(row.id).catch(() => {});
+          }, 300);
 
           if (row.sender_id !== currentUserId) {
             markReadAction(conversationId).catch(() => {});
@@ -330,7 +324,9 @@ export function MessageThread({
         },
         (payload) => {
           const rec = (payload.new ?? payload.old) as { message_id?: string } | undefined;
-          if (rec?.message_id) refreshAttachments(rec.message_id).catch(() => {});
+          if (rec?.message_id) {
+            refreshAttachments(rec.message_id).catch(() => {});
+          }
         },
       )
       .subscribe((sub) => {
@@ -342,60 +338,27 @@ export function MessageThread({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversationId, currentUserId, otherMemberName]);
+  }, [conversationId, currentUserId, otherMemberName, otherMemberClosetId]);
 
-  // ── Accept pending conversation ──────────────────────────────────────────
-  const handleAcceptRequest = async () => {
-    setAccepting(true);
-    setSendError(null);
-    const res = await acceptConversationAction(conversationId);
-    setAccepting(false);
-    if (!res.ok) { setSendError(res.error); return; }
-    setStatus("active");
-  };
-
-  // ── Load older messages ──────────────────────────────────────────────────
+  // ── Load Older Messages (Pagination) ────────────────────────────────────
   const handleLoadOlder = async () => {
     if (!nextCursor || loadingOlder) return;
-    const scrollEl = scrollRef.current;
-    const prevScrollHeight = scrollEl?.scrollHeight ?? 0;
-
     setLoadingOlder(true);
     const res = await loadMoreMessagesAction(conversationId, nextCursor);
     setLoadingOlder(false);
-
     if (res.ok && res.data) {
+      const older = res.data.messages;
       setMessages((prev) => {
         const existingIds = new Set(prev.map((m) => m.id));
-        return [...res.data!.messages.filter((m) => !existingIds.has(m.id)), ...prev];
+        const uniqueOlder = older.filter((m) => !existingIds.has(m.id));
+        return [...uniqueOlder, ...prev];
       });
       setHasMore(res.data.hasMore);
       setNextCursor(res.data.nextCursor);
-      // Restore scroll position after prepend
-      requestAnimationFrame(() => {
-        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight - prevScrollHeight;
-      });
     }
   };
 
-  // ── Delete own message ───────────────────────────────────────────────────
-  const handleDelete = (messageId: string) => {
-    // Optimistic soft-delete
-    setMessages((prev) =>
-      prev.map((m) => m.id === messageId ? { ...m, deletedAt: new Date().toISOString() } : m),
-    );
-    deleteMessageAction(messageId).then((res) => {
-      if (!res.ok) {
-        // Rollback
-        setMessages((prev) =>
-          prev.map((m) => m.id === messageId ? { ...m, deletedAt: null } : m),
-        );
-        setSendError(res.error);
-      }
-    });
-  };
-
-  // ── Revoke shared attachment ─────────────────────────────────────────────
+  // ── Revoke Shared Attachment ────────────────────────────────────────────
   const handleRevokeAttachment = async (attachmentId: string) => {
     setRevokingId(attachmentId);
     const res = await revokeAttachmentAction(attachmentId, conversationId);
@@ -406,7 +369,9 @@ export function MessageThread({
         prev.map((m) => ({
           ...m,
           attachments: (m.attachments ?? []).map((a) =>
-            a.id === attachmentId ? { ...a, revokedAt: nowIso, item: null, outfit: null } : a,
+            a.id === attachmentId
+              ? { ...a, revokedAt: nowIso, item: null, outfit: null }
+              : a,
           ),
         })),
       );
@@ -415,7 +380,7 @@ export function MessageThread({
     }
   };
 
-  // ── Send ─────────────────────────────────────────────────────────────────
+  // ── Send handler ─────────────────────────────────────────────────────────
   const handleSend = () => {
     const trimmed = body.trim();
     if (!trimmed || isPending) return;
@@ -426,6 +391,7 @@ export function MessageThread({
       conversationId,
       senderId: currentUserId,
       senderName: "You",
+      senderClosetId: null,
       body: trimmed,
       createdAt: new Date().toISOString(),
       deletedAt: null,
@@ -434,7 +400,6 @@ export function MessageThread({
 
     setBody("");
     setSendError(null);
-    if (textareaRef.current) textareaRef.current.style.height = "44px";
 
     startTransition(async () => {
       addOptimistic(optimisticMsg);
@@ -455,74 +420,72 @@ export function MessageThread({
     }
   };
 
-  // ── Day grouping ─────────────────────────────────────────────────────────
+  // ── Group messages by day ────────────────────────────────────────────────
   type DayGroup = { day: string; messages: Message[] };
   const groups: DayGroup[] = [];
   for (const msg of optimisticMessages) {
     const day = formatMessageDayLabel(msg.createdAt, referenceNowMs, timeZone);
     const last = groups[groups.length - 1];
-    if (last && last.day === day) last.messages.push(msg);
-    else groups.push({ day, messages: [msg] });
+    if (last && last.day === day) {
+      last.messages.push(msg);
+    } else {
+      groups.push({ day, messages: [msg] });
+    }
   }
 
-  const isRecipientOfPending = status === "pending" && requesterId !== null && requesterId !== currentUserId;
-  const isRequesterOfPending = status === "pending" && requesterId === currentUserId;
+  const isRecipientOfPending =
+    status === "pending" && requesterId !== null && requesterId !== currentUserId;
+  const isRequesterOfPending =
+    status === "pending" && requesterId === currentUserId;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-border bg-surface">
-
-      {/* ── Realtime connection status ───────────────────────────────── */}
-      {realtimeStatus === "disconnected" && (
-        <div className="flex items-center justify-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-2 text-xs font-medium text-warning">
-          <WifiOff className="size-3.5" aria-hidden />
-          Reconnecting… new messages may be delayed.
-        </div>
-      )}
-      {realtimeStatus === "connecting" && (
-        <div className="flex items-center justify-center gap-2 border-b border-border bg-surface-muted px-4 py-1.5 text-xs text-muted">
-          <Loader2 className="size-3 animate-spin" aria-hidden />
-          Connecting…
-        </div>
-      )}
-
-      {/* ── Consent banner (pending conversation) ───────────────────── */}
+      {/* Consent Banner for Pending Conversations */}
       {isRecipientOfPending && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-accent-soft/40 px-4 py-3">
           <div className="flex items-center gap-2.5 text-xs text-foreground">
             <ShieldAlert className="size-4 shrink-0 text-accent" aria-hidden />
             <span>
-              <strong>{otherMemberName}</strong> sent you a conversation request. Accept to
-              reply and share wardrobe items.
+              <strong>{otherMemberName}</strong>{" "}
+              {otherMemberClosetId && (
+                <span className="font-mono text-muted">({otherMemberClosetId})</span>
+              )}{" "}
+              sent you a conversation request.
             </span>
           </div>
-          <button
-            type="button"
-            onClick={handleAcceptRequest}
-            disabled={accepting}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-semibold text-accent-foreground hover:bg-accent-hover disabled:opacity-50"
-          >
-            <CheckCircle2 className="size-3.5" aria-hidden />
-            {accepting ? "Accepting…" : "Accept request"}
-          </button>
-        </div>
-      )}
-      {isRequesterOfPending && (
-        <div className="border-b border-border bg-surface-muted px-4 py-2 text-xs text-muted">
-          Waiting for <strong>{otherMemberName}</strong> to accept your request. You can send
-          one introductory message until they accept.
+          <PendingRequestActions
+            conversationId={conversationId}
+            otherUserId={otherMemberId}
+            otherName={otherMemberName}
+            otherClosetId={otherMemberClosetId}
+            onAccepted={() => setStatus("active")}
+          />
         </div>
       )}
 
-      {/* ── Message history ───────────────────────────────────────────── */}
+      {isRequesterOfPending && (
+        <div className="flex items-center justify-between gap-2 border-b border-border bg-surface-muted px-4 py-2 text-xs text-muted">
+          <span>
+            Waiting for them to accept —{" "}
+            <strong>{otherMemberName}</strong>{" "}
+            {otherMemberClosetId && (
+              <span className="font-mono">({otherMemberClosetId})</span>
+            )}
+          </span>
+          <span className="shrink-0 rounded-full bg-surface px-2.5 py-0.5 text-[0.68rem] font-medium">
+            1 intro message limit
+          </span>
+        </div>
+      )}
+
+      {/* Message history */}
       <div
-        ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-6"
         role="log"
         aria-label="Message history"
         aria-live="polite"
       >
-        {/* Load older messages */}
         {hasMore && (
           <div className="flex justify-center">
             <button
@@ -538,15 +501,15 @@ export function MessageThread({
         )}
 
         {groups.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <span className="mb-3 text-3xl" aria-hidden>👋</span>
-            <p className="text-sm font-medium text-foreground">Say hello to {otherMemberName}!</p>
-            <p className="mt-1 text-xs text-muted">This is the start of your conversation.</p>
-          </div>
+          <p className="py-16 text-center text-sm text-muted">
+            No messages yet. Say hello to {otherMemberName}{" "}
+            {otherMemberClosetId ? `(${otherMemberClosetId})` : ""}!
+          </p>
         ) : (
           groups.map((group) => (
             <div key={group.day} className="space-y-3">
-              <div className="flex items-center gap-3">
+              {/* Day divider */}
+              <div className="flex items-center gap-3" aria-label={`Messages from ${group.day}`}>
                 <div className="h-px flex-1 bg-border" />
                 <span className="text-xs text-muted">{group.day}</span>
                 <div className="h-px flex-1 bg-border" />
@@ -555,21 +518,17 @@ export function MessageThread({
               {group.messages.map((msg) => {
                 const isMine = msg.senderId === currentUserId;
                 const isOptimistic = msg.id.startsWith("optimistic-");
-                const isDeleted = Boolean(msg.deletedAt);
-                const isHovered = hoveredMsgId === msg.id;
                 const attachments = msg.attachments ?? [];
 
                 return (
                   <div
                     key={msg.id}
-                    className={cn("group flex items-end gap-2", isMine ? "justify-end" : "justify-start")}
-                    onMouseEnter={() => !isDeleted && !isOptimistic && setHoveredMsgId(msg.id)}
-                    onMouseLeave={() => setHoveredMsgId(null)}
+                    className={cn("flex gap-2", isMine ? "justify-end" : "justify-start")}
                   >
-                    {/* Other person avatar */}
+                    {/* Other person's avatar */}
                     {!isMine && (
                       <span
-                        className="mb-1 grid size-7 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-accent"
+                        className="mt-auto grid size-7 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-accent"
                         aria-hidden
                       >
                         {(Array.from(otherMemberName)[0] ?? "?").toUpperCase()}
@@ -578,41 +537,26 @@ export function MessageThread({
 
                     <div
                       className={cn(
-                        "flex max-w-[82%] sm:max-w-[75%] flex-col gap-1.5",
+                        "max-w-[82%] sm:max-w-[75%] space-y-1.5",
                         isMine ? "items-end" : "items-start",
+                        "flex flex-col",
                       )}
                     >
-                      {/* Bubble row with delete button */}
-                      <div className={cn("flex items-end gap-1.5", isMine && "flex-row-reverse")}>
-                        {/* Delete button — own, non-deleted, non-optimistic, on hover */}
-                        {isMine && !isDeleted && !isOptimistic && isHovered && (
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(msg.id)}
-                            aria-label="Delete message"
-                            className="mb-1 grid size-6 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-surface-muted hover:text-danger"
-                          >
-                            <Trash2 className="size-3" aria-hidden />
-                          </button>
+                      {/* Text bubble */}
+                      <div
+                        className={cn(
+                          "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+                          isMine
+                            ? "rounded-br-sm bg-accent text-accent-foreground"
+                            : "rounded-bl-sm bg-surface-muted text-foreground",
+                          isOptimistic && "opacity-70",
+                          msg.deletedAt && "italic text-muted",
                         )}
-
-                        <div
-                          className={cn(
-                            "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-                            isMine
-                              ? "rounded-br-sm bg-accent text-accent-foreground"
-                              : "rounded-bl-sm bg-surface-muted text-foreground",
-                            isOptimistic && "opacity-70",
-                            isDeleted && "italic opacity-60",
-                          )}
-                        >
-                          <p className="whitespace-pre-wrap break-words">
-                            {isDeleted ? "This message was deleted." : msg.body}
-                          </p>
-                        </div>
+                      >
+                        <p className="whitespace-pre-wrap break-words">{msg.body}</p>
                       </div>
 
-                      {/* Attachment cards */}
+                      {/* Rich Shared Item & Outfit Attachment Cards */}
                       {attachments.length > 0 && (
                         <div className="w-full max-w-md space-y-2">
                           {attachments.map((att) => (
@@ -640,18 +584,18 @@ export function MessageThread({
         <div ref={bottomRef} />
       </div>
 
-      {/* ── Error banner ──────────────────────────────────────────────── */}
+      {/* Error banner */}
       {sendError && (
-        <div className="border-t border-danger/20 bg-danger-soft px-4 py-2 text-xs text-danger" role="alert">
-          {sendError} —{" "}
-          <button type="button" className="underline" onClick={() => setSendError(null)}>
-            dismiss
-          </button>
+        <div
+          className="border-t border-danger/20 bg-danger-soft px-4 py-2 text-xs text-danger"
+          role="alert"
+        >
+          {sendError}
         </div>
       )}
 
-      {/* ── Composer ──────────────────────────────────────────────────── */}
-      <div className="border-t border-border px-3 py-3 sm:px-4">
+      {/* Composer */}
+      <div className="border-t border-border px-4 py-3">
         <div className="flex items-end gap-2">
           <SharePickerDialog
             conversationId={conversationId}
@@ -683,7 +627,7 @@ export function MessageThread({
             }
             aria-label="Message composer"
             rows={1}
-            className="flex-1 resize-none overflow-hidden rounded-2xl border border-border-strong bg-background px-4 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none disabled:opacity-50"
+            className="flex-1 resize-none overflow-hidden rounded-xl border border-border-strong bg-background px-4 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none disabled:opacity-50"
             style={{ minHeight: "44px", maxHeight: "140px" }}
           />
           <button
@@ -691,15 +635,12 @@ export function MessageThread({
             onClick={handleSend}
             disabled={!body.trim() || isPending || isRecipientOfPending}
             aria-label="Send message"
-            className="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground transition-all disabled:opacity-40 hover:bg-accent-hover active:scale-95"
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground transition-opacity disabled:opacity-40 hover:bg-accent-hover"
           >
-            {isPending
-              ? <Loader2 className="size-4 animate-spin" aria-hidden />
-              : <Send className="size-4" aria-hidden />}
+            <Send className="size-4" aria-hidden />
           </button>
         </div>
-        {/* Desktop only hint — Enter to send does not apply on mobile keyboards */}
-        <p className="mt-1.5 hidden text-[0.65rem] text-muted sm:block">
+        <p className="mt-1.5 text-[0.65rem] text-muted">
           Enter to send · Shift+Enter for new line · Use &ldquo;Share closet&rdquo; to attach
           clothes or outfits
         </p>

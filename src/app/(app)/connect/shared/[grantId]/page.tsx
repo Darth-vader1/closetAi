@@ -45,7 +45,7 @@ export default async function SharedWardrobePage({ params }: { params: Params })
       </div>
 
       <PageHeader
-        title={`${ownerName}'s Shared Wardrobe`}
+        title={`${ownerName} (${grant.ownerClosetId})`}
         description={`${items.length} ${items.length === 1 ? "item" : "items"} shared (${
           grant.scope === "wardrobe" ? "full wardrobe access" : "selected items only"
         }) · Read-only`}
