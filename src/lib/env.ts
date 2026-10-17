@@ -177,3 +177,10 @@ export function getEmailEnv() {
 export function getCronEnv() {
   return parse("Cron", z.object({ CRON_SECRET: z.string().min(16) }), process.env);
 }
+
+/** Optional server-side PhotoRoom API key for neural garment background segmentation. */
+export function getPhotoRoomApiKey(source: Record<string, string | undefined> = process.env): string | null {
+  const key = (source.PHOTOROOM_API_KEY ?? "").trim();
+  return key.length > 0 ? key : null;
+}
+

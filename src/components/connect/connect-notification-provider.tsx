@@ -10,7 +10,17 @@ import {
 } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, BellOff, BellRing, CheckCircle2, MessageSquare, Send, X } from "lucide-react";
+import {
+  Bell,
+  BellOff,
+  BellRing,
+  CheckCircle2,
+  MessageSquare,
+  Send,
+  Share2,
+  Smartphone,
+  X,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   dismissPushPrompt,
@@ -84,7 +94,7 @@ export function ConnectNotificationProvider({
     () => false,
   );
 
-  // Register Service Worker on mount
+  // Register Service Worker on mount so it is already active before user taps Enable
   useEffect(() => {
     registerPushServiceWorker().catch(() => {});
   }, []);
@@ -126,13 +136,23 @@ export function ConnectNotificationProvider({
     }
     if (currentPerm !== "granted") return false;
 
-    return showBrowserPushNotification({
+    const ok = await showBrowserPushNotification({
       title: "ClosetAI Connect",
       body: "Push notifications are active! You'll be notified when new messages arrive.",
       url: "/connect",
-      tag: "closetai-test-push",
+      tag: `closetai-test-push-${Date.now()}`,
       force: true,
     });
+
+    if (ok) {
+      setToast({
+        id: `test-${Date.now()}`,
+        title: "ClosetAI Connect (Test Alert)",
+        body: "Push notifications are active on this device!",
+        href: "/connect",
+      });
+    }
+    return ok;
   }, []);
 
   // Global Realtime listener for new incoming messages & wardrobe grants
@@ -322,24 +342,37 @@ export function ConnectPushPrompt() {
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface px-4 py-3 shadow-2xs">
       <div className="flex items-center gap-3 min-w-0">
         <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
-          <BellRing className="size-4" aria-hidden />
+          {permission === "ios-install-required" ? (
+            <Smartphone className="size-4" aria-hidden />
+          ) : (
+            <BellRing className="size-4" aria-hidden />
+          )}
         </span>
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">
-            {permission === "denied"
-              ? "Browser notifications are blocked"
-              : "Turn on push notifications for Connect"}
+            {permission === "ios-install-required"
+              ? "Add ClosetAI to Home Screen for iPhone push alerts"
+              : permission === "denied"
+                ? "Browser notifications are blocked"
+                : "Turn on push notifications for Connect"}
           </p>
           <p className="text-[0.72rem] text-muted">
-            {permission === "denied"
-              ? "Allow notifications for this site in your browser's address-bar settings to get message alerts."
-              : "Get notified immediately when someone sends you a message or shares an outfit."}
+            {permission === "ios-install-required" ? (
+              <span className="inline-flex flex-wrap items-center gap-1">
+                On iOS, tap <Share2 className="inline size-3 text-accent" />{" "}
+                <strong>Share &rarr; Add to Home Screen</strong>, then open ClosetAI from your Home Screen to enable push alerts.
+              </span>
+            ) : permission === "denied" ? (
+              "Allow notifications for this site in your browser's address-bar settings to get message alerts."
+            ) : (
+              "Get notified immediately when someone sends you a message or shares an outfit."
+            )}
           </p>
         </div>
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        {permission !== "denied" && (
+        {permission === "default" || permission === "granted" ? (
           <Button
             type="button"
             size="sm"
@@ -353,7 +386,7 @@ export function ConnectPushPrompt() {
           >
             Enable Push
           </Button>
-        )}
+        ) : null}
         <button
           type="button"
           onClick={() => {
@@ -381,11 +414,16 @@ export function PushNotificationSettingsControl() {
   const handleToggle = async (next: boolean) => {
     setFeedback(null);
     await togglePush(next);
-    if (next && getPushPermissionState() === "denied") {
+    const afterPerm = getPushPermissionState();
+    if (next && afterPerm === "ios-install-required") {
       setFeedback(
-        "Notifications are blocked by your browser. Click the lock/tune icon in your browser address bar to allow notifications.",
+        "On iPhone/iPad, tap Share → Add to Home Screen first, then open ClosetAI from your Home Screen to enable push notifications.",
       );
-    } else if (next && getPushPermissionState() === "granted") {
+    } else if (next && afterPerm === "denied") {
+      setFeedback(
+        "Notifications are blocked by your browser. Tap the lock/tune icon in your browser address bar to allow notifications.",
+      );
+    } else if (next && afterPerm === "granted") {
       setFeedback("Push notifications enabled on this device.");
     }
   };
@@ -397,9 +435,13 @@ export function PushNotificationSettingsControl() {
     setTesting(false);
     if (ok) {
       setFeedback("Test push notification sent to your device!");
+    } else if (getPushPermissionState() === "ios-install-required") {
+      setFeedback(
+        "On iPhone/iPad, tap Share → Add to Home Screen first, then open ClosetAI from your Home Screen to test push notifications.",
+      );
     } else {
       setFeedback(
-        "Could not send push notification. Make sure notifications are allowed in your browser settings.",
+        "Could not send push notification. Make sure notifications are allowed in your browser/OS settings.",
       );
     }
   };
@@ -424,28 +466,37 @@ export function PushNotificationSettingsControl() {
                     ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
                     : permission === "denied"
                       ? "bg-danger-soft text-danger"
-                      : "bg-surface-muted text-muted"
+                      : permission === "ios-install-required"
+                        ? "bg-accent-soft text-accent"
+                        : "bg-surface-muted text-muted"
                 }`}
               >
                 {permission === "unsupported"
                   ? "Unsupported"
-                  : enabled
-                    ? "Active"
-                    : permission === "denied"
-                      ? "Blocked in Browser"
-                      : "Off"}
+                  : permission === "ios-install-required"
+                    ? "Install App Required (iOS)"
+                    : enabled
+                      ? "Active"
+                      : permission === "denied"
+                        ? "Blocked in Browser"
+                        : "Off"}
               </span>
             </div>
             <p className="text-xs text-muted mt-0.5">
               Receive instant push alerts on this device when someone sends you a Connect message, conversation request, or shares their wardrobe.
             </p>
+            {permission === "ios-install-required" && (
+              <p className="mt-2 rounded-lg border border-accent/25 bg-accent-soft/40 px-3 py-2 text-[0.72rem] text-foreground">
+                <strong>iPhone / iPad requirement:</strong> Apple only allows web push notifications when ClosetAI is installed on your Home Screen. Tap <strong>Share &rarr; Add to Home Screen</strong> in Safari, then open ClosetAI from your Home Screen icon.
+              </p>
+            )}
           </div>
         </div>
 
         <input
           type="checkbox"
           checked={enabled}
-          disabled={permission === "unsupported"}
+          disabled={permission === "unsupported" || permission === "ios-install-required"}
           onChange={(e) => handleToggle(e.target.checked)}
           aria-label="Enable browser push notifications"
           className="h-4 w-4 rounded border-border-strong text-accent focus:ring-accent mt-0.5 accent-accent"
@@ -454,19 +505,21 @@ export function PushNotificationSettingsControl() {
 
       <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-border/60">
         <div className="flex flex-wrap items-center gap-2">
-          {!enabled && permission !== "unsupported" && (
-            <Button
-              type="button"
-              size="sm"
-              variant="primary"
-              onClick={() => handleToggle(true)}
-              className="gap-1.5 text-xs rounded-lg"
-            >
-              <BellRing className="h-3.5 w-3.5" />
-              Enable Push Notifications
-            </Button>
-          )}
-          {permission !== "unsupported" && (
+          {!enabled &&
+            permission !== "unsupported" &&
+            permission !== "ios-install-required" && (
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                onClick={() => handleToggle(true)}
+                className="gap-1.5 text-xs rounded-lg"
+              >
+                <BellRing className="h-3.5 w-3.5" />
+                Enable Push Notifications
+              </Button>
+            )}
+          {permission !== "unsupported" && permission !== "ios-install-required" && (
             <Button
               type="button"
               variant="outline"

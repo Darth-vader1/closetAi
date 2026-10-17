@@ -28,9 +28,31 @@ export const itemFieldsSchema = z.object({
   careType: z.enum(CARE_TYPES).default("WASHABLE"),
 });
 
+export const beautificationModeSchema = z.enum(["clean-cutout", "ai-enhance"]);
+export const beautificationStatusSchema = z.enum([
+  "NONE",
+  "PROCESSING",
+  "COMPLETED",
+  "FAILED",
+  "RESTORED_ORIGINAL",
+]);
+
 export const createItemSchema = itemFieldsSchema.extend({
   imagePath: z.string().min(1).max(300),
+  originalImagePath: z.string().min(1).max(300).optional(),
+  beautifiedImagePath: z.string().min(1).max(300).nullable().optional(),
+  beautificationMode: beautificationModeSchema.nullable().optional(),
+  beautificationProvider: z.string().max(64).nullable().optional(),
+  beautificationModel: z.string().max(120).nullable().optional(),
+  beautificationStatus: beautificationStatusSchema.optional(),
   aiAnalysed: z.boolean(),
+});
+
+export const saveBeautifiedImageSchema = z.object({
+  beautifiedPath: z.string().min(1).max(300),
+  mode: beautificationModeSchema,
+  provider: z.string().max(64).nullable().optional(),
+  model: z.string().max(120).nullable().optional(),
 });
 
 export type ItemFieldsInput = z.input<typeof itemFieldsSchema>;

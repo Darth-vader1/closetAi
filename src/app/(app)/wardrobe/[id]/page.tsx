@@ -4,8 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { DeleteItemButton, EditItemForm } from "@/components/wardrobe/edit-item-form";
-import { FavouriteButton } from "@/components/wardrobe/favourite-button";
-import { ItemImage } from "@/components/wardrobe/item-image";
+import { ItemBeautifyCard } from "@/components/wardrobe/beautify-image-modal";
 import { StatusActions } from "@/components/wardrobe/status-actions";
 import { StatusBadge } from "@/components/wardrobe/status-badge";
 import { getProfile, requireUser } from "@/lib/auth/session";
@@ -29,7 +28,14 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
   // Someone else's id and a missing id look identical: both are simply "not found".
   if (!item) notFound();
 
-  const urls = await signImageUrls(supabase, [item.imagePath], "medium");
+  const originalImagePath = item.originalImagePath ?? item.imagePath;
+  const beautifiedImagePath = item.beautifiedImagePath ?? null;
+  const pathsToSign = [
+    item.imagePath,
+    originalImagePath,
+    ...(beautifiedImagePath ? [beautifiedImagePath] : []),
+  ];
+  const urls = await signImageUrls(supabase, pathsToSign, "medium");
   const tz = profile?.timezone ?? "UTC";
 
   const initial: ItemFieldsInput = {
@@ -56,16 +62,23 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,26rem)_1fr]">
         <div className="space-y-4 lg:sticky lg:top-8 lg:self-start">
-          <div className="relative overflow-hidden rounded-[1.25rem] border border-border">
-            <ItemImage
-                url={urls.get(item.imagePath)}
-                alt={item.name}
-                className="aspect-[4/5] w-full"
-                sizes="(max-width: 1024px) 100vw, 26rem"
-                priority
-              />
-            <FavouriteButton id={item.id} name={item.name} isFavourite={item.isFavourite} className="absolute right-3 top-3" />
-          </div>
+          <ItemBeautifyCard
+            id={item.id}
+            name={item.name}
+            category={item.category}
+            isFavourite={item.isFavourite}
+            activeImagePath={item.imagePath}
+            originalImagePath={originalImagePath}
+            beautifiedImagePath={beautifiedImagePath}
+            beautificationMode={item.beautificationMode ?? null}
+            activeImageUrl={urls.get(item.imagePath)}
+            originalImageUrl={urls.get(originalImagePath)}
+            beautifiedImageUrl={
+              beautifiedImagePath
+                ? urls.get(beautifiedImagePath)
+                : undefined
+            }
+          />
         </div>
 
         <div className="space-y-6">

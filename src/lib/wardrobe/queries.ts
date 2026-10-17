@@ -25,6 +25,18 @@ export interface WardrobeItem {
   seasons: string[];
   warmthLevel: number | null;
   imagePath: string;
+  originalImagePath?: string;
+  beautifiedImagePath?: string | null;
+  beautificationMode?: "clean-cutout" | "ai-enhance" | null;
+  beautificationProvider?: string | null;
+  beautificationModel?: string | null;
+  beautificationStatus?:
+    | "NONE"
+    | "PROCESSING"
+    | "COMPLETED"
+    | "FAILED"
+    | "RESTORED_ORIGINAL";
+  beautifiedAt?: string | null;
   status: LaundryStatus;
   careType: "WASHABLE" | "WIPE_CLEAN" | "NO_WASH";
   isFavourite: boolean;
@@ -37,6 +49,8 @@ export interface WardrobeItem {
 
 const COLUMNS =
   "id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, occasions, seasons, warmth_level, image_path, status, care_type, is_favourite, ai_analysed, wear_count, last_worn_at, last_washed_at, created_at";
+
+const COLUMNS_WITH_BEAUTIFY = `${COLUMNS}, original_image_path, beautified_image_path, beautification_mode, beautification_provider, beautification_model, beautification_status, beautified_at`;
 
 interface Row {
   id: string;
@@ -52,6 +66,13 @@ interface Row {
   seasons: string[] | null;
   warmth_level: number | null;
   image_path: string;
+  original_image_path?: string | null;
+  beautified_image_path?: string | null;
+  beautification_mode?: string | null;
+  beautification_provider?: string | null;
+  beautification_model?: string | null;
+  beautification_status?: string | null;
+  beautified_at?: string | null;
   status: string;
   care_type: string | null;
   is_favourite: boolean;
@@ -63,6 +84,17 @@ interface Row {
 }
 
 function toItem(row: Row): WardrobeItem {
+  const statusVal = row.beautification_status;
+  const resolvedBeautifyStatus =
+    statusVal === "PROCESSING" ||
+    statusVal === "COMPLETED" ||
+    statusVal === "FAILED" ||
+    statusVal === "RESTORED_ORIGINAL"
+      ? statusVal
+      : row.beautified_image_path
+        ? "COMPLETED"
+        : "NONE";
+
   return {
     id: row.id,
     name: row.name,
@@ -77,6 +109,16 @@ function toItem(row: Row): WardrobeItem {
     seasons: row.seasons ?? [],
     warmthLevel: row.warmth_level,
     imagePath: row.image_path,
+    originalImagePath: row.original_image_path ?? row.image_path,
+    beautifiedImagePath: row.beautified_image_path ?? null,
+    beautificationMode:
+      row.beautification_mode === "clean-cutout" || row.beautification_mode === "ai-enhance"
+        ? row.beautification_mode
+        : null,
+    beautificationProvider: row.beautification_provider ?? null,
+    beautificationModel: row.beautification_model ?? null,
+    beautificationStatus: resolvedBeautifyStatus,
+    beautifiedAt: row.beautified_at ?? null,
     status: isLaundryStatus(row.status) ? row.status : "UNAVAILABLE",
     careType: (row.care_type === "WASHABLE" || row.care_type === "WIPE_CLEAN" || row.care_type === "NO_WASH") 
       ? row.care_type 
@@ -125,9 +167,27 @@ export async function listWardrobeItems(
 }
 
 export async function getWardrobeItem(supabase: SupabaseClient, userId: string, id: string): Promise<WardrobeItem | null> {
-  const { data, error } = await supabase.from("wardrobe_items").select(COLUMNS).eq("id", id).eq("user_id", userId).maybeSingle();
-  if (error) throw new Error(`Could not load item: ${error.message}`);
-  return data ? toItem(data as Row) : null;
+  const { data, error } = await supabase
+    .from("wardrobe_items")
+    .select(COLUMNS_WITH_BEAUTIFY)
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    if (error.message.includes("original_image_path") || error.code === "42703") {
+      const fallback = await supabase
+        .from("wardrobe_items")
+        .select(COLUMNS)
+        .eq("id", id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (fallback.error) throw new Error(`Could not load item: ${fallback.error.message}`);
+      return fallback.data ? toItem(fallback.data as Row) : null;
+    }
+    throw new Error(`Could not load item: ${error.message}`);
+  }
+  return data ? toItem(data as unknown as Row) : null;
 }
 
 /** Items in any non-CLEAN status and WASHABLE care type, for the laundry page. */

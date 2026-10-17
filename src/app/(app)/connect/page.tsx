@@ -14,7 +14,6 @@ import {
   listWardrobeGrantsForUser,
 } from "@/lib/connect/queries";
 import { userTag } from "@/lib/connect/user-tag";
-import { getAppUrl } from "@/lib/env";
 
 export const metadata: Metadata = { title: "Connect · ClosetAI" };
 
@@ -38,8 +37,6 @@ export default async function ConnectPage() {
   const closetId =
     (profileRow.data?.closet_id as string | null | undefined) ??
     userTag(user.id);
-
-  const shareUrl = `${getAppUrl()}/connect?invite=${user.id}`;
 
   return (
     <>
@@ -71,7 +68,7 @@ export default async function ConnectPage() {
       </div>
 
       {/* Closet ID card — always visible so users can share their ID with friends */}
-      <ClosetIdCard closetId={closetId} shareUrl={shareUrl} />
+      <ClosetIdCard closetId={closetId} />
 
       {conversations.length === 0 ? (
         <EmptyState

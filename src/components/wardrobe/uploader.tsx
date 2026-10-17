@@ -12,7 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Alert, Card } from "@/components/ui/card";
 import { emptyItemValues, ItemFieldsForm } from "@/components/wardrobe/item-fields";
 import { itemFieldsSchema, type ItemFields, type ItemFieldsInput } from "@/lib/validation/wardrobe";
-import { removeImageBackground } from "@/lib/wardrobe/studio-canvas";
+import type {
+  AiEnhancementParams,
+  BeautificationMode,
+} from "@/lib/wardrobe/beautify-engine";
+import { beautifyGarmentImage } from "@/lib/wardrobe/studio-canvas";
 import {
   analysePhoto,
   createLimiter,
@@ -41,6 +45,14 @@ interface Entry {
   savedId: string | null;
   originalPreviewUrl?: string;
   originalPath?: string | null;
+  photoRoomCutoutDataUrl?: string | null;
+  beautifiedPreviewUrl?: string;
+  beautifiedPath?: string | null;
+  beautifyMode?: BeautificationMode | null;
+  beautifyProvider?: string | null;
+  beautifyModel?: string | null;
+  beautifyWarnings?: string[];
+  beautifyError?: string | null;
   isCutout?: boolean;
   processingCutout?: boolean;
 }
@@ -93,7 +105,6 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       patch(id, { analysing: true, aiNote: null });
       const result = await analysePhoto(path, signal);
       if (result.status === "ok") {
-        console.log("🤖 [AI Suggestion]:", result.suggestion);
         setEntries((list) =>
           list.map((e) =>
             e.id === id
@@ -102,7 +113,6 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           ),
         );
       } else {
-        console.warn("⚠️ [AI Analysis Issue]:", result);
         const note = result.status === "unavailable" ? `${result.reason} You can fill in the details yourself.` : result.message;
         patch(id, { analysing: false, aiNote: note });
       }
@@ -117,44 +127,94 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
         if (!controller || controller.signal.aborted) return;
         try {
           patch(entry.id, { stage: "preparing", progress: 0, error: null });
-          let blob = await prepareImage(entry.file);
-          let cutoutPreviewUrl: string | undefined;
-          let wasCutout = false;
+          const origBlob = await prepareImage(entry.file);
+
+          patch(entry.id, {
+            stage: "uploading",
+            originalPreviewUrl: entry.previewUrl,
+          });
+
+          // Always upload and preserve the original image first
+          const origPath = await uploadPhoto(origBlob, {
+            signal: controller.signal,
+            onProgress: (f) => patch(entry.id, { progress: withAutoCutout ? f * 0.6 : f }),
+          });
+
+          let activePath = origPath;
+          let beautifiedPath: string | null = null;
+          let beautifiedPreviewUrl: string | undefined;
+          let photoRoomCutoutDataUrl: string | null = null;
+          let beautifyProvider: string | null = null;
+          let beautifyModel: string | null = null;
+          let beautifyWarnings: string[] = [];
+          let isCutout = false;
 
           if (withAutoCutout) {
             try {
-              blob = await removeImageBackground(blob, {
-                tolerance: 34,
-                background: "clean-white",
-                addShadow: true,
+              const apiRes = await fetch("/api/ai/beautify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: origPath, mode: "clean-cutout" }),
+                signal: controller.signal,
+              }).catch(() => null);
+
+              if (apiRes?.ok) {
+                const body = (await apiRes.json()) as {
+                  cutoutDataUrl?: string | null;
+                  provider?: string;
+                  model?: string;
+                };
+                if (body.cutoutDataUrl) {
+                  photoRoomCutoutDataUrl = body.cutoutDataUrl;
+                }
+                beautifyProvider = body.provider ?? "local-studio";
+                beautifyModel = body.model ?? "closetai-cv-v2";
+              }
+
+              const res = await beautifyGarmentImage(
+                photoRoomCutoutDataUrl ?? origBlob,
+                {
+                  mode: "clean-cutout",
+                  tolerance: 36,
+                  background: "clean-white",
+                  addShadow: true,
+                },
+              );
+              beautifiedPath = await uploadPhoto(res.blob, {
+                signal: controller.signal,
+                onProgress: (f) => patch(entry.id, { progress: 0.6 + f * 0.4 }),
               });
-              cutoutPreviewUrl = URL.createObjectURL(blob);
-              wasCutout = true;
+              beautifiedPreviewUrl = URL.createObjectURL(res.blob);
+              activePath = beautifiedPath;
+              beautifyWarnings = res.diagnostics.warnings;
+              isCutout = true;
             } catch (cutoutErr) {
               console.warn("Auto cutout skipped:", cutoutErr);
             }
           }
 
           patch(entry.id, {
-            stage: "uploading",
-            ...(cutoutPreviewUrl
+            path: activePath,
+            originalPath: origPath,
+            photoRoomCutoutDataUrl,
+            beautifiedPath,
+            ...(beautifiedPreviewUrl
               ? {
-                  originalPreviewUrl: entry.previewUrl,
-                  previewUrl: cutoutPreviewUrl,
-                  isCutout: wasCutout,
+                  previewUrl: beautifiedPreviewUrl,
+                  beautifiedPreviewUrl,
+                  beautifyMode: "clean-cutout",
+                  beautifyProvider,
+                  beautifyModel,
+                  beautifyWarnings,
+                  isCutout,
                 }
               : {}),
+            progress: 1,
           });
 
-          const path = await uploadPhoto(blob, {
-            signal: controller.signal,
-            onProgress: (f) => patch(entry.id, { progress: f }),
-          });
-          patch(entry.id, { path, progress: 1 });
           if (withAi) {
             patch(entry.id, { stage: "analysing" });
-            await runAnalysis(entry.id, path, controller.signal);
-            // Brief pause between batch items so free-tier rate limits aren't overwhelmed
+            await runAnalysis(entry.id, origPath, controller.signal);
             await new Promise((res) => setTimeout(res, 1500));
           }
           patch(entry.id, { stage: "review" });
@@ -180,21 +240,33 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       setNotice(messages.length ? messages.join(" ") : null);
       if (take.length === 0) return;
 
-      const fresh: Entry[] = take.map((file) => ({
-        id: crypto.randomUUID(),
-        file,
-        previewUrl: URL.createObjectURL(file),
-        stage: "preparing",
-        progress: 0,
-        path: null,
-        suggestion: null,
-        suggestionKey: 0,
-        isMock: false,
-        analysing: false,
-        aiNote: null,
-        error: null,
-        savedId: null,
-      }));
+      const fresh: Entry[] = take.map((file) => {
+        const objUrl = URL.createObjectURL(file);
+        return {
+          id: crypto.randomUUID(),
+          file,
+          previewUrl: objUrl,
+          originalPreviewUrl: objUrl,
+          stage: "preparing",
+          progress: 0,
+          path: null,
+          originalPath: null,
+          photoRoomCutoutDataUrl: null,
+          beautifiedPath: null,
+          beautifyMode: null,
+          beautifyProvider: null,
+          beautifyModel: null,
+          beautifyWarnings: [],
+          beautifyError: null,
+          suggestion: null,
+          suggestionKey: 0,
+          isMock: false,
+          analysing: false,
+          aiNote: null,
+          error: null,
+          savedId: null,
+        };
+      });
       for (const e of fresh) controllers.current.set(e.id, new AbortController());
       setEntries((list) => [...list, ...fresh]);
       for (const e of fresh) void process(e, useAi && aiAvailable, autoCutout);
@@ -211,11 +283,17 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       if (entry.originalPreviewUrl && entry.originalPreviewUrl !== entry.previewUrl) {
         URL.revokeObjectURL(entry.originalPreviewUrl);
       }
-      // A photo that was uploaded but never saved is deleted again so it doesn't linger in storage.
+      if (entry.beautifiedPreviewUrl && entry.beautifiedPreviewUrl !== entry.previewUrl) {
+        URL.revokeObjectURL(entry.beautifiedPreviewUrl);
+      }
       if (entry.stage !== "saved") {
-        if (entry.path) void discardUploadAction(entry.path);
-        if (entry.originalPath && entry.originalPath !== entry.path) {
-          void discardUploadAction(entry.originalPath);
+        const uniquePaths = new Set(
+          [entry.path, entry.originalPath, entry.beautifiedPath].filter(
+            (p): p is string => Boolean(p),
+          ),
+        );
+        for (const p of uniquePaths) {
+          void discardUploadAction(p);
         }
       }
     }
@@ -235,11 +313,36 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       const entry = entriesRef.current.find((e) => e.id === id);
       if (!entry?.path) return { ok: false as const, error: "That photo isn't ready yet." };
       patch(id, { stage: "saving" });
-      const result = await saveItemAction({ ...values, imagePath: entry.path, aiAnalysed: entry.suggestion !== null && !entry.isMock });
+
+      const originalImagePath = entry.originalPath ?? entry.path;
+      const beautifiedImagePath = entry.beautifiedPath ?? null;
+      const beautificationMode = beautifiedImagePath
+        ? (entry.beautifyMode ?? "clean-cutout")
+        : null;
+      const beautificationStatus = beautifiedImagePath
+        ? entry.path === beautifiedImagePath
+          ? ("COMPLETED" as const)
+          : ("RESTORED_ORIGINAL" as const)
+        : ("NONE" as const);
+
+      const result = await saveItemAction({
+        ...values,
+        imagePath: entry.path,
+        originalImagePath,
+        beautifiedImagePath,
+        beautificationMode,
+        beautificationProvider: beautifiedImagePath
+          ? (entry.beautifyProvider ?? "local-studio")
+          : null,
+        beautificationModel: beautifiedImagePath
+          ? (entry.beautifyModel ?? "closetai-cv-v2")
+          : null,
+        beautificationStatus,
+        aiAnalysed: entry.suggestion !== null && !entry.isMock,
+      });
       if (result.ok) {
-        if (entry.originalPath && entry.originalPath !== entry.path) {
-          void discardUploadAction(entry.originalPath);
-        }
+        // Both originalImagePath and beautifiedImagePath are now referenced by the saved item,
+        // so the user can reopen the item later and access both versions.
         patch(id, { stage: "saved", savedId: result.id });
         router.refresh();
       } else {
@@ -250,69 +353,129 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
     [patch, router],
   );
 
-  const toggleCutout = useCallback(
-    async (entry: Entry) => {
-      if (entry.isCutout) {
-        if (entry.originalPreviewUrl) {
-          if (entry.originalPath) {
-            patch(entry.id, {
-              previewUrl: entry.originalPreviewUrl,
-              path: entry.originalPath,
-              originalPath: entry.path,
-              originalPreviewUrl: entry.previewUrl,
-              isCutout: false,
-            });
-            return;
-          }
-          // If auto-cutout ran initially, upload the original image on demand when reverting
-          try {
-            patch(entry.id, { processingCutout: true });
-            const origBlob = await prepareImage(entry.file);
-            const controller = new AbortController();
-            const origPath = await uploadPhoto(origBlob, {
-              signal: controller.signal,
-              onProgress: () => {},
-            });
-            patch(entry.id, {
-              previewUrl: entry.originalPreviewUrl,
-              originalPreviewUrl: entry.previewUrl,
-              originalPath: entry.path,
-              path: origPath,
-              isCutout: false,
-              processingCutout: false,
-            });
-          } catch (err) {
-            console.error("Revert background failed:", err);
-            patch(entry.id, { processingCutout: false });
-          }
-        }
+  const runBeautifyOnEntry = useCallback(
+    async (entry: Entry, requestedMode: BeautificationMode) => {
+      // If user clicks the already-active mode, toggle back to Original preview without deleting the beautified version
+      if (entry.isCutout && entry.beautifyMode === requestedMode && entry.originalPreviewUrl && entry.originalPath) {
+        patch(entry.id, {
+          previewUrl: entry.originalPreviewUrl,
+          path: entry.originalPath,
+          isCutout: false,
+          beautifyError: null,
+        });
         return;
       }
 
       try {
-        patch(entry.id, { processingCutout: true });
-        const processedBlob = await removeImageBackground(entry.previewUrl, {
-          tolerance: 34,
-          background: "clean-white",
-          addShadow: true,
-        });
+        patch(entry.id, { processingCutout: true, beautifyError: null });
+        const sourceUrl = entry.originalPreviewUrl ?? entry.previewUrl;
+        const origPath = entry.originalPath ?? entry.path;
+        let cachedCutout = entry.photoRoomCutoutDataUrl ?? null;
+        let providerUsed = entry.beautifyProvider ?? "local-studio";
+        let modelUsed = entry.beautifyModel ?? "closetai-cv-v2";
+
+        let aiParams: AiEnhancementParams | null = null;
+        if (origPath) {
+          try {
+            const res = await fetch("/api/ai/beautify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                path: origPath,
+                mode: requestedMode,
+                skipSegmentation: Boolean(cachedCutout),
+              }),
+            });
+            if (res.ok) {
+              const body = (await res.json()) as {
+                status?: string;
+                provider?: string;
+                model?: string;
+                cutoutDataUrl?: string | null;
+                params?: AiEnhancementParams;
+                reason?: string | null;
+              };
+              if (body.cutoutDataUrl) {
+                cachedCutout = body.cutoutDataUrl;
+              }
+              if (body.provider) {
+                providerUsed = body.provider;
+              }
+              if (body.model) {
+                modelUsed = body.model;
+              }
+              if (body.params && requestedMode === "ai-enhance") {
+                aiParams = {
+                  ...body.params,
+                  qualityNote:
+                    body.reason ?? body.params.qualityNote ?? null,
+                };
+              }
+            }
+          } catch {
+            // Safe fallback to local studio segmentation & enhancement
+          }
+        }
+
+        const result = await beautifyGarmentImage(
+          cachedCutout ?? sourceUrl,
+          {
+            mode: requestedMode,
+            category: entry.suggestion?.category ?? null,
+            tolerance: 36,
+            background: "clean-white",
+            addShadow: true,
+            targetCanvasSize: 1024,
+            aiParams,
+          },
+        );
+
         const controller = new AbortController();
-        const newPath = await uploadPhoto(processedBlob, {
+        const newBeautifiedPath = await uploadPhoto(result.blob, {
           signal: controller.signal,
           onProgress: () => {},
         });
-        const newPreviewUrl = URL.createObjectURL(processedBlob);
+
+        // Clean up any previous unsaved beautified file for this entry
+        if (
+          entry.beautifiedPath &&
+          entry.beautifiedPath !== origPath &&
+          entry.beautifiedPath !== newBeautifiedPath
+        ) {
+          void discardUploadAction(entry.beautifiedPath);
+        }
+        if (
+          entry.beautifiedPreviewUrl &&
+          entry.beautifiedPreviewUrl !== entry.originalPreviewUrl
+        ) {
+          URL.revokeObjectURL(entry.beautifiedPreviewUrl);
+        }
+
+        const newPreviewUrl = URL.createObjectURL(result.blob);
         patch(entry.id, {
-          originalPreviewUrl: entry.previewUrl,
-          originalPath: entry.path,
+          originalPreviewUrl: sourceUrl,
+          originalPath: origPath,
+          photoRoomCutoutDataUrl: cachedCutout,
+          beautifiedPreviewUrl: newPreviewUrl,
+          beautifiedPath: newBeautifiedPath,
+          beautifyMode: result.modeUsed,
+          beautifyProvider: providerUsed,
+          beautifyModel: modelUsed,
+          beautifyWarnings: result.diagnostics.warnings,
+          beautifyError: null,
           previewUrl: newPreviewUrl,
-          path: newPath,
+          path: newBeautifiedPath,
           isCutout: true,
           processingCutout: false,
         });
       } catch (err) {
-        console.error("Background cutout failed:", err);
-        patch(entry.id, { processingCutout: false });
+        patch(entry.id, {
+          processingCutout: false,
+          beautifyError:
+            err instanceof Error
+              ? err.message
+              : "Could not beautify this photo. Your original image is kept.",
+        });
       }
     },
     [patch],
@@ -429,12 +592,12 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
               onRemove={removeEntry}
               onRetry={retry}
               onSave={save}
-              onToggleCutout={toggleCutout}
+              onBeautify={runBeautifyOnEntry}
               onAnalyse={(e) => {
                 if (!e.path) return;
                 const fresh = new AbortController();
                 controllers.current.set(e.id, fresh);
-                void runAnalysis(e.id, e.path, fresh.signal);
+                void runAnalysis(e.id, e.originalPath ?? e.path, fresh.signal);
               }}
             />
           </li>
@@ -451,7 +614,7 @@ function EntryCard({
   onRetry,
   onSave,
   onAnalyse,
-  onToggleCutout,
+  onBeautify,
 }: {
   entry: Entry;
   aiAvailable: boolean;
@@ -459,7 +622,7 @@ function EntryCard({
   onRetry: (entry: Entry) => void;
   onSave: (id: string, values: ItemFields) => Promise<{ ok: boolean; error?: string; fieldErrors?: Record<string, string> }>;
   onAnalyse: (entry: Entry) => void;
-  onToggleCutout: (entry: Entry) => void;
+  onBeautify: (entry: Entry, mode: BeautificationMode) => void;
 }) {
   const busy = entry.stage === "preparing" || entry.stage === "uploading" || entry.stage === "analysing";
   const label = { preparing: "Preparing photo…", uploading: "Uploading…", analysing: "Analysing with AI…" }[entry.stage as "preparing" | "uploading" | "analysing"];
@@ -467,30 +630,74 @@ function EntryCard({
   return (
     <Card className="p-4 sm:p-6">
       <div className="flex flex-col gap-5 sm:flex-row">
-        <div className="relative w-full shrink-0 sm:w-48">
+        <div className="relative w-full shrink-0 sm:w-52">
           {/* eslint-disable-next-line @next/next/no-img-element -- local object URL preview, not optimisable */}
-          <img src={entry.previewUrl} alt={`Preview of ${entry.file.name}`} className="aspect-square w-full rounded-xl bg-surface-muted object-cover" />
+          <img
+            src={entry.previewUrl}
+            alt={`Preview of ${entry.file.name}`}
+            className="aspect-square w-full rounded-xl border border-border bg-white object-contain"
+          />
           {entry.stage === "saved" ? (
             <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-success px-2.5 py-1 text-xs font-medium text-white">
               <CheckCircle2 className="size-3" aria-hidden /> Saved
             </span>
+          ) : entry.isCutout ? (
+            <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-surface/90 px-2 py-0.5 text-[10px] font-medium text-foreground shadow-xs">
+              <Sparkles className="size-2.5 text-accent" aria-hidden />
+              {entry.beautifyMode === "ai-enhance" ? "AI Enhanced" : "Clean Cutout"}
+            </span>
           ) : null}
 
-          {/* Studio Cutout / Background Removal button */}
+          {/* Beautify Image Controls (Mode 1: Clean Cutout & Mode 2: AI Enhance) */}
           {entry.stage === "review" ? (
-            <div className="mt-2.5">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full text-xs"
-                disabled={entry.processingCutout}
-                loading={entry.processingCutout}
-                onClick={() => onToggleCutout(entry)}
-              >
-                {!entry.processingCutout ? <Wand2 className="size-3.5" aria-hidden /> : null}
-                {entry.isCutout ? "Revert BG" : "Studio Cutout"}
-              </Button>
+            <div className="mt-2.5 space-y-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
+                <Button
+                  type="button"
+                  variant={
+                    entry.isCutout && entry.beautifyMode === "clean-cutout"
+                      ? "primary"
+                      : "outline"
+                  }
+                  size="sm"
+                  className="w-full px-2 text-[11px]"
+                  disabled={entry.processingCutout}
+                  loading={entry.processingCutout}
+                  onClick={() => onBeautify(entry, "clean-cutout")}
+                >
+                  {!entry.processingCutout ? (
+                    <Wand2 className="size-3" aria-hidden />
+                  ) : null}
+                  {entry.isCutout && entry.beautifyMode === "clean-cutout"
+                    ? "Original"
+                    : "Clean Cutout"}
+                </Button>
+                <Button
+                  type="button"
+                  variant={
+                    entry.isCutout && entry.beautifyMode === "ai-enhance"
+                      ? "primary"
+                      : "outline"
+                  }
+                  size="sm"
+                  className="w-full px-2 text-[11px]"
+                  disabled={entry.processingCutout}
+                  onClick={() => onBeautify(entry, "ai-enhance")}
+                >
+                  <Sparkles className="size-3" aria-hidden />
+                  {entry.isCutout && entry.beautifyMode === "ai-enhance"
+                    ? "Original"
+                    : "AI Enhance"}
+                </Button>
+              </div>
+              {entry.beautifyError ? (
+                <p className="text-[11px] text-danger">{entry.beautifyError}</p>
+              ) : null}
+              {entry.beautifyWarnings && entry.beautifyWarnings.length > 0 ? (
+                <p className="text-[11px] text-muted">
+                  {entry.beautifyWarnings[0]}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
