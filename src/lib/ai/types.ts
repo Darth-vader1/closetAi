@@ -5,6 +5,7 @@
  */
 export type AiTask =
   | "clothing_analysis"
+  | "multi_clothing_analysis"
   | "stylist_recommendation"
   /** @deprecated Superseded by `packing_plan`; kept so older callers still type-check. */
   | "travel_packing_capsule"

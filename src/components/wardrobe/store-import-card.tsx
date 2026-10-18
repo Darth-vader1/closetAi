@@ -1,23 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
+  Bookmark,
+  BookmarkPlus,
   Check,
   ClipboardPaste,
+  Copy,
   ExternalLink,
   Globe,
   ImagePlus,
+  Layers,
   Loader2,
   Sparkles,
   Store,
   Wand2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
+import { generateBookmarkletCode } from "@/lib/import/bookmarklet";
 import type { DuplicateWardrobeMatch } from "@/lib/import/duplicate-check";
 import {
   mapProductMetadataToWardrobeFields,
@@ -115,12 +128,16 @@ async function dataUrlToFile(
 export function StoreImportCard({
   aiAvailable,
   externalPastedUrl,
+  initialUrl,
+  initialProduct,
   urlInputRef,
   onImportReady,
   onFallbackFilesWithMetadata,
 }: {
   aiAvailable: boolean;
   externalPastedUrl: { url: string; key: number } | null;
+  initialUrl?: string | null;
+  initialProduct?: ExtractedProductMetadata | null;
   urlInputRef: React.RefObject<HTMLInputElement | null>;
   onImportReady: (payload: ImportedEntryPayload) => void;
   onFallbackFilesWithMetadata: (
@@ -131,9 +148,12 @@ export function StoreImportCard({
       sourceBrand: string | null;
       allowDuplicate: boolean;
     },
+    isMultiScan?: boolean,
   ) => void;
 }) {
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(
+    () => initialProduct?.productUrl ?? initialUrl ?? "",
+  );
   const [extracting, setExtracting] = useState(false);
   const [downloadingImage, setDownloadingImage] = useState(false);
   const [error, setError] = useState<{
@@ -141,16 +161,20 @@ export function StoreImportCard({
     fallbackHint?: string;
   } | null>(null);
 
-  const [product, setProduct] = useState<ExtractedProductMetadata | null>(null);
-  const [edited, setEdited] = useState<EditableMetadata>({
-    title: "",
-    brand: "",
-    color: "",
-    material: "",
-    category: "",
-    description: "",
-  });
-  const [selectedImageIndex, setSelectedImageIndex] = useState<number>(0);
+  const [product, setProduct] = useState<ExtractedProductMetadata | null>(
+    () => initialProduct ?? null,
+  );
+  const [edited, setEdited] = useState<EditableMetadata>(() => ({
+    title: initialProduct?.title ?? "",
+    brand: initialProduct?.brand ?? "",
+    color: initialProduct?.color ?? "",
+    material: initialProduct?.material ?? "",
+    category: initialProduct?.category ?? "",
+    description: initialProduct?.description ?? "",
+  }));
+  const [selectedImageIndex, setSelectedImageIndex] = useState<number>(
+    () => initialProduct?.recommendedImageIndex ?? 0,
+  );
   const [failedImageIndices, setFailedImageIndices] = useState<Set<number>>(
     () => new Set(),
   );
@@ -159,11 +183,36 @@ export function StoreImportCard({
     useState<DuplicateWardrobeMatch | null>(null);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
 
+  // Bookmarklet guide & copy states
+  const [showBookmarkletGuide, setShowBookmarkletGuide] = useState(false);
+  const [copiedBookmarklet, setCopiedBookmarklet] = useState(false);
+
+  const appOrigin = useSyncExternalStore(
+    () => () => {},
+    () => (typeof window !== "undefined" ? window.location.origin : ""),
+    () => "",
+  );
+
+  const bookmarkletCode = useMemo(() => {
+    return generateBookmarkletCode(appOrigin || undefined);
+  }, [appOrigin]);
+
+  const handleCopyBookmarklet = async () => {
+    try {
+      await navigator.clipboard.writeText(bookmarkletCode);
+      setCopiedBookmarklet(true);
+      setTimeout(() => setCopiedBookmarklet(false), 2500);
+    } catch {
+      // ignore
+    }
+  };
+
   // Optional post-import processing toggles (off by default to avoid unnecessary AI expenditure)
   const [runCutout, setRunCutout] = useState(false);
   const [runAiAnalysis, setRunAiAnalysis] = useState(false);
 
   const fallbackFileInputRef = useRef<HTMLInputElement>(null);
+  const multiScreenshotInputRef = useRef<HTMLInputElement>(null);
 
   const extractFromUrl = useCallback(async (targetUrl: string) => {
     const trimmed = targetUrl.trim();
@@ -231,6 +280,20 @@ export function StoreImportCard({
       setExtracting(false);
     }
   }, []);
+
+  // Auto-fetch initial URL from share target if no pre-extracted bookmarklet product was provided
+  const handledInitialRef = useRef(false);
+  useEffect(() => {
+    if (handledInitialRef.current) return;
+    handledInitialRef.current = true;
+
+    if (initialUrl && !initialProduct) {
+      const timer = setTimeout(() => {
+        void extractFromUrl(initialUrl);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [initialProduct, initialUrl, extractFromUrl]);
 
   // Respond when the user presses Ctrl+V with a store URL anywhere on /wardrobe/new
   const lastHandledPasteKey = useRef<number>(0);
@@ -379,7 +442,7 @@ export function StoreImportCard({
 
   return (
     <Card className="p-5 sm:p-6">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2.5">
           <div className="flex size-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
             <Store className="size-4.5" aria-hidden />
@@ -397,7 +460,93 @@ export function StoreImportCard({
             </p>
           </div>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setShowBookmarkletGuide((v) => !v)}
+          className="self-start sm:self-auto text-xs"
+        >
+          <BookmarkPlus className="size-3.5" aria-hidden />
+          Browser Bookmarklet
+        </Button>
       </div>
+
+      {showBookmarkletGuide ? (
+        <div className="mt-4 rounded-2xl border border-accent/30 bg-accent-soft/40 p-4 sm:p-5 text-sm text-foreground space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Bookmark className="size-4.5 text-accent" />
+              <h3 className="font-semibold text-foreground">
+                Universal Bookmarklet — 1-Click Store Import
+              </h3>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowBookmarkletGuide(false)}
+              className="size-7 p-0 text-muted"
+              aria-label="Close bookmarklet guide"
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+
+          <p className="text-xs text-muted leading-relaxed">
+            Bypass store anti-bot protections (Temu, Shein, Cloudflare) by extracting directly inside your active browser session.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <a
+              href={bookmarkletCode}
+              onClick={(e) => {
+                e.preventDefault();
+                alert("Drag this button up to your Bookmarks Bar, then click it while on any retail store page!");
+              }}
+              draggable
+              className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground shadow-xs hover:opacity-95 cursor-grab active:cursor-grabbing"
+              title="Drag me to your Bookmarks Bar"
+            >
+              <BookmarkPlus className="size-4" aria-hidden />
+              + Add to ClosetAI
+            </a>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCopyBookmarklet}
+              className="text-xs"
+            >
+              {copiedBookmarklet ? (
+                <>
+                  <Check className="size-3.5 text-success" /> Copied code!
+                </>
+              ) : (
+                <>
+                  <Copy className="size-3.5" /> Copy bookmarklet code
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="rounded-xl border border-border/80 bg-surface/80 p-3 text-xs text-muted space-y-2">
+            <p className="font-medium text-foreground">How to install &amp; use:</p>
+            <ol className="list-decimal list-inside space-y-1.5 text-xs">
+              <li>
+                <strong>Desktop (Chrome, Safari, Edge, Firefox):</strong> Make sure your Bookmarks bar is visible (<kbd className="rounded border border-border bg-surface-muted px-1 font-mono text-[10px]">Ctrl+Shift+B</kbd> or <kbd className="rounded border border-border bg-surface-muted px-1 font-mono text-[10px]">Cmd+Shift+B</kbd>), then drag the <strong>+ Add to ClosetAI</strong> button into your bar.
+              </li>
+              <li>
+                <strong>While Shopping:</strong> Visit any garment product page on Zara, ASOS, Temu, Shein, Mango, etc.
+              </li>
+              <li>
+                <strong>1-Click:</strong> Click <strong>+ Add to ClosetAI</strong> in your bookmarks. ClosetAI opens with the clothing details and photos ready to save!
+              </li>
+            </ol>
+          </div>
+        </div>
+      ) : null}
 
       <form
         onSubmit={(e) => {
@@ -471,6 +620,33 @@ export function StoreImportCard({
         }}
       />
 
+      <input
+        ref={multiScreenshotInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="sr-only"
+        aria-label="Upload multi-garment order screenshot"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            onFallbackFilesWithMetadata(
+              e.target.files,
+              product
+                ? {
+                    initialValues: buildEditedInitialValues(),
+                    sourceUrl: product.normalizedUrl,
+                    sourceBrand: edited.brand.trim() || null,
+                    allowDuplicate,
+                  }
+                : undefined,
+              true,
+            );
+            setProduct(null);
+            setError(null);
+          }
+          e.target.value = "";
+        }}
+      />
+
       {extracting ? (
         <div
           role="status"
@@ -501,6 +677,25 @@ export function StoreImportCard({
               {product
                 ? "Upload photo & keep extracted details"
                 : "Upload screenshot or photo"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => multiScreenshotInputRef.current?.click()}
+              title="Upload SHEIN, Temu, or store order screenshot containing multiple items"
+            >
+              <Layers className="size-3.5 text-accent" aria-hidden />
+              Order screenshot (multi-garment)
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setShowBookmarkletGuide(true)}
+            >
+              <BookmarkPlus className="size-3.5" aria-hidden />
+              Use Browser Bookmarklet
             </Button>
             <span className="inline-flex items-center gap-1.5 text-xs text-muted px-2 py-1">
               <ClipboardPaste className="size-3.5" aria-hidden />

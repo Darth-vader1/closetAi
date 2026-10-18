@@ -25,6 +25,8 @@ export const TRACKING_QUERY_PARAMS = new Set([
   "yclid",
   "rb_clickid",
   "s_kwcid",
+  "ctaref",
+  "share_source",
 ]);
 
 /**

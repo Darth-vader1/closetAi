@@ -39,6 +39,33 @@ export function createMockProvider(): AiProvider {
           overall_advice: "Great clean pieces for a crisp look.",
         };
       }
+      if (req.task === "multi_clothing_analysis" && req.image) {
+        return {
+          items: [
+            {
+              box_2d: [50, 40, 480, 480],
+              ...pick(req.image.bytes),
+              confidence: 0.9,
+              uncertain_fields: [],
+            },
+            {
+              box_2d: [520, 500, 950, 960],
+              name: "Sample stone chinos",
+              category: "trousers",
+              subcategory: "chinos",
+              primary_colour: "beige",
+              secondary_colours: [],
+              pattern: "solid",
+              style: "smart_casual",
+              occasions: ["work", "everyday"],
+              seasons: ["spring", "summer", "autumn"],
+              care_type: "WASHABLE",
+              confidence: 0.88,
+              uncertain_fields: [],
+            },
+          ],
+        };
+      }
       if (req.task !== "clothing_analysis" || !req.image) {
         throw new AiProviderError("The mock provider only supports clothing analysis and stylist recommendations.", false);
       }

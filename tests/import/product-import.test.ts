@@ -630,6 +630,44 @@ describe("Universal Product Import — Duplicate Detection & API Route Authoriza
     expect(unauthImgRes.status).toBe(401);
   });
 
+  it("tests live Temu share link fetch or rejection", async () => {
+    const { POST } = await import("@/app/api/wardrobe/import-url/route");
+    const req = new NextRequest("http://localhost:3000/api/wardrobe/import-url", {
+      method: "POST",
+      headers: {
+        origin: "http://localhost:3000",
+        host: "localhost:3000",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ url: "https://share.temu.com/ox5dhl0tt7B" }),
+    });
+
+    const sessionModule = await import("@/lib/auth/session");
+    vi.mocked(sessionModule.getSessionUser).mockResolvedValueOnce({
+      id: "00000000-0000-0000-0000-000000000001",
+      email: "test@example.com",
+    } as never);
+
+    const supabaseServerModule = await import("@/lib/supabase/server");
+    vi.spyOn(supabaseServerModule, "createClient").mockResolvedValueOnce({} as never);
+
+    const dupModule = await import("@/lib/import/duplicate-check");
+    vi.spyOn(dupModule, "findDuplicateImportedItem").mockResolvedValue(null);
+
+    const res = await POST(req);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      ok?: boolean;
+      code?: string;
+      error?: string;
+      fallbackHint?: string;
+    };
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe("BLOCKED_BY_STORE");
+    expect(body.error).toContain("anti-bot");
+    expect(body.fallbackHint).toContain("Ctrl+V");
+  });
+
   it("rejects direct private IP image fetch attempts in safeFetchImage", async () => {
     await expect(
       safeFetchImage("http://127.0.0.1/internal-secret.png"),

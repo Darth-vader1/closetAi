@@ -30,7 +30,6 @@ export function renderDailyOutfitHtml({
   weatherSummary,
   unsubscribeToken,
   date,
-  outfitId,
 }: DailyOutfitEmailProps): string {
   const appUrl = getAppUrl();
   const targetDate = date || new Date().toISOString().slice(0, 10);

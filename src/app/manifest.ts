@@ -42,5 +42,15 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: "any",
       },
     ],
+    share_target: {
+      action: "/wardrobe/new",
+      method: "GET",
+      enctype: "application/x-www-form-urlencoded",
+      params: {
+        title: "title",
+        text: "text",
+        url: "url",
+      },
+    },
   };
 }

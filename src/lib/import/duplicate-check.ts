@@ -39,44 +39,49 @@ export async function findDuplicateImportedItem(
       ? options.sourceImageSha256.trim().toLowerCase()
       : null;
 
-  if (normalizedUrl) {
-    const byUrl = await supabase
-      .from("wardrobe_items")
-      .select("id, name, category, source_url")
-      .eq("user_id", userId)
-      .eq("source_url", normalizedUrl)
-      .limit(1)
-      .maybeSingle();
+  try {
+    if (normalizedUrl) {
+      const byUrl = await supabase
+        .from("wardrobe_items")
+        .select("id, name, category, source_url")
+        .eq("user_id", userId)
+        .eq("source_url", normalizedUrl)
+        .limit(1)
+        .maybeSingle();
 
-    if (!byUrl.error && byUrl.data) {
-      return {
-        id: byUrl.data.id as string,
-        name: byUrl.data.name as string,
-        category: byUrl.data.category as string,
-        matchedBy: "source_url",
-        sourceUrl: (byUrl.data.source_url as string | null) ?? normalizedUrl,
-      };
+      if (!byUrl.error && byUrl.data) {
+        return {
+          id: byUrl.data.id as string,
+          name: byUrl.data.name as string,
+          category: byUrl.data.category as string,
+          matchedBy: "source_url",
+          sourceUrl: (byUrl.data.source_url as string | null) ?? normalizedUrl,
+        };
+      }
     }
-  }
 
-  if (normalizedHash) {
-    const byHash = await supabase
-      .from("wardrobe_items")
-      .select("id, name, category, source_url")
-      .eq("user_id", userId)
-      .eq("source_image_sha256", normalizedHash)
-      .limit(1)
-      .maybeSingle();
+    if (normalizedHash) {
+      const byHash = await supabase
+        .from("wardrobe_items")
+        .select("id, name, category, source_url")
+        .eq("user_id", userId)
+        .eq("source_image_sha256", normalizedHash)
+        .limit(1)
+        .maybeSingle();
 
-    if (!byHash.error && byHash.data) {
-      return {
-        id: byHash.data.id as string,
-        name: byHash.data.name as string,
-        category: byHash.data.category as string,
-        matchedBy: "source_image_sha256",
-        sourceUrl: (byHash.data.source_url as string | null) ?? null,
-      };
+      if (!byHash.error && byHash.data) {
+        return {
+          id: byHash.data.id as string,
+          name: byHash.data.name as string,
+          category: byHash.data.category as string,
+          matchedBy: "source_image_sha256",
+          sourceUrl: (byHash.data.source_url as string | null) ?? null,
+        };
+      }
     }
+  } catch {
+    // Graceful fallback if database schema is undergoing migration or columns are absent
+    return null;
   }
 
   return null;

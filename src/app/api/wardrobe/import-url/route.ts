@@ -86,26 +86,31 @@ export async function POST(request: NextRequest) {
       fetchedHtml = await safeFetchHtml(parsed.data.url, {
         signal: request.signal,
       });
-    } catch (err) {
-      if (err instanceof SafeFetchError) {
-        const isSecurityReject =
-          err.code === "INVALID_URL" ||
-          err.code === "UNSUPPORTED_PROTOCOL" ||
-          err.code === "PROHIBITED_HOST" ||
-          err.code === "PROHIBITED_IP" ||
-          err.code === "TOO_MANY_REDIRECTS";
-        return json(
-          {
-            ok: false,
-            code: err.code,
-            error: err.message,
-            fallbackHint:
-              "Copy the product photo from the store page and press Ctrl+V here, or upload a screenshot from your device.",
-          },
-          isSecurityReject ? 400 : 422,
-        );
-      }
-      throw err;
+    } catch (err: unknown) {
+      const errObj = (err && typeof err === "object") ? (err as Record<string, unknown>) : {};
+      const code = typeof errObj.code === "string" ? errObj.code : "UPSTREAM_ERROR";
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Could not connect to that store. Try pasting a screenshot or uploading the image directly.";
+
+      const isSecurityReject =
+        code === "INVALID_URL" ||
+        code === "UNSUPPORTED_PROTOCOL" ||
+        code === "PROHIBITED_HOST" ||
+        code === "PROHIBITED_IP" ||
+        code === "TOO_MANY_REDIRECTS";
+
+      return json(
+        {
+          ok: false,
+          code,
+          error: message,
+          fallbackHint:
+            "Copy the product photo from the store page and press Ctrl+V here, or upload a screenshot from your device.",
+        },
+        isSecurityReject ? 400 : 422,
+      );
     }
 
     const extracted = extractProductFromHtml(

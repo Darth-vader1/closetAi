@@ -147,7 +147,15 @@ export function resolveAiConfig(source: Record<string, string | undefined> = pro
     ].filter((k): k is string => Boolean(k));
     if (missing.length > 0) return { ok: false, reason: new ConfigError("AI provider", missing).message };
     const rawKeys = rawKey.split(",").map((k) => k.trim()).filter(Boolean);
-    const visionModel = source.AI_VISION_MODEL!.trim();
+    const isOtherProviderModel = (m: string) => /^(meta-llama|llama|qwen|openai|pixtral|mistral)/i.test(m);
+    const visionModel =
+      source.AI_VISION_MODEL && !isOtherProviderModel(source.AI_VISION_MODEL)
+        ? source.AI_VISION_MODEL.trim()
+        : "gemini-flash-latest";
+    const textModel =
+      source.AI_TEXT_MODEL && !isOtherProviderModel(source.AI_TEXT_MODEL)
+        ? source.AI_TEXT_MODEL.trim()
+        : visionModel;
     return {
       ok: true,
       config: {
@@ -155,7 +163,7 @@ export function resolveAiConfig(source: Record<string, string | undefined> = pro
         apiKey: rawKeys[0],
         apiKeys: rawKeys,
         visionModel,
-        textModel: source.AI_TEXT_MODEL?.trim() || visionModel,
+        textModel,
       },
     };
   }

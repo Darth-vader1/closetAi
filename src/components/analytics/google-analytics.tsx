@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Script from "next/script";
@@ -73,8 +73,14 @@ function writeStoredConsent(choice: "accepted" | "declined"): void {
   }
 }
 
-export function GoogleAnalytics() {
+function GoogleAnalyticsInner() {
   const pathname = usePathname();
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+
   const consent = useSyncExternalStore(
     subscribeConsent,
     readStoredConsent,
@@ -82,7 +88,11 @@ export function GoogleAnalytics() {
   );
 
   const skipOnRoute = isAnalyticsExcludedPath(pathname);
-  const shouldLoadGa = Boolean(GA_MEASUREMENT_ID) && consent === "accepted" && !skipOnRoute;
+  const shouldLoadGa =
+    mounted &&
+    Boolean(GA_MEASUREMENT_ID) &&
+    consent === "accepted" &&
+    !skipOnRoute;
 
   useEffect(() => {
     if (!shouldLoadGa || !pathname) return;
@@ -95,7 +105,7 @@ export function GoogleAnalytics() {
     });
   }, [pathname, shouldLoadGa]);
 
-  if (!GA_MEASUREMENT_ID) return null;
+  if (!mounted || !GA_MEASUREMENT_ID) return null;
 
   return (
     <>
@@ -103,9 +113,9 @@ export function GoogleAnalytics() {
         <>
           <Script
             src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
-            strategy="afterInteractive"
+            strategy="lazyOnload"
           />
-          <Script id="google-analytics-init" strategy="afterInteractive">
+          <Script id="google-analytics-init" strategy="lazyOnload">
             {`
               window.dataLayer = window.dataLayer || [];
               function gtag(){dataLayer.push(arguments);}
@@ -159,5 +169,13 @@ export function GoogleAnalytics() {
         </div>
       )}
     </>
+  );
+}
+
+export function GoogleAnalytics() {
+  return (
+    <Suspense fallback={null}>
+      <GoogleAnalyticsInner />
+    </Suspense>
   );
 }

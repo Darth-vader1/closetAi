@@ -808,7 +808,9 @@ function isBotChallengeHtml(html: string): boolean {
     lower.includes("perimeterx") ||
     lower.includes("datadome") ||
     lower.includes("verify you are human") ||
-    lower.includes("enable javascript and cookies to continue");
+    lower.includes("enable javascript and cookies to continue") ||
+    (lower.includes("kwcdn.com") && lower.includes("assets/chl/js")) ||
+    (lower.includes("function _0x") && lower.includes("challenge"));
 
   const hasAnyProductHint =
     lower.includes("application/ld+json") ||

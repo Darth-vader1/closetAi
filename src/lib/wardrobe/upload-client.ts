@@ -2,7 +2,7 @@
  * Browser-side helpers for the upload flow. Nothing here is trusted by the server: it re-checks
  * size, content type, ownership and path on every request.
  */
-import type { ClothingSuggestion } from "@/lib/ai/schemas";
+import type { ClothingSuggestion, DetectedClothingItem } from "@/lib/ai/schemas";
 
 export const MAX_FILES_PER_BATCH = 20;
 const MAX_EDGE_PX = 1600;
@@ -118,6 +118,44 @@ export async function analysePhoto(path: string, signal: AbortSignal): Promise<A
   }
   const message = typeof body.error === "string" ? body.error : "Photo analysis isn't available right now.";
   return { status: "failed", message: `${message}` };
+}
+
+export type MultiAnalyseResponse =
+  | { status: "ok"; items: DetectedClothingItem[]; provider: string; isMock: boolean }
+  | { status: "unavailable"; reason: string }
+  | { status: "failed"; message: string };
+
+export async function detectScreenshotItems(
+  path: string,
+  signal: AbortSignal,
+): Promise<MultiAnalyseResponse> {
+  let response: Response;
+  try {
+    response = await fetch("/api/ai/detect-items", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    return {
+      status: "failed",
+      message: "Couldn't reach the AI detection service.",
+    };
+  }
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (
+    response.ok &&
+    (body.status === "ok" || body.status === "unavailable" || body.status === "failed")
+  ) {
+    return body as MultiAnalyseResponse;
+  }
+  const message =
+    typeof body.error === "string"
+      ? body.error
+      : "Multi-item screenshot detection isn't available right now.";
+  return { status: "failed", message };
 }
 
 /** Runs at most `limit` async jobs at once; the rest wait their turn. */

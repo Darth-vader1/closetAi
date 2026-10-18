@@ -2,7 +2,16 @@ import { createGeminiProvider } from "@/lib/ai/gemini";
 import { createGroqProvider } from "@/lib/ai/groq";
 import { createMistralProvider } from "@/lib/ai/mistral";
 import { createMockProvider } from "@/lib/ai/mock";
-import { CLOTHING_SYSTEM_PROMPT, clothingAnalysisJsonSchema, clothingAnalysisSchema, type ClothingSuggestion } from "@/lib/ai/schemas";
+import {
+  CLOTHING_SYSTEM_PROMPT,
+  clothingAnalysisJsonSchema,
+  clothingAnalysisSchema,
+  type ClothingSuggestion,
+  MULTI_CLOTHING_SYSTEM_PROMPT,
+  multiClothingAnalysisJsonSchema,
+  multiClothingAnalysisSchema,
+  type DetectedClothingItem,
+} from "@/lib/ai/schemas";
 import { AiProviderError, type AiImage, type AiProvider } from "@/lib/ai/types";
 import { resolveAiConfig } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -124,8 +133,8 @@ export function getAiProvider(source: Record<string, string | undefined> = proce
           createGeminiProvider({
             apiKey: keys[0],
             apiKeys: keys,
-            visionModel: "gemini-2.5-flash",
-            textModel: "gemini-2.5-flash",
+            visionModel: "gemini-flash-latest",
+            textModel: "gemini-flash-latest",
           }),
         );
         seen.add("gemini");
@@ -194,6 +203,81 @@ export async function analyseClothingImage(
   }
 
   return { status: "failed", message: `${lastMessage} You can enter the details yourself.` };
+}
+
+export type MultiAnalyseResult =
+  | {
+      status: "ok";
+      items: DetectedClothingItem[];
+      provider: string;
+      isMock: boolean;
+    }
+  | { status: "unavailable"; reason: string }
+  | { status: "failed"; message: string };
+
+export async function analyseMultiClothingImage(
+  image: AiImage,
+  options: { provider?: AiProvider; signal?: AbortSignal } = {},
+): Promise<MultiAnalyseResult> {
+  let provider = options.provider;
+  if (!provider) {
+    const availability = getAiProvider();
+    if (!availability.available) return { status: "unavailable", reason: availability.reason };
+    provider = availability.provider;
+  }
+
+  const MAX_ATTEMPTS = 2;
+  let lastMessage = "The AI service couldn't detect garments in this screenshot.";
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const raw = await provider.generateJson({
+        task: "multi_clothing_analysis",
+        kind: "vision",
+        system: MULTI_CLOTHING_SYSTEM_PROMPT,
+        prompt:
+          "Identify each distinct clothing item or accessory in this order screenshot or photo. Return its bounding box [ymin, xmin, ymax, xmax] (0-1000 scale) and cataloguing attributes.",
+        image,
+        jsonSchema: multiClothingAnalysisJsonSchema,
+        signal: options.signal,
+      });
+
+      const parsed = multiClothingAnalysisSchema.safeParse(raw);
+      if (parsed.success) {
+        return {
+          status: "ok",
+          items: parsed.data.items,
+          provider: provider.name,
+          isMock: provider.isMock,
+        };
+      }
+
+      logger.warn("ai.multi_analysis_invalid_output", {
+        provider: provider.name,
+        attempt,
+        issues: parsed.error.issues.length,
+      });
+      lastMessage = "The AI returned detection data we couldn't parse.";
+    } catch (err) {
+      if (err instanceof AiProviderError) {
+        logger.warn("ai.provider_error", {
+          provider: provider.name,
+          attempt,
+          retryable: err.retryable,
+          errorMessage: err.message,
+        });
+        lastMessage = err.message;
+        if (!err.retryable) break;
+      } else {
+        logger.error("ai.unexpected_error", { provider: provider.name, attempt, err });
+        lastMessage = "The AI service encountered an unexpected error.";
+        break;
+      }
+    }
+    if (options.signal?.aborted) break;
+  }
+
+  return { status: "failed", message: `${lastMessage} You can still enter details manually.` };
 }
 
 export {

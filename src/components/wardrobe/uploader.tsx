@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, CheckCircle2, ImagePlus, Loader2, RefreshCw, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { Camera, CheckCircle2, CheckSquare, Globe, ImagePlus, Layers, Loader2, RefreshCw, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { discardUploadAction, saveItemAction } from "@/app/(app)/wardrobe/actions";
-import type { ClothingSuggestion } from "@/lib/ai/schemas";
+import type { ClothingSuggestion, DetectedClothingItem } from "@/lib/ai/schemas";
 import { Button } from "@/components/ui/button";
 import { Alert, Card } from "@/components/ui/card";
 import { emptyItemValues, ItemFieldsForm } from "@/components/wardrobe/item-fields";
+import { MultiItemCard } from "@/components/wardrobe/multi-item-card";
 import {
   StoreImportCard,
   type ImportedEntryPayload,
@@ -19,15 +20,18 @@ import {
   classifyClipboardPaste,
   isEditablePasteTarget,
 } from "@/lib/import/clipboard";
+import type { ExtractedProductMetadata } from "@/lib/import/extract-product";
 import { itemFieldsSchema, type ItemFields, type ItemFieldsInput } from "@/lib/validation/wardrobe";
 import type {
   AiEnhancementParams,
   BeautificationMode,
 } from "@/lib/wardrobe/beautify-engine";
+import { cropGarmentFromImage } from "@/lib/wardrobe/crop-items";
 import { beautifyGarmentImage } from "@/lib/wardrobe/studio-canvas";
 import {
   analysePhoto,
   createLimiter,
+  detectScreenshotItems,
   isAcceptedFile,
   MAX_FILES_PER_BATCH,
   prepareImage,
@@ -68,6 +72,8 @@ interface Entry {
   sourceBrand?: string | null;
   sourceImageSha256?: string | null;
   allowDuplicate?: boolean;
+  multiDetectedItems?: DetectedClothingItem[] | null;
+  multiCropping?: boolean;
 }
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
@@ -114,8 +120,24 @@ function suggestionToValues(
   };
 }
 
-export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvailable: boolean; aiUnavailableReason: string | null }) {
+export function WardrobeUploader({
+  aiAvailable,
+  aiUnavailableReason,
+  initialImportUrl,
+  initialBookmarkletProduct,
+  initialTab,
+}: {
+  aiAvailable: boolean;
+  aiUnavailableReason: string | null;
+  initialImportUrl?: string | null;
+  initialBookmarkletProduct?: ExtractedProductMetadata | null;
+  initialTab?: "photo" | "store" | "screenshot";
+}) {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<"photo" | "store" | "screenshot">(
+    initialTab ??
+      (initialImportUrl || initialBookmarkletProduct ? "store" : "photo"),
+  );
   const [entries, setEntries] = useState<Entry[]>([]);
   const [useAi, setUseAi] = useState(aiAvailable);
   const [autoCutout, setAutoCutout] = useState(false);
@@ -131,7 +153,10 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
   const limiter = useRef(createLimiter(1));
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
+  const multiScreenshotInput = useRef<HTMLInputElement>(null);
   const storeUrlInputRef = useRef<HTMLInputElement>(null);
+  const formSubmittersRef = useRef(new Map<string, () => Promise<boolean>>());
+  const [savingAll, setSavingAll] = useState(false);
 
   useEffect(() => {
     entriesRef.current = entries;
@@ -139,6 +164,17 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
 
   const patch = useCallback((id: string, changes: Partial<Entry>) => {
     setEntries((list) => list.map((e) => (e.id === id ? { ...e, ...changes } : e)));
+  }, []);
+
+  const registerSubmitter = useCallback(
+    (id: string, fn: () => Promise<boolean>) => {
+      formSubmittersRef.current.set(id, fn);
+    },
+    [],
+  );
+
+  const unregisterSubmitter = useCallback((id: string) => {
+    formSubmittersRef.current.delete(id);
   }, []);
 
   const runAnalysis = useCallback(
@@ -161,8 +197,67 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
     [patch],
   );
 
+  const runMultiDetection = useCallback(
+    async (id: string, path: string, signal: AbortSignal) => {
+      patch(id, { analysing: true, aiNote: null });
+      const result = await detectScreenshotItems(path, signal);
+      if (result.status === "ok") {
+        if (result.items.length > 1) {
+          setEntries((list) =>
+            list.map((e) =>
+              e.id === id
+                ? {
+                    ...e,
+                    analysing: false,
+                    multiDetectedItems: result.items,
+                    isMock: result.isMock,
+                    aiNote: null,
+                  }
+                : e,
+            ),
+          );
+        } else if (result.items.length === 1) {
+          const single = result.items[0];
+          const suggestion: ClothingSuggestion = single.suggestion;
+          setEntries((list) =>
+            list.map((e) =>
+              e.id === id
+                ? {
+                    ...e,
+                    analysing: false,
+                    suggestion,
+                    suggestionKey: e.suggestionKey + 1,
+                    isMock: result.isMock,
+                    aiNote: null,
+                  }
+                : e,
+            ),
+          );
+        } else {
+          patch(id, {
+            analysing: false,
+            aiNote:
+              "No distinct clothing items were recognized in this screenshot. You can fill in the details manually.",
+          });
+        }
+      } else {
+        const note =
+          result.status === "unavailable"
+            ? `${result.reason} You can fill in the details yourself.`
+            : result.message;
+        patch(id, { analysing: false, aiNote: note });
+      }
+    },
+    [patch],
+  );
+
   const process = useCallback(
-    (entry: Entry, withAi: boolean, withAutoCutout: boolean) =>
+    (
+      entry: Entry,
+      withAi: boolean,
+      withAutoCutout: boolean,
+      isMultiScan?: boolean,
+    ) =>
       limiter.current(async () => {
         const controller = controllers.current.get(entry.id);
         if (!controller || controller.signal.aborted) return;
@@ -178,7 +273,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           // Always upload and preserve the original image first
           const origPath = await uploadPhoto(origBlob, {
             signal: controller.signal,
-            onProgress: (f) => patch(entry.id, { progress: withAutoCutout ? f * 0.6 : f }),
+            onProgress: (f) => patch(entry.id, { progress: withAutoCutout && !isMultiScan ? f * 0.6 : f }),
           });
 
           let activePath = origPath;
@@ -190,7 +285,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           let beautifyWarnings: string[] = [];
           let isCutout = false;
 
-          if (withAutoCutout) {
+          if (withAutoCutout && !isMultiScan) {
             try {
               const apiRes = await fetch("/api/ai/beautify", {
                 method: "POST",
@@ -253,6 +348,13 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
             progress: 1,
           });
 
+          if (isMultiScan) {
+            patch(entry.id, { stage: "analysing" });
+            await runMultiDetection(entry.id, origPath, controller.signal);
+            patch(entry.id, { stage: "review" });
+            return;
+          }
+
           if (withAi) {
             patch(entry.id, { stage: "analysing" });
             await runAnalysis(entry.id, origPath, controller.signal);
@@ -264,7 +366,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           patch(entry.id, { stage: "error", error: err instanceof Error ? err.message : "Something went wrong with this photo." });
         }
       }),
-    [patch, runAnalysis],
+    [patch, runAnalysis, runMultiDetection],
   );
 
   const addFiles = useCallback(
@@ -276,6 +378,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
         sourceBrand: string | null;
         allowDuplicate: boolean;
       },
+      isMultiScan?: boolean,
     ) => {
       const incoming = Array.from(fileList);
       const accepted = incoming.filter(isAcceptedFile);
@@ -319,6 +422,8 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           sourceBrand: importContext?.sourceBrand ?? null,
           sourceImageSha256: null,
           allowDuplicate: importContext?.allowDuplicate ?? false,
+          multiDetectedItems: null,
+          multiCropping: false,
         };
       });
       for (const e of fresh) controllers.current.set(e.id, new AbortController());
@@ -327,7 +432,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       const shouldRunAi = importContext
         ? false
         : useAi && aiAvailable;
-      for (const e of fresh) void process(e, shouldRunAi, autoCutout);
+      for (const e of fresh) void process(e, shouldRunAi, autoCutout, isMultiScan);
     },
     [process, useAi, aiAvailable, autoCutout],
   );
@@ -356,6 +461,124 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
       }
     }
     setEntries((list) => list.filter((e) => e.id !== id));
+  }, []);
+
+  const importSelectedMultiItems = useCallback(
+    async (parentEntry: Entry, selected: DetectedClothingItem[]) => {
+      patch(parentEntry.id, { multiCropping: true });
+      try {
+        const croppedEntries: Entry[] = [];
+
+        for (const item of selected) {
+          const { file: croppedFile, previewUrl } = await cropGarmentFromImage(
+            parentEntry.file,
+            item.box2d,
+            item.suggestion.name,
+          );
+
+          const controller = new AbortController();
+          const croppedId = crypto.randomUUID();
+          controllers.current.set(croppedId, controller);
+
+          const preparedBlob = await prepareImage(croppedFile);
+          const uploadedPath = await uploadPhoto(preparedBlob, {
+            signal: controller.signal,
+            onProgress: () => {},
+          });
+
+          const suggestion: ClothingSuggestion = item.suggestion;
+
+          const initialValues = suggestionToValues(
+            suggestion,
+            parentEntry.initialValues,
+          );
+
+          croppedEntries.push({
+            id: croppedId,
+            file: croppedFile,
+            previewUrl,
+            originalPreviewUrl: previewUrl,
+            stage: "review",
+            progress: 1,
+            path: uploadedPath,
+            originalPath: uploadedPath,
+            photoRoomCutoutDataUrl: null,
+            beautifiedPath: null,
+            beautifyMode: null,
+            beautifyProvider: null,
+            beautifyModel: null,
+            beautifyWarnings: [],
+            beautifyError: null,
+            suggestion,
+            suggestionKey: 1,
+            isMock: parentEntry.isMock,
+            analysing: false,
+            aiNote: null,
+            error: null,
+            savedId: null,
+            initialValues,
+            sourceUrl: parentEntry.sourceUrl,
+            sourceBrand: parentEntry.sourceBrand,
+            sourceImageSha256: null,
+            allowDuplicate: parentEntry.allowDuplicate ?? false,
+          });
+        }
+
+        setEntries((list) => {
+          const idx = list.findIndex((e) => e.id === parentEntry.id);
+          if (idx === -1) return [...list, ...croppedEntries];
+          const next = [...list];
+          next.splice(idx, 1, ...croppedEntries);
+          return next;
+        });
+
+        controllers.current.delete(parentEntry.id);
+      } catch (err) {
+        patch(parentEntry.id, {
+          multiCropping: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : "Failed to isolate and crop garments from screenshot.",
+        });
+      }
+    },
+    [patch],
+  );
+
+  const handleDismissMulti = useCallback(
+    (id: string) => {
+      patch(id, { multiDetectedItems: null });
+    },
+    [patch],
+  );
+
+  const handleScanMulti = useCallback(
+    (e: Entry) => {
+      if (!e.path) return;
+      const fresh = new AbortController();
+      controllers.current.set(e.id, fresh);
+      void runMultiDetection(e.id, e.originalPath ?? e.path, fresh.signal);
+    },
+    [runMultiDetection],
+  );
+
+  const handleSaveAll = useCallback(async () => {
+    const readyEntries = entriesRef.current.filter(
+      (e) => (e.stage === "review" || e.stage === "saving") && !e.multiDetectedItems,
+    );
+    if (readyEntries.length === 0) return;
+    setSavingAll(true);
+    try {
+      for (const e of readyEntries) {
+        const submitter = formSubmittersRef.current.get(e.id);
+        if (submitter) {
+          await submitter();
+        }
+      }
+    } finally {
+      setSavingAll(false);
+    }
   }, []);
 
   const retry = useCallback(
@@ -624,9 +847,11 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
 
       if (classified.kind === "image") {
         e.preventDefault();
+        setActiveTab("photo");
         addFiles(classified.files);
       } else if (classified.kind === "url") {
         e.preventDefault();
+        setActiveTab("store");
         setExternalPastedUrl({ url: classified.url, key: Date.now() });
       }
     };
@@ -657,85 +882,188 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
 
   return (
     <div className="space-y-6">
-      <StoreImportCard
-        aiAvailable={aiAvailable}
-        externalPastedUrl={externalPastedUrl}
-        urlInputRef={storeUrlInputRef}
-        onImportReady={handleStoreImportReady}
-        onFallbackFilesWithMetadata={addFiles}
-      />
-
-      <Card className="p-5 sm:p-6">
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            addFiles(e.dataTransfer.files);
-          }}
-          className={`flex flex-col items-center rounded-2xl border-2 border-dashed px-4 py-10 text-center transition-colors ${dragging ? "border-accent bg-accent-soft" : "border-border-strong bg-surface-muted/50"}`}
+      {/* Input Mode Segments */}
+      <div className="flex rounded-2xl bg-surface-muted/80 p-1.5 border border-border gap-1.5">
+        <button
+          type="button"
+          onClick={() => setActiveTab("photo")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+            activeTab === "photo"
+              ? "bg-surface text-foreground shadow-xs border border-border/80"
+              : "text-muted hover:text-foreground"
+          }`}
         >
-          <ImagePlus className="size-8 text-accent" aria-hidden />
-          <p className="mt-3 font-medium">Add photos of your clothes</p>
-          <p className="mt-1 max-w-md text-sm text-muted">One garment per photo works best. JPEG, PNG or WebP, up to {MAX_FILES_PER_BATCH} at a time — or press Ctrl+V to paste a copied image.</p>
-          <div className="mt-5 flex flex-wrap justify-center gap-3">
-            <Button type="button" onClick={() => fileInput.current?.click()}>
-              <ImagePlus className="size-4" aria-hidden /> Choose photos
-            </Button>
-            <Button type="button" variant="outline" onClick={() => cameraInput.current?.click()}>
-              <Camera className="size-4" aria-hidden /> Take a photo
-            </Button>
+          <Camera className="size-4 text-accent" />
+          <span>Photos &amp; Camera</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("store")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+            activeTab === "store"
+              ? "bg-surface text-foreground shadow-xs border border-border/80"
+              : "text-muted hover:text-foreground"
+          }`}
+        >
+          <Globe className="size-4 text-accent" />
+          <span>Import from Store</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("screenshot")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+            activeTab === "screenshot"
+              ? "bg-surface text-foreground shadow-xs border border-border/80"
+              : "text-muted hover:text-foreground"
+          }`}
+        >
+          <Layers className="size-4 text-accent" />
+          <span>Order Screenshot</span>
+        </button>
+      </div>
+
+      {activeTab === "store" ? (
+        <StoreImportCard
+          aiAvailable={aiAvailable}
+          externalPastedUrl={externalPastedUrl}
+          initialUrl={initialImportUrl}
+          initialProduct={initialBookmarkletProduct}
+          urlInputRef={storeUrlInputRef}
+          onImportReady={handleStoreImportReady}
+          onFallbackFilesWithMetadata={(files, ctx, isMulti) => {
+            if (isMulti) setActiveTab("screenshot");
+            else setActiveTab("photo");
+            addFiles(files, ctx, isMulti);
+          }}
+        />
+      ) : null}
+
+      {activeTab === "photo" ? (
+        <Card className="p-5 sm:p-6">
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              addFiles(e.dataTransfer.files);
+            }}
+            className={`flex flex-col items-center rounded-2xl border-2 border-dashed px-4 py-10 text-center transition-colors ${dragging ? "border-accent bg-accent-soft" : "border-border-strong bg-surface-muted/50"}`}
+          >
+            <ImagePlus className="size-8 text-accent" aria-hidden />
+            <p className="mt-3 font-medium">Add photos of your clothes</p>
+            <p className="mt-1 max-w-md text-sm text-muted">
+              One garment per photo works best. JPEG, PNG or WebP, up to {MAX_FILES_PER_BATCH} at a time — or press Ctrl+V to paste a copied image.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-center gap-3">
+              <Button type="button" onClick={() => fileInput.current?.click()}>
+                <ImagePlus className="size-4" aria-hidden /> Choose photos
+              </Button>
+              <Button type="button" variant="outline" onClick={() => cameraInput.current?.click()}>
+                <Camera className="size-4" aria-hidden /> Take a photo
+              </Button>
+            </div>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              multiple
+              className="sr-only"
+              aria-label="Choose clothing photos"
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <input
+              ref={cameraInput}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="sr-only"
+              aria-label="Take a clothing photo"
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
           </div>
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-            multiple
-            className="sr-only"
-            aria-label="Choose clothing photos"
-            onChange={(e) => {
-              if (e.target.files) addFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
-          <input
-            ref={cameraInput}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="sr-only"
-            aria-label="Take a clothing photo"
-            onChange={(e) => {
-              if (e.target.files) addFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
-        </div>
 
-        <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
-          {aiAvailable ? (
-            <label className="flex min-h-11 items-center gap-3 text-sm font-medium cursor-pointer">
-              <input type="checkbox" className="size-5 accent-[var(--accent)]" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} />
-              <span>Suggest details with AI</span>
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
+            {aiAvailable ? (
+              <label className="flex min-h-11 items-center gap-3 text-sm font-medium cursor-pointer">
+                <input type="checkbox" className="size-5 accent-[var(--accent)]" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} />
+                <span>Suggest details with AI</span>
+              </label>
+            ) : (
+              <p className="text-sm text-muted">AI suggestions aren&apos;t available. {aiUnavailableReason}</p>
+            )}
+
+            <label className="flex min-h-11 items-center gap-2.5 text-sm font-medium cursor-pointer text-foreground">
+              <input type="checkbox" className="size-5 accent-[var(--accent)]" checked={autoCutout} onChange={(e) => setAutoCutout(e.target.checked)} />
+              <span className="flex items-center gap-1.5">
+                <Wand2 className="size-4 text-accent" />
+                <span>Auto-Studio Cutout (clean background)</span>
+              </span>
             </label>
-          ) : (
-            <p className="text-sm text-muted">AI suggestions aren&apos;t available. {aiUnavailableReason}</p>
-          )}
+          </div>
+          {notice ? <Alert tone="warning" className="mt-3">{notice}</Alert> : null}
+        </Card>
+      ) : null}
 
-          <label className="flex min-h-11 items-center gap-2.5 text-sm font-medium cursor-pointer text-foreground">
-            <input type="checkbox" className="size-5 accent-[var(--accent)]" checked={autoCutout} onChange={(e) => setAutoCutout(e.target.checked)} />
-            <span className="flex items-center gap-1.5">
-              <Wand2 className="size-4 text-accent" />
-              <span>Auto-Studio Cutout (clean background)</span>
-            </span>
-          </label>
-        </div>
-        {notice ? <Alert tone="warning" className="mt-3">{notice}</Alert> : null}
-      </Card>
+      {activeTab === "screenshot" ? (
+        <Card className="p-5 sm:p-6 border-accent/30 bg-surface">
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              addFiles(e.dataTransfer.files, undefined, true);
+            }}
+            className={`flex flex-col items-center rounded-2xl border-2 border-dashed px-4 py-10 text-center transition-colors ${
+              dragging
+                ? "border-accent bg-accent-soft"
+                : "border-border-strong bg-surface-muted/50"
+            }`}
+          >
+            <Layers className="size-8 text-accent" aria-hidden />
+            <p className="mt-3 font-semibold text-foreground">
+              Upload multi-garment order screenshot
+            </p>
+            <p className="mt-1 max-w-md text-xs text-muted">
+              Upload an order confirmation or shopping cart screenshot (SHEIN, Temu, ASOS, Zara, etc.).
+              ClosetAI identifies each garment, crops it, and prepares separate review cards.
+            </p>
+            <div className="mt-5">
+              <Button
+                type="button"
+                onClick={() => multiScreenshotInput.current?.click()}
+              >
+                <Layers className="size-4" aria-hidden /> Choose order screenshot
+              </Button>
+            </div>
+            <input
+              ref={multiScreenshotInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              aria-label="Upload multi-garment order screenshot"
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files, undefined, true);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          {notice ? <Alert tone="warning" className="mt-3">{notice}</Alert> : null}
+        </Card>
+      ) : null}
 
       {entries.length > 0 && savedCount === entries.length ? (
         <Alert tone="success" title={`${savedCount} ${savedCount === 1 ? "garment" : "garments"} saved`}>
@@ -743,6 +1071,35 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
             Back to your wardrobe
           </Link>
         </Alert>
+      ) : null}
+
+      {/* Batch save action bar when 2 or more garments are ready for review */}
+      {entries.filter((e) => (e.stage === "review" || e.stage === "saving") && !e.multiDetectedItems).length >= 2 ? (
+        <Card className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-surface border-accent/40 shadow-xs">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <CheckSquare className="size-4 text-accent" />
+              Batch Save (
+              {
+                entries.filter(
+                  (e) => (e.stage === "review" || e.stage === "saving") && !e.multiDetectedItems,
+                ).length
+              }{" "}
+              garments)
+            </h3>
+            <p className="text-xs text-muted">
+              Save all reviewed garments to your wardrobe together.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={handleSaveAll}
+            loading={savingAll}
+            disabled={savingAll || entries.some((e) => e.stage === "saving")}
+          >
+            Save all garments
+          </Button>
+        </Card>
       ) : null}
 
       <ul className="space-y-4" aria-label="Photos being added">
@@ -761,6 +1118,11 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
                 controllers.current.set(e.id, fresh);
                 void runAnalysis(e.id, e.originalPath ?? e.path, fresh.signal);
               }}
+              onScanMulti={handleScanMulti}
+              onImportMultiItems={importSelectedMultiItems}
+              onDismissMulti={handleDismissMulti}
+              registerSubmitter={registerSubmitter}
+              unregisterSubmitter={unregisterSubmitter}
             />
           </li>
         ))}
@@ -776,7 +1138,12 @@ function EntryCard({
   onRetry,
   onSave,
   onAnalyse,
+  onScanMulti,
+  onImportMultiItems,
+  onDismissMulti,
   onBeautify,
+  registerSubmitter,
+  unregisterSubmitter,
 }: {
   entry: Entry;
   aiAvailable: boolean;
@@ -784,8 +1151,26 @@ function EntryCard({
   onRetry: (entry: Entry) => void;
   onSave: (id: string, values: ItemFields) => Promise<{ ok: boolean; error?: string; fieldErrors?: Record<string, string> }>;
   onAnalyse: (entry: Entry) => void;
+  onScanMulti: (entry: Entry) => void;
+  onImportMultiItems: (entry: Entry, selected: DetectedClothingItem[]) => void;
+  onDismissMulti: (id: string) => void;
   onBeautify: (entry: Entry, mode: BeautificationMode) => void;
+  registerSubmitter: (id: string, fn: () => Promise<boolean>) => void;
+  unregisterSubmitter: (id: string) => void;
 }) {
+  if (entry.multiDetectedItems && entry.multiDetectedItems.length > 1) {
+    return (
+      <MultiItemCard
+        sourcePreviewUrl={entry.originalPreviewUrl ?? entry.previewUrl}
+        sourceFileName={entry.file.name}
+        items={entry.multiDetectedItems}
+        loading={Boolean(entry.multiCropping)}
+        onConfirm={(selected) => onImportMultiItems(entry, selected)}
+        onDismiss={() => onDismissMulti(entry.id)}
+      />
+    );
+  }
+
   const busy = entry.stage === "preparing" || entry.stage === "uploading" || entry.stage === "analysing";
   const label = { preparing: "Preparing photo…", uploading: "Uploading…", analysing: "Analysing with AI…" }[entry.stage as "preparing" | "uploading" | "analysing"];
 
@@ -899,7 +1284,16 @@ function EntryCard({
           ) : null}
 
           {entry.stage === "review" || entry.stage === "saving" || entry.stage === "saved" ? (
-            <ReviewForm entry={entry} aiAvailable={aiAvailable} onSave={onSave} onRemove={onRemove} onAnalyse={onAnalyse} />
+            <ReviewForm
+              entry={entry}
+              aiAvailable={aiAvailable}
+              onSave={onSave}
+              onRemove={onRemove}
+              onAnalyse={onAnalyse}
+              onScanMulti={onScanMulti}
+              registerSubmitter={registerSubmitter}
+              unregisterSubmitter={unregisterSubmitter}
+            />
           ) : null}
         </div>
       </div>
@@ -913,12 +1307,18 @@ function ReviewForm({
   onSave,
   onRemove,
   onAnalyse,
+  onScanMulti,
+  registerSubmitter,
+  unregisterSubmitter,
 }: {
   entry: Entry;
   aiAvailable: boolean;
   onSave: (id: string, values: ItemFields) => Promise<{ ok: boolean; error?: string; fieldErrors?: Record<string, string> }>;
   onRemove: (id: string) => void;
   onAnalyse: (entry: Entry) => void;
+  onScanMulti: (entry: Entry) => void;
+  registerSubmitter: (id: string, fn: () => Promise<boolean>) => void;
+  unregisterSubmitter: (id: string) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const form = useForm<ItemFieldsInput, unknown, ItemFields>({
@@ -936,6 +1336,36 @@ function ReviewForm({
       form.reset(suggestionToValues(entry.suggestion, entry.initialValues));
     }
   }, [entry.suggestionKey, entry.suggestion, entry.initialValues, form]);
+
+  useEffect(() => {
+    const submitForm = async (): Promise<boolean> => {
+      let ok = false;
+      await form.handleSubmit(
+        async (values) => {
+          setError(null);
+          const result = await onSave(entry.id, values);
+          if (!result.ok) {
+            setError(result.error ?? "Couldn't save this item.");
+            for (const [name, message] of Object.entries(result.fieldErrors ?? {})) {
+              form.setError(name as keyof ItemFieldsInput, { message });
+            }
+            ok = false;
+          } else {
+            ok = true;
+          }
+        },
+        () => {
+          ok = false;
+        },
+      )();
+      return ok;
+    };
+
+    registerSubmitter(entry.id, submitForm);
+    return () => {
+      unregisterSubmitter(entry.id);
+    };
+  }, [entry.id, form, onSave, registerSubmitter, unregisterSubmitter]);
 
   const saved = entry.stage === "saved";
   const saving = entry.stage === "saving";
@@ -993,10 +1423,24 @@ function ReviewForm({
             <Trash2 className="size-4" aria-hidden /> Remove photo
           </Button>
           {aiAvailable ? (
-            <Button type="button" variant="outline" size="sm" disabled={saving || entry.analysing} loading={entry.analysing} onClick={() => onAnalyse(entry)}>
-              {!entry.analysing ? <Sparkles className="size-4" aria-hidden /> : null}
-              {entry.suggestion ? "Analyse again" : "Analyse with AI"}
-            </Button>
+            <>
+              <Button type="button" variant="outline" size="sm" disabled={saving || entry.analysing} loading={entry.analysing} onClick={() => onAnalyse(entry)}>
+                {!entry.analysing ? <Sparkles className="size-4" aria-hidden /> : null}
+                {entry.suggestion ? "Analyse again" : "Analyse with AI"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={saving || entry.analysing}
+                loading={entry.analysing}
+                onClick={() => onScanMulti(entry)}
+                title="Detect and isolate multiple garments in this photo (e.g. SHEIN or Temu order screenshot)"
+              >
+                <Layers className="size-4 text-accent" aria-hidden />
+                Scan for multiple garments
+              </Button>
+            </>
           ) : null}
         </div>
         <Button type="submit" loading={saving}>

@@ -1,7 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
-import { Shirt, WashingMachine, TrendingUp, Sparkles, HeartHandshake } from "lucide-react";
+import {
+  ArrowRight,
+  Camera,
+  Globe,
+  HeartHandshake,
+  Layers,
+  Shirt,
+  Sparkles,
+  TrendingUp,
+  WashingMachine,
+} from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/card";
@@ -119,6 +129,93 @@ export default async function DashboardPage() {
               hint={needsAttention > 0 ? "Washable items only" : "All clean!"}
             />
           </div>
+
+          {/* Quick Add Clothes Segments */}
+          <section aria-labelledby="dashboard-import-heading" className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 id="dashboard-import-heading" className="font-serif text-lg font-medium text-foreground">
+                Add Clothes to Wardrobe
+              </h2>
+              <Link
+                href="/wardrobe/new"
+                className="text-xs font-semibold text-accent hover:opacity-80 inline-flex items-center gap-1"
+              >
+                <span>All ways to add</span>
+                <ArrowRight className="size-3" />
+              </Link>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Link
+                href="/wardrobe/new?tab=photo"
+                className="group flex flex-col justify-between rounded-2xl border border-border bg-surface p-4 shadow-xs transition-all hover:border-accent hover:shadow-sm"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent transition-transform group-hover:scale-105">
+                    <Camera className="size-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground group-hover:text-accent transition-colors">
+                      Photos &amp; Camera
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted leading-snug">
+                      Photograph garments or upload single photos with AI autofill
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center justify-between border-t border-border/50 pt-2.5 text-xs font-medium text-accent">
+                  <span>Take photo</span>
+                  <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                </div>
+              </Link>
+
+              <Link
+                href="/wardrobe/new?tab=store"
+                className="group flex flex-col justify-between rounded-2xl border border-border bg-surface p-4 shadow-xs transition-all hover:border-accent hover:shadow-sm"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent transition-transform group-hover:scale-105">
+                    <Globe className="size-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground group-hover:text-accent transition-colors">
+                      Import from Store
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted leading-snug">
+                      Paste product link from Zara, ASOS, SHEIN, Temu, or use bookmarklet
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center justify-between border-t border-border/50 pt-2.5 text-xs font-medium text-accent">
+                  <span>Paste store link</span>
+                  <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                </div>
+              </Link>
+
+              <Link
+                href="/wardrobe/new?tab=screenshot"
+                className="group flex flex-col justify-between rounded-2xl border border-border bg-surface p-4 shadow-xs transition-all hover:border-accent hover:shadow-sm"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent transition-transform group-hover:scale-105">
+                    <Layers className="size-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground group-hover:text-accent transition-colors">
+                      Order Screenshot
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted leading-snug">
+                      Batch detect and crop multiple garments from SHEIN or Temu receipts
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center justify-between border-t border-border/50 pt-2.5 text-xs font-medium text-accent">
+                  <span>Scan screenshot</span>
+                  <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                </div>
+              </Link>
+            </div>
+          </section>
 
           {/* Laundry notice if needed */}
           {needsAttention > 0 && (
