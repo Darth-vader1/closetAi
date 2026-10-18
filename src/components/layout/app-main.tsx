@@ -27,7 +27,7 @@ export function AppMain({ children }: { children: React.ReactNode }) {
       className={cn(
         "mx-auto w-full",
         isChat
-          ? "h-dvh max-w-none p-0 flex flex-col overflow-hidden lg:h-[calc(100dvh-2.5rem)] lg:max-w-6xl lg:px-8 lg:pt-6 lg:pb-6"
+          ? "fixed inset-0 z-30 lg:static h-dvh max-w-none p-0 flex flex-col overflow-hidden lg:h-[calc(100dvh-2.5rem)] lg:max-w-6xl lg:px-8 lg:pt-6 lg:pb-6"
           : "max-w-6xl px-4 pb-28 pt-6 sm:px-8 lg:pb-12 lg:pt-10",
       )}
     >

@@ -11,6 +11,14 @@ import type { ClothingSuggestion } from "@/lib/ai/schemas";
 import { Button } from "@/components/ui/button";
 import { Alert, Card } from "@/components/ui/card";
 import { emptyItemValues, ItemFieldsForm } from "@/components/wardrobe/item-fields";
+import {
+  StoreImportCard,
+  type ImportedEntryPayload,
+} from "@/components/wardrobe/store-import-card";
+import {
+  classifyClipboardPaste,
+  isEditablePasteTarget,
+} from "@/lib/import/extract-product";
 import { itemFieldsSchema, type ItemFields, type ItemFieldsInput } from "@/lib/validation/wardrobe";
 import type {
   AiEnhancementParams,
@@ -55,26 +63,54 @@ interface Entry {
   beautifyError?: string | null;
   isCutout?: boolean;
   processingCutout?: boolean;
+  initialValues?: ItemFieldsInput | null;
+  sourceUrl?: string | null;
+  sourceBrand?: string | null;
+  sourceImageSha256?: string | null;
+  allowDuplicate?: boolean;
 }
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
-function suggestionToValues(s: ClothingSuggestion & { material?: string | null; careType?: string | null }): ItemFieldsInput {
+function suggestionToValues(
+  s: ClothingSuggestion & { material?: string | null; careType?: string | null },
+  baseValues?: ItemFieldsInput | null,
+): ItemFieldsInput {
+  const base = baseValues ?? emptyItemValues();
   return {
-    ...emptyItemValues(),
-    name: s.name,
-    category: s.category,
-    subcategory: s.subcategory ?? "",
-    careType: (s.careType === "WASHABLE" || s.careType === "WIPE_CLEAN" || s.careType === "NO_WASH") 
-      ? s.careType 
-      : "WASHABLE",
-    primaryColour: s.primaryColour as ItemFieldsInput["primaryColour"],
-    secondaryColours: s.secondaryColours as ItemFieldsInput["secondaryColours"],
-    pattern: s.pattern as ItemFieldsInput["pattern"],
-    material: s.material ?? "",
-    style: s.style as ItemFieldsInput["style"],
-    occasions: s.occasions,
-    seasons: s.seasons as ItemFieldsInput["seasons"],
+    ...base,
+    name: baseValues?.name?.trim() ? baseValues.name : s.name,
+    category: s.category || base.category,
+    subcategory: baseValues?.subcategory?.trim()
+      ? baseValues.subcategory
+      : (s.subcategory ?? ""),
+    careType:
+      s.careType === "WASHABLE" ||
+      s.careType === "WIPE_CLEAN" ||
+      s.careType === "NO_WASH"
+        ? s.careType
+        : (base.careType ?? "WASHABLE"),
+    primaryColour:
+      baseValues?.primaryColour ??
+      (s.primaryColour as ItemFieldsInput["primaryColour"]),
+    secondaryColours:
+      baseValues?.secondaryColours && baseValues.secondaryColours.length > 0
+        ? baseValues.secondaryColours
+        : (s.secondaryColours as ItemFieldsInput["secondaryColours"]),
+    pattern:
+      baseValues?.pattern ?? (s.pattern as ItemFieldsInput["pattern"]),
+    material: baseValues?.material?.trim()
+      ? baseValues.material
+      : (s.material ?? ""),
+    style: baseValues?.style ?? (s.style as ItemFieldsInput["style"]),
+    occasions:
+      baseValues?.occasions && baseValues.occasions.length > 0
+        ? baseValues.occasions
+        : s.occasions,
+    seasons:
+      baseValues?.seasons && baseValues.seasons.length > 0
+        ? baseValues.seasons
+        : (s.seasons as ItemFieldsInput["seasons"]),
   };
 }
 
@@ -85,12 +121,17 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
   const [autoCutout, setAutoCutout] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [externalPastedUrl, setExternalPastedUrl] = useState<{
+    url: string;
+    key: number;
+  } | null>(null);
 
   const controllers = useRef(new Map<string, AbortController>());
   const entriesRef = useRef<Entry[]>([]);
   const limiter = useRef(createLimiter(1));
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
+  const storeUrlInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     entriesRef.current = entries;
@@ -227,7 +268,15 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
   );
 
   const addFiles = useCallback(
-    (fileList: FileList | File[]) => {
+    (
+      fileList: FileList | File[],
+      importContext?: {
+        initialValues: ItemFieldsInput;
+        sourceUrl: string | null;
+        sourceBrand: string | null;
+        allowDuplicate: boolean;
+      },
+    ) => {
       const incoming = Array.from(fileList);
       const accepted = incoming.filter(isAcceptedFile);
       const rejected = incoming.length - accepted.length;
@@ -265,11 +314,20 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           aiNote: null,
           error: null,
           savedId: null,
+          initialValues: importContext?.initialValues ?? null,
+          sourceUrl: importContext?.sourceUrl ?? null,
+          sourceBrand: importContext?.sourceBrand ?? null,
+          sourceImageSha256: null,
+          allowDuplicate: importContext?.allowDuplicate ?? false,
         };
       });
       for (const e of fresh) controllers.current.set(e.id, new AbortController());
       setEntries((list) => [...list, ...fresh]);
-      for (const e of fresh) void process(e, useAi && aiAvailable, autoCutout);
+      // When store metadata is already attached as a fallback, don't force automatic AI unless user has no store title
+      const shouldRunAi = importContext
+        ? false
+        : useAi && aiAvailable;
+      for (const e of fresh) void process(e, shouldRunAi, autoCutout);
     },
     [process, useAi, aiAvailable, autoCutout],
   );
@@ -339,6 +397,10 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
           : null,
         beautificationStatus,
         aiAnalysed: entry.suggestion !== null && !entry.isMock,
+        sourceUrl: entry.sourceUrl ?? null,
+        sourceBrand: entry.sourceBrand ?? null,
+        sourceImageSha256: entry.sourceImageSha256 ?? null,
+        allowDuplicate: entry.allowDuplicate ?? false,
       });
       if (result.ok) {
         // Both originalImagePath and beautifiedImagePath are now referenced by the saved item,
@@ -481,6 +543,98 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
     [patch],
   );
 
+  const handleStoreImportReady = useCallback(
+    (payload: ImportedEntryPayload) => {
+      const id = crypto.randomUUID();
+      const controller = new AbortController();
+      controllers.current.set(id, controller);
+
+      const newEntry: Entry = {
+        id,
+        file: payload.file,
+        previewUrl: payload.previewUrl,
+        originalPreviewUrl: payload.previewUrl,
+        stage: payload.runAiAnalysis ? "analysing" : "review",
+        progress: 1,
+        path: payload.originalPath,
+        originalPath: payload.originalPath,
+        photoRoomCutoutDataUrl: null,
+        beautifiedPath: null,
+        beautifyMode: null,
+        beautifyProvider: null,
+        beautifyModel: null,
+        beautifyWarnings: [],
+        beautifyError: null,
+        suggestion: null,
+        suggestionKey: 0,
+        isMock: false,
+        analysing: false,
+        aiNote: null,
+        error: null,
+        savedId: null,
+        initialValues: payload.initialValues,
+        sourceUrl: payload.sourceUrl,
+        sourceBrand: payload.sourceBrand,
+        sourceImageSha256: payload.sourceImageSha256,
+        allowDuplicate: payload.allowDuplicate,
+      };
+
+      setEntries((list) => [newEntry, ...list]);
+
+      void (async () => {
+        if (payload.runCutout) {
+          await runBeautifyOnEntry(newEntry, "clean-cutout");
+        }
+        if (payload.runAiAnalysis && aiAvailable) {
+          await runAnalysis(id, payload.originalPath, controller.signal);
+          patch(id, { stage: "review" });
+        }
+      })();
+    },
+    [aiAvailable, patch, runAnalysis, runBeautifyOnEntry],
+  );
+
+  // Global clipboard paste support (Ctrl+V) for store URLs and copied images
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (isEditablePasteTarget(e.target, storeUrlInputRef.current)) {
+        return;
+      }
+
+      const dt = e.clipboardData;
+      if (!dt) return;
+
+      // Collect image files from clipboardData.files or clipboardData.items
+      const candidateFiles: File[] = [];
+      if (dt.files && dt.files.length > 0) {
+        candidateFiles.push(...Array.from(dt.files));
+      } else if (dt.items) {
+        for (const item of Array.from(dt.items)) {
+          if (item.kind === "file" && item.type.startsWith("image/")) {
+            const f = item.getAsFile();
+            if (f) candidateFiles.push(f);
+          }
+        }
+      }
+
+      const classified = classifyClipboardPaste({
+        files: candidateFiles,
+        text: dt.getData("text/plain"),
+      });
+
+      if (classified.kind === "image") {
+        e.preventDefault();
+        addFiles(classified.files);
+      } else if (classified.kind === "url") {
+        e.preventDefault();
+        setExternalPastedUrl({ url: classified.url, key: Date.now() });
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [addFiles]);
+
   // Warn before leaving with photos that were never saved.
   const hasUnsaved = entries.some((e) => e.stage !== "saved");
   useEffect(() => {
@@ -503,6 +657,14 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
 
   return (
     <div className="space-y-6">
+      <StoreImportCard
+        aiAvailable={aiAvailable}
+        externalPastedUrl={externalPastedUrl}
+        urlInputRef={storeUrlInputRef}
+        onImportReady={handleStoreImportReady}
+        onFallbackFilesWithMetadata={addFiles}
+      />
+
       <Card className="p-5 sm:p-6">
         <div
           onDragOver={(e) => {
@@ -519,7 +681,7 @@ export function WardrobeUploader({ aiAvailable, aiUnavailableReason }: { aiAvail
         >
           <ImagePlus className="size-8 text-accent" aria-hidden />
           <p className="mt-3 font-medium">Add photos of your clothes</p>
-          <p className="mt-1 max-w-md text-sm text-muted">One garment per photo works best. JPEG, PNG or WebP, up to {MAX_FILES_PER_BATCH} at a time.</p>
+          <p className="mt-1 max-w-md text-sm text-muted">One garment per photo works best. JPEG, PNG or WebP, up to {MAX_FILES_PER_BATCH} at a time — or press Ctrl+V to paste a copied image.</p>
           <div className="mt-5 flex flex-wrap justify-center gap-3">
             <Button type="button" onClick={() => fileInput.current?.click()}>
               <ImagePlus className="size-4" aria-hidden /> Choose photos
@@ -761,7 +923,9 @@ function ReviewForm({
   const [error, setError] = useState<string | null>(null);
   const form = useForm<ItemFieldsInput, unknown, ItemFields>({
     resolver: zodResolver(itemFieldsSchema),
-    defaultValues: entry.suggestion ? suggestionToValues(entry.suggestion) : emptyItemValues(),
+    defaultValues: entry.suggestion
+      ? suggestionToValues(entry.suggestion, entry.initialValues)
+      : (entry.initialValues ?? emptyItemValues()),
   });
 
   // Refill the form when the user asks for a fresh AI suggestion.
@@ -769,9 +933,9 @@ function ReviewForm({
   useEffect(() => {
     if (entry.suggestionKey !== lastKey.current && entry.suggestion) {
       lastKey.current = entry.suggestionKey;
-      form.reset(suggestionToValues(entry.suggestion));
+      form.reset(suggestionToValues(entry.suggestion, entry.initialValues));
     }
-  }, [entry.suggestionKey, entry.suggestion, form]);
+  }, [entry.suggestionKey, entry.suggestion, entry.initialValues, form]);
 
   const saved = entry.stage === "saved";
   const saving = entry.stage === "saving";
@@ -801,6 +965,12 @@ function ReviewForm({
 
   return (
     <form onSubmit={submit} className="space-y-5" noValidate aria-label={`Details for ${entry.file.name}`}>
+      {entry.sourceUrl ? (
+        <Alert tone="info" title="Imported from store">
+          Fields were pre-filled from the store page
+          {entry.sourceBrand ? ` (${entry.sourceBrand})` : ""}. Review and adjust any details below before saving.
+        </Alert>
+      ) : null}
       {entry.isMock ? (
         <Alert tone="warning" title="Development sample">
           This came from the mock AI provider, not a real model. It doesn&apos;t look at your photo.

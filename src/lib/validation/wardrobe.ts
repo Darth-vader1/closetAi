@@ -46,6 +46,22 @@ export const createItemSchema = itemFieldsSchema.extend({
   beautificationModel: z.string().max(120).nullable().optional(),
   beautificationStatus: beautificationStatusSchema.optional(),
   aiAnalysed: z.boolean(),
+  sourceUrl: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((v) => /^https?:\/\//i.test(v), "Must be a valid http(s) URL.")
+    .nullable()
+    .optional(),
+  sourceBrand: optionalText(120),
+  sourceImageSha256: z
+    .string()
+    .trim()
+    .regex(/^[0-9a-f]{64}$/i, "Invalid image digest.")
+    .transform((v) => v.toLowerCase())
+    .nullable()
+    .optional(),
+  allowDuplicate: z.boolean().optional(),
 });
 
 export const saveBeautifiedImageSchema = z.object({

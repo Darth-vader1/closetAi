@@ -84,7 +84,7 @@ describe("escapeLike", () => {
 
 describe("categories", () => {
   it("covers every category in the spec and has unique values", () => {
-    expect(CATEGORIES).toHaveLength(33); // Updated: 23 original + 7 accessories + jorts + windbreakers + capri-pants
+    expect(CATEGORIES).toHaveLength(34); // Updated: 23 original + 7 accessories + jorts + windbreakers + capri-pants + wigs
     expect(new Set(CATEGORIES.map((c) => c.value)).size).toBe(CATEGORIES.length);
   });
 
@@ -92,6 +92,7 @@ describe("categories", () => {
     expect(categoryGroup("jeans")).toBe("bottom");
     expect(categoryGroup("sneakers")).toBe("footwear");
     expect(categoryGroup("dresses")).toBe("fullbody");
+    expect(categoryGroup("wigs")).toBe("accessory");
     expect(categoryGroup("traditional")).toBe("traditional");
     expect(categoryGroup("not-a-category")).toBe("other");
   });

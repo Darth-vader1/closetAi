@@ -381,6 +381,7 @@ const SYNONYMS: Record<string, string[]> = {
   shawl: ["shawl", "scarf", "wrap", "pashmina"],
   scarf: ["scarf", "shawl"],
   sunglasses: ["sunglasses", "shades"],
+  wig: ["wig", "hairpiece", "frontal", "closure", "weave"],
   umbrella: ["umbrella"],
   shoes: ["shoes", "loafers", "oxford", "derby", "heels", "brogues"],
 };

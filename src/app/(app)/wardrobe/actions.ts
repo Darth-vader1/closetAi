@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/actions/result";
 import { requireUser } from "@/lib/auth/session";
+import { findDuplicateImportedItem } from "@/lib/import/duplicate-check";
+import { normalizeProductUrl } from "@/lib/import/safe-fetch";
 import { logger } from "@/lib/logger";
 import { isOwnStoragePath } from "@/lib/security/origin";
 import { createClient } from "@/lib/supabase/server";
@@ -85,6 +87,10 @@ export async function saveItemAction(
     beautificationModel,
     beautificationStatus,
     aiAnalysed,
+    sourceUrl,
+    sourceBrand,
+    sourceImageSha256,
+    allowDuplicate,
     ...fieldsInput
   } = parsed.data;
 
@@ -100,9 +106,30 @@ export async function saveItemAction(
     return fail("That photo isn't valid. Please upload it again.");
   }
 
+  let normalizedSourceUrl: string | null = null;
+  if (sourceUrl) {
+    try {
+      normalizedSourceUrl = normalizeProductUrl(sourceUrl);
+    } catch {
+      normalizedSourceUrl = sourceUrl;
+    }
+  }
+
   const supabase = await createClient();
   if (!(await storageObjectExists(supabase, imagePath))) {
     return fail("That photo is no longer available. Please upload it again.");
+  }
+
+  if (!allowDuplicate && (normalizedSourceUrl || sourceImageSha256)) {
+    const duplicate = await findDuplicateImportedItem(supabase, user.id, {
+      sourceUrl: normalizedSourceUrl,
+      sourceImageSha256: sourceImageSha256 ?? null,
+    });
+    if (duplicate) {
+      return fail(
+        `This product has already been imported to your wardrobe ("${duplicate.name}").`,
+      );
+    }
   }
 
   const fields = itemFieldsSchema.parse(fieldsInput);
@@ -124,6 +151,9 @@ export async function saveItemAction(
       beautificationStatus ?? (resolvedBeautifiedPath ? "COMPLETED" : "NONE"),
     beautified_at: resolvedBeautifiedPath ? new Date().toISOString() : null,
     ai_analysed: aiAnalysed,
+    ...(normalizedSourceUrl ? { source_url: normalizedSourceUrl } : {}),
+    ...(sourceBrand ? { source_brand: sourceBrand } : {}),
+    ...(sourceImageSha256 ? { source_image_sha256: sourceImageSha256 } : {}),
     ...toRow(fields),
   };
 
@@ -135,7 +165,11 @@ export async function saveItemAction(
 
   if (
     error &&
-    (error.message.includes("original_image_path") || error.code === "42703")
+    (error.message.includes("original_image_path") ||
+      error.message.includes("source_url") ||
+      error.message.includes("source_brand") ||
+      error.message.includes("source_image_sha256") ||
+      error.code === "42703")
   ) {
     const fallbackInsert = await supabase
       .from("wardrobe_items")

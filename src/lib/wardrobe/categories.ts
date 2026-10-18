@@ -40,6 +40,7 @@ export const CATEGORIES: readonly CategoryDef[] = [
   { value: "bags", label: "Bags", group: "accessory", defaultCareType: "NO_WASH" },
   { value: "hats", label: "Hats", group: "accessory", defaultCareType: "WASHABLE" },
   { value: "caps", label: "Caps", group: "accessory", defaultCareType: "WASHABLE" },
+  { value: "wigs", label: "Wigs", group: "accessory", defaultCareType: "NO_WASH" },
   { value: "sunglasses", label: "Sunglasses", group: "accessory", defaultCareType: "NO_WASH" },
   { value: "jewellery", label: "Jewellery", group: "accessory", defaultCareType: "NO_WASH" },
   { value: "ties", label: "Ties", group: "accessory", defaultCareType: "NO_WASH" },
