@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/actions/result";
 import { requireUser } from "@/lib/auth/session";
 import { findDuplicateImportedItem } from "@/lib/import/duplicate-check";
-import { normalizeProductUrl } from "@/lib/import/safe-fetch";
+import { normalizeProductUrl } from "@/lib/import/url-utils";
 import { logger } from "@/lib/logger";
 import { isOwnStoragePath } from "@/lib/security/origin";
 import { createClient } from "@/lib/supabase/server";

@@ -4,6 +4,9 @@ import http from "node:http";
 import https from "node:https";
 import net from "node:net";
 import { sniffImage, type SniffedImage } from "@/lib/security/image-sniff";
+import { normalizeProductUrl, TRACKING_QUERY_PARAMS } from "@/lib/import/url-utils";
+
+export { normalizeProductUrl, TRACKING_QUERY_PARAMS };
 
 export const MAX_HTML_BYTES = 1.5 * 1024 * 1024; // 1.5 MB max HTML document
 export const MAX_IMPORT_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB max product image
@@ -60,28 +63,6 @@ export interface SafeTransportResponse {
 
 export type SafeTransportFn = (req: SafeTransportRequest) => Promise<SafeTransportResponse>;
 
-const TRACKING_QUERY_PARAMS = new Set([
-  "utm_source",
-  "utm_medium",
-  "utm_campaign",
-  "utm_term",
-  "utm_content",
-  "utm_id",
-  "fbclid",
-  "gclid",
-  "dclid",
-  "msclkid",
-  "twclid",
-  "ttclid",
-  "igshid",
-  "mc_cid",
-  "mc_eid",
-  "_ga",
-  "_gl",
-  "yclid",
-  "rb_clickid",
-  "s_kwcid",
-]);
 
 const PROHIBITED_HOSTNAMES = new Set([
   "localhost",
@@ -385,43 +366,6 @@ export function validateExternalUrlSyntax(rawUrl: string): URL {
   return parsed;
 }
 
-/**
- * Normalizes a product URL for consistent storage and duplicate detection by stripping
- * marketing/tracking parameters, hashes, and redundant trailing slashes.
- */
-export function normalizeProductUrl(rawUrl: string): string {
-  const parsed = validateExternalUrlSyntax(rawUrl);
-  parsed.hash = "";
-
-  if ((parsed.protocol === "https:" && parsed.port === "443") || (parsed.protocol === "http:" && parsed.port === "80")) {
-    parsed.port = "";
-  }
-
-  const keptParams: Array<[string, string]> = [];
-  for (const [key, value] of parsed.searchParams.entries()) {
-    const lowerKey = key.toLowerCase();
-    if (
-      TRACKING_QUERY_PARAMS.has(lowerKey) ||
-      lowerKey.startsWith("utm_") ||
-      lowerKey.startsWith("aff_")
-    ) {
-      continue;
-    }
-    keptParams.push([key, value]);
-  }
-
-  keptParams.sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
-  parsed.search = "";
-  for (const [k, v] of keptParams) {
-    parsed.searchParams.append(k, v);
-  }
-
-  if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) {
-    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
-  }
-
-  return parsed.toString();
-}
 
 const defaultDnsLookup: DnsLookupFn = async (hostname: string) => {
   const records = await dns.lookup(hostname, { all: true, verbatim: true });

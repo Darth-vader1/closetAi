@@ -18,7 +18,7 @@ import {
 import {
   classifyClipboardPaste,
   isEditablePasteTarget,
-} from "@/lib/import/extract-product";
+} from "@/lib/import/clipboard";
 import { itemFieldsSchema, type ItemFields, type ItemFieldsInput } from "@/lib/validation/wardrobe";
 import type {
   AiEnhancementParams,

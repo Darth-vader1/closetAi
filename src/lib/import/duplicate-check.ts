@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { normalizeProductUrl } from "@/lib/import/safe-fetch";
+import { normalizeProductUrl } from "@/lib/import/url-utils";
 
 export interface DuplicateWardrobeMatch {
   id: string;
