@@ -82,7 +82,7 @@ export async function acceptConversationAction(
 export async function sendMessageAction(
   conversationId: unknown,
   body: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: string; message: Message }>> {
   const user = await requireUser();
 
   const idParsed = uuidSchema.safeParse(conversationId);
@@ -108,7 +108,7 @@ export async function sendMessageAction(
       sender_id: user.id,
       body: bodyParsed.data,
     })
-    .select("id")
+    .select("id, conversation_id, sender_id, body, created_at, deleted_at")
     .single();
 
   if (error || !data) {
@@ -121,8 +121,20 @@ export async function sendMessageAction(
     return { ok: false, error: "Could not send message. Please try again." };
   }
 
+  const message: Message = {
+    id: data.id as string,
+    conversationId: data.conversation_id as string,
+    senderId: user.id,
+    senderName: "You",
+    senderClosetId: null,
+    body: data.body as string,
+    createdAt: data.created_at as string,
+    deletedAt: null,
+    attachments: [],
+  };
+
   revalidatePath(`/connect/${idParsed.data}`);
-  return { ok: true, data: { id: data.id as string } };
+  return { ok: true, data: { id: data.id as string, message } };
 }
 
 // ─── Share wardrobe items & saved outfits in a conversation ───────────────────

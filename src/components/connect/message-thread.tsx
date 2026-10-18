@@ -299,6 +299,10 @@ export function MessageThread({
 
           setMessages((prev) => {
             if (prev.some((m) => m.id === row.id)) return prev;
+            // Also clean up any matching optimistic placeholder if this is our message arriving via Realtime
+            const base = row.sender_id === currentUserId
+              ? prev.filter((m) => !(m.id.startsWith("optimistic-") && m.body === row.body))
+              : prev;
             const newMsg: Message = {
               id: row.id,
               conversationId: row.conversation_id,
@@ -310,7 +314,7 @@ export function MessageThread({
               deletedAt: row.deleted_at,
               attachments: [],
             };
-            return [...prev, newMsg];
+            return [...base, newMsg];
           });
 
           setTimeout(() => {
@@ -428,14 +432,29 @@ export function MessageThread({
     setBody("");
     setSendError(null);
 
+    // Place directly into messages state so it never vanishes if Realtime is delayed or offline
+    setMessages((prev) => [...prev, optimisticMsg]);
+
     startTransition(async () => {
       addOptimistic(optimisticMsg);
       const result = await sendMessageAction(conversationId, trimmed);
       if (!result.ok) {
         setSendError(result.error);
         setBody(trimmed);
-      } else {
+        // Rollback on failure
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      } else if (result.data) {
+        const confirmedMsg = result.data.message ?? {
+          ...optimisticMsg,
+          id: result.data.id,
+        };
+        // Reconcile: replace tempId with confirmed message from server
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === confirmedMsg.id)) {
+            return prev.filter((m) => m.id !== tempId);
+          }
+          return prev.map((m) => (m.id === tempId ? confirmedMsg : m));
+        });
       }
     });
   };
