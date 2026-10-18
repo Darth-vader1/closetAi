@@ -100,7 +100,7 @@ export function NewConversationDialog({ onClose }: Props) {
 
   const content = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex flex-col justify-start sm:items-center sm:justify-center bg-background sm:bg-black/55 sm:p-4 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-label="Start a new conversation"
@@ -111,37 +111,40 @@ export function NewConversationDialog({ onClose }: Props) {
       <div
         ref={dialogRef}
         onKeyDown={trapFocus}
-        className="w-full max-w-md overflow-hidden rounded-[1.25rem] border border-border bg-surface shadow-2xl focus:outline-none"
+        className="w-full sm:max-w-md h-full sm:h-auto sm:max-h-[85vh] flex flex-col overflow-hidden sm:rounded-[1.25rem] border-0 sm:border border-border bg-surface shadow-2xl focus:outline-none pt-[env(safe-area-inset-top)] sm:pt-0"
       >
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-5 sm:py-4 shrink-0">
           <h2 className="text-base font-semibold text-foreground">Start a conversation</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground"
+            className="grid size-9 place-items-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground"
           >
-            <X className="size-4" aria-hidden />
+            <X className="size-5" aria-hidden />
           </button>
         </div>
 
-        <div className="px-5 py-4">
+        <div className="px-4 py-3 sm:px-5 sm:py-4 shrink-0">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3.5 top-3 size-4 text-muted" aria-hidden />
+            <Search className="pointer-events-none absolute left-3.5 top-3.5 size-4 text-muted" aria-hidden />
             <input
               ref={inputRef}
               type="search"
               placeholder="Search by exact Closet ID or name (3+ chars)…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-full rounded-xl border border-border-strong bg-background py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none"
+              className="w-full rounded-xl border border-border-strong bg-background py-2.5 pl-10 pr-4 text-base sm:text-sm text-foreground placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none"
               aria-label="Search users"
               autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck="false"
             />
           </div>
         </div>
 
-        <div className="max-h-60 overflow-y-auto px-3 pb-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-6 sm:px-3 sm:pb-4 sm:max-h-64">
           {searching && (
             <p className="py-4 text-center text-sm text-muted">Searching…</p>
           )}
@@ -169,8 +172,8 @@ export function NewConversationDialog({ onClose }: Props) {
                       disabled={starting}
                       onClick={() => handleSelect(user.id)}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
-                        "hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none",
+                        "flex w-full items-center gap-3 rounded-xl px-3 py-3 sm:py-2.5 text-left transition-colors",
+                        "hover:bg-surface-muted active:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none",
                         starting && "opacity-50 pointer-events-none",
                       )}
                     >
@@ -203,12 +206,12 @@ export function NewConversationDialog({ onClose }: Props) {
         </div>
 
         {error && (
-          <div className="border-t border-danger/20 bg-danger-soft px-5 py-3 text-xs text-danger" role="alert">
+          <div className="border-t border-danger/20 bg-danger-soft px-5 py-3 text-xs text-danger shrink-0" role="alert">
             {error}
           </div>
         )}
 
-        <div className="border-t border-border px-5 py-3 flex justify-end">
+        <div className="hidden sm:flex border-t border-border px-5 py-3 justify-end shrink-0">
           <Button variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>

@@ -467,7 +467,7 @@ export function MessageThread({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-border bg-surface">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-none sm:rounded-[1.25rem] border-0 sm:border border-border bg-surface">
       {/* ── Realtime connection status ──────────────────────────────── */}
       {realtimeStatus === "disconnected" && (
         <div className="flex items-center justify-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-2 text-xs font-medium text-warning">
@@ -522,7 +522,7 @@ export function MessageThread({
 
       {/* Message history */}
       <div
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-6"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-4 space-y-6"
         role="log"
         aria-label="Message history"
         aria-live="polite"
@@ -656,7 +656,7 @@ export function MessageThread({
       )}
 
       {/* Composer */}
-      <div className="border-t border-border px-4 py-3">
+      <div className="border-t border-border bg-surface px-3 py-2.5 sm:px-4 sm:py-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 shrink-0">
         <div className="flex items-end gap-2">
           <SharePickerDialog
             conversationId={conversationId}
@@ -688,7 +688,7 @@ export function MessageThread({
             }
             aria-label="Message composer"
             rows={1}
-            className="flex-1 resize-none overflow-hidden rounded-xl border border-border-strong bg-background px-4 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none disabled:opacity-50"
+            className="flex-1 resize-none overflow-hidden rounded-xl border border-border-strong bg-background px-4 py-2.5 text-base sm:text-sm leading-relaxed text-foreground placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none disabled:opacity-50"
             style={{ minHeight: "44px", maxHeight: "140px" }}
           />
           <button

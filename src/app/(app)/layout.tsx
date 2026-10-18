@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ConfigNotice } from "@/components/layout/config-notice";
 import { MobileNav, Sidebar } from "@/components/layout/app-nav";
+import { AppMain } from "@/components/layout/app-main";
 import { ProductTour } from "@/components/onboarding/product-tour";
 import { ConnectNotificationProvider } from "@/components/connect/connect-notification-provider";
 import { getProfile, requireUser } from "@/lib/auth/session";
@@ -28,9 +29,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Sidebar displayName={displayName} />
         <div className="min-w-0 flex-1 overflow-x-hidden lg:pl-64">
           <MobileNav displayName={displayName} />
-          <main id="main" className="mx-auto w-full max-w-6xl px-4 pb-28 pt-6 sm:px-8 lg:pb-12 lg:pt-10">
+          <AppMain>
             {children}
-          </main>
+          </AppMain>
         </div>
         <ProductTour userId={user.id} />
       </div>

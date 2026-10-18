@@ -52,9 +52,9 @@ export default async function ConversationPage({ params }: { params: Params }) {
   const shareUrl = `${getAppUrl()}/connect/${id}`;
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-13.5rem)] lg:h-[calc(100dvh-7.5rem)]">
+    <div className="flex flex-col h-full min-h-0 flex-1 overflow-hidden">
       {/* Header */}
-      <div className="mb-3 flex items-center justify-between gap-2 sm:gap-3">
+      <div className="shrink-0 flex items-center justify-between gap-2 border-b border-border bg-surface/95 px-3 py-2.5 sm:mb-3 sm:border-b-0 sm:bg-transparent sm:px-0 sm:py-0 backdrop-blur-sm pt-[max(0.5rem,env(safe-area-inset-top))] sm:pt-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <Link
             href="/connect"
@@ -98,7 +98,7 @@ export default async function ConversationPage({ params }: { params: Params }) {
 
       {/* Partner shared wardrobe banner */}
       {partnerGrantForMe && partnerGrantForMe.canViewItems && (
-        <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent-soft/40 px-4 py-2.5 text-xs">
+        <div className="shrink-0 mx-3 my-2 sm:mx-0 sm:mb-3 sm:mt-0 flex items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent-soft/40 px-3 py-2 sm:px-4 sm:py-2.5 text-xs">
           <div className="flex items-center gap-2 text-foreground">
             <Shirt className="size-4 shrink-0 text-accent" aria-hidden />
             <span>

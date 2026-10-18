@@ -10,6 +10,7 @@ import { NAV_ITEMS } from "@/components/layout/nav-items";
 import { triggerProductTour } from "@/components/onboarding/product-tour";
 import { cn } from "@/lib/utils/cn";
 import { InstallPwaBanner } from "@/components/ui/install-pwa-banner";
+import { isChatRoute } from "@/components/layout/app-main";
 
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -78,6 +79,8 @@ export function Sidebar({ displayName }: { displayName: string }) {
 /** Compact mobile top bar + bottom tab bar (below lg). */
 export function MobileNav({ displayName }: { displayName: string }) {
   const pathname = usePathname();
+  const isChat = isChatRoute(pathname);
+
   // Remember which path the sheet was opened on, so it closes automatically after navigation
   // without needing an effect to reset state.
   const [openedOnPath, setOpenedOnPath] = useState<string | null>(null);
@@ -94,6 +97,10 @@ export function MobileNav({ displayName }: { displayName: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [moreOpen]);
+
+  if (isChat) {
+    return null;
+  }
 
   return (
     <div className="lg:hidden">
