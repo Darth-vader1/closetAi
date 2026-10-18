@@ -11,9 +11,15 @@ export const metadata: Metadata = {
   description: "Plan what to wear for the week ahead and track your confirmed outfits.",
 };
 
-export default async function CalendarPage() {
+export default async function CalendarPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ date?: string }>;
+}) {
   const user = await requireUser();
   const supabase = await createClient();
+  const resolvedParams = searchParams ? await searchParams : undefined;
+  const initialDate = resolvedParams?.date;
 
   // Fetch plans and saved outfits in parallel
   const [plans, savedOutfits] = await Promise.all([
@@ -40,6 +46,7 @@ export default async function CalendarPage() {
         initialPlans={plans}
         savedOutfits={savedOutfits}
         imageUrls={imageUrlsObj}
+        initialDate={initialDate}
       />
     </>
   );

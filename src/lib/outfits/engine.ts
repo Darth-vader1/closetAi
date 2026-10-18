@@ -81,9 +81,9 @@ function findMatchingBelt(
     let score = 0;
 
     // Color matching with shoes (most important)
-    if (shoe && belt.primaryColour === shoe.primaryColour) {
+    if (shoe && belt.primaryColour && shoe.primaryColour && belt.primaryColour.toLowerCase() === shoe.primaryColour.toLowerCase()) {
       score += 15;
-    } else if (shoe && NEUTRAL_COLOURS.has(belt.primaryColour || "") && NEUTRAL_COLOURS.has(shoe.primaryColour || "")) {
+    } else if (shoe && NEUTRAL_COLOURS.has(belt.primaryColour?.toLowerCase() || "") && NEUTRAL_COLOURS.has(shoe.primaryColour?.toLowerCase() || "")) {
       score += 8; // Neutrals work together
     }
 
@@ -94,8 +94,8 @@ function findMatchingBelt(
 
     // Style matching
     if (isFormal && belt.style && ["classic", "elegant", "minimalist"].includes(belt.style)) {
-      score += 5;
-    } else if (!isFormal && belt.style && ["casual", "sporty", "streetwear"].includes(belt.style)) {
+      score += 8;
+    } else if (!isFormal && belt.style && ["casual", "streetwear"].includes(belt.style)) {
       score += 5;
     }
 
@@ -110,8 +110,10 @@ function findMatchingBelt(
     }
   }
 
-  // Only return if score is reasonable
-  return bestScore > 5 ? bestBelt : undefined;
+  // Only return if score demonstrates genuine coordination (e.g. matching shoe color or occasion match)
+  // Avoid returning a belt simply because both are generic neutrals on an informal outfit
+  const minThreshold = isFormal ? 8 : 12;
+  return bestScore >= minThreshold ? bestBelt : undefined;
 }
 
 /** Match watch to occasion formality */
@@ -212,8 +214,16 @@ function selectAccessories(
   const selected: WardrobeItem[] = [];
   const recentlyUsed = recentlyUsedAccessoryIds || new Set();
 
-  // Priority 1: Belt (if formal occasion or trousers/jeans)
-  if (outfit.bottom && ["trousers", "jeans"].includes(outfit.bottom.category)) {
+  // Priority 1: Belt (only for structured trousers/jeans that support belts; skip sweatpants, joggers, loungewear)
+  const NON_BELTED_PATTERN = /sweat|jogger|track|fleece|drawstring|elastic|knit|lounge|athletic|gym|pajama|pyjama/i;
+  const isNonBeltedBottom =
+    outfit.bottom &&
+    (NON_BELTED_PATTERN.test(outfit.bottom.name) ||
+      NON_BELTED_PATTERN.test(outfit.bottom.subcategory ?? "") ||
+      outfit.bottom.style === "sporty");
+  const isCasualLoungeOccasion = outfit.occasion && ["lounge", "sleep", "gym", "workout", "athletic"].includes(outfit.occasion);
+
+  if (outfit.bottom && ["trousers", "jeans"].includes(outfit.bottom.category) && !isNonBeltedBottom && !isCasualLoungeOccasion) {
     const belt = findMatchingBelt(
       available.belts,
       outfit.shoe,
@@ -400,7 +410,9 @@ export function generateOutfits(
       
       let tip = `Pairs ${top.primaryColour || "clean"} tones with ${bottom.name.toLowerCase()}`;
       if (selectedAccessories.length > 0) {
-        const accessoryNames = selectedAccessories.map(a => a.category).join(" and ");
+        const accessoryNames = selectedAccessories
+          .map((a) => (a.category === "belts" ? "a matching belt" : a.category === "watches" ? "a watch" : a.category === "bags" ? "a bag" : a.name.toLowerCase()))
+          .join(" and ");
         tip += `. Completed with ${accessoryNames} for polish`;
       }
       tip += ".";
@@ -451,7 +463,9 @@ export function generateOutfits(
     let tip = `Let the ${dress.name.toLowerCase()} lead the statement`;
     if (shoe) tip += ` with ${shoe.category}`;
     if (selectedAccessories.length > 0) {
-      const accessoryNames = selectedAccessories.map(a => a.category).join(" and ");
+      const accessoryNames = selectedAccessories
+        .map((a) => (a.category === "belts" ? "a matching belt" : a.category === "watches" ? "a watch" : a.category === "bags" ? "a bag" : a.name.toLowerCase()))
+        .join(" and ");
       tip += ` and ${accessoryNames}`;
     }
     tip += ".";

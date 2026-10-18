@@ -51,7 +51,7 @@ export const STYLIST_JSON_SCHEMA = {
           },
           style_description: { type: "string", description: "Brief aesthetic summary, e.g. 'Smart casual with warm earth tones'." },
           explanation: { type: "string", description: "Why these pieces harmonize: color balance, texture, silhouette." },
-          styling_tip: { type: "string", description: "Actionable styling tip: how to wear, tuck, roll, or layer." },
+          styling_tip: { type: "string", description: "Actionable styling tip: how to wear, tuck, roll, or layer. Be specific to the chosen pieces; only suggest belts if the pants or skirt have belt loops and genuinely benefit from one (never for sweatpants, loungewear, or elastic waists)." },
           missing_pieces: {
             type: "array",
             description: "1 or 2 complementary items NOT in the user's wardrobe that would complete or elevate this specific outfit (e.g. minimalist white sneakers, leather belt, sunglasses).",
@@ -96,6 +96,6 @@ export const STYLIST_SYSTEM_PROMPT = [
   "CRITICAL FEATURE 2: For each outfit, recommend 1 or 2 'missing_pieces' NOT currently in their wardrobe (e.g. specific shoes, a coat, or an accessory) that would elevate this outfit to the next level.",
   "CRITICAL FEATURE 3: Provide 1 to 3 'wardrobe_gaps' — high-value investment pieces they don't own yet that would unlock multiple new outfits with their existing garments.",
   "CULTURAL & EVENT STYLING: When the user requests Owambe, Nigerian traditional, Aso-Ebi, or cultural celebration looks, harmonize fabrics (Ankara, Aso-Oke, Agbada, Lace, Kaftan, Senator suits) with appropriate cultural accessories (Gele head tie, Fila cap, coral beads, refined footwear). Recommend complementary color pairing themes (e.g. Emerald Green & Champagne Gold, Royal Blue & Silver, Burgundy & Rose Gold).",
-  "Provide actionable, realistic styling tips (e.g. whether to tuck, unbutton, cuff, drape, or layer).",
+  "Provide actionable, realistic styling tips (e.g. whether to tuck, unbutton, cuff, drape, or layer). Only suggest belts when the bottoms clearly support them with belt loops (never suggest belts for sweatpants, joggers, loungewear, athletic pieces, or elastic-waist garments).",
 ].join(" ");
 

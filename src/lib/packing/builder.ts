@@ -142,6 +142,33 @@ export function buildDeterministicPlan(
   for (const list of byGroup.values()) list.sort((a, b) => scoreItem(b, req, weather) - scoreItem(a, req, weather));
   const take = (g: CategoryGroup, n: number) => (byGroup.get(g) ?? []).slice(0, Math.max(0, n));
 
+function distributeItems(pool: InventoryRow[], count: number): InventoryRow[] {
+  if (pool.length === 0) return [];
+  if (pool.length === 1) return Array(count).fill(pool[0]);
+  const wearCounts = new Map<string, number>(pool.map((p) => [p.id, 0]));
+  const result: InventoryRow[] = [];
+  for (let i = 0; i < count; i++) {
+    const prevId = result[i - 1]?.id;
+    const prevPrevId = result[i - 2]?.id;
+    let candidates = pool.filter((item) => item.id !== prevId);
+    if (candidates.length === 0) candidates = pool;
+    if (pool.length >= 3) {
+      const notRecent = candidates.filter((item) => item.id !== prevPrevId);
+      if (notRecent.length > 0) candidates = notRecent;
+    }
+    candidates.sort((a, b) => {
+      const wa = wearCounts.get(a.id) ?? 0;
+      const wb = wearCounts.get(b.id) ?? 0;
+      if (wa !== wb) return wa - wb;
+      return pool.indexOf(a) - pool.indexOf(b);
+    });
+    const chosen = candidates[0];
+    result.push(chosen);
+    wearCounts.set(chosen.id, (wearCounts.get(chosen.id) ?? 0) + 1);
+  }
+  return result;
+}
+
   const n = shape.outfitCount;
   const events = eventDayIndexes(req, startDate, shape);
   const formalNeed =
@@ -149,13 +176,19 @@ export function buildDeterministicPlan(
   const traditionalNeed = req.formality === "traditional" || /owambe|traditional|aso[- ]?ebi/i.test(req.eventName ?? "");
 
   const tops = take("top", n <= 1 ? 1 : Math.min(7, Math.max(2, Math.ceil(n * 0.75))));
-  const bottoms = take("bottom", Math.min(4, Math.max(1, Math.ceil(n / 2.5))));
+  const bottoms = take(
+    "bottom",
+    n >= 7 ? Math.min(5, Math.max(3, Math.ceil(n * 0.5))) : Math.min(4, Math.max(1, Math.ceil(n / 2.5))),
+  );
   const shoes = take("footwear", n <= 2 ? 1 : formalNeed ? 3 : 2);
   const outer = take("outerwear", weather.flags.cold && n > 5 ? 2 : weather.flags.cold || weather.flags.rainy || formalNeed ? 1 : 0);
   const special = traditionalNeed
     ? [...take("traditional", Math.max(1, events.size)), ...take("fullbody", 1)]
     : take("fullbody", formalNeed ? Math.max(1, Math.min(3, events.size || 1)) : n >= 5 ? 1 : 0);
   const accessories = take("accessory", n >= 3 ? 1 : 0);
+
+  const distributedTops = distributeItems(tops, n);
+  const distributedBottoms = distributeItems(bottoms, n);
 
   const outfits: PlanOutfit[] = [];
   let specialIdx = 0;
@@ -165,9 +198,9 @@ export function buildDeterministicPlan(
     if (isEvent && special.length > 0) {
       ids.push(special[specialIdx++ % special.length].id);
     } else {
-      if (tops.length) ids.push(tops[i % tops.length].id);
-      if (bottoms.length) ids.push(bottoms[i % bottoms.length].id);
-      if (!tops.length && !bottoms.length && special.length) ids.push(special[i % special.length].id);
+      if (distributedTops[i]) ids.push(distributedTops[i].id);
+      if (distributedBottoms[i]) ids.push(distributedBottoms[i].id);
+      if (!distributedTops.length && !distributedBottoms.length && special.length) ids.push(special[i % special.length].id);
     }
     if (shoes.length) ids.push((isEvent ? shoes[shoes.length - 1] : shoes[i % shoes.length]).id);
     if (outer.length && (weather.flags.cold || weather.flags.rainy || isEvent)) ids.push(outer[i % outer.length].id);

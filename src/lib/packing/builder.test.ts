@@ -116,7 +116,7 @@ describe("Packing Builder", () => {
     const mockInventory: InventoryRow[] = Array.from({ length: 30 }, (_, i) => ({
       id: `item-${i}`,
       name: `Item ${i}`,
-      category: i < 10 ? "tops" : i < 20 ? "bottoms" : "footwear",
+      category: i < 10 ? "shirts" : i < 20 ? "trousers" : "shoes",
       subcategory: null,
       primary_colour: i % 2 === 0 ? "black" : "white",
       pattern: null,
@@ -213,6 +213,35 @@ describe("Packing Builder", () => {
 
       expect(Array.isArray(result.tips)).toBe(true);
       expect(result.tips.length).toBeGreaterThan(0);
+    });
+
+    it("distributes bottoms evenly across a 7-day rotation without excessive single-item repetition", () => {
+      const req: PackingRequest = {
+        purpose: "school",
+        location: "Campus",
+        days: 112,
+        laundry: "weekly",
+      };
+      const shape = planShape(112, "weekly");
+      const result = buildDeterministicPlan(mockInventory, req, mockWeather, "2026-10-15", shape);
+
+      // Bottom items in mockInventory are item-10 to item-19
+      const bottomIds = new Set(mockInventory.filter((i) => i.category === "trousers").map((i) => i.id));
+      const bottomCountsInWeek = new Map<string, number>();
+
+      for (const outfit of result.outfits) {
+        for (const id of outfit.item_ids) {
+          if (bottomIds.has(id)) {
+            bottomCountsInWeek.set(id, (bottomCountsInWeek.get(id) ?? 0) + 1);
+          }
+        }
+      }
+
+      // With multiple bottoms available, no single bottom should be repeated 3+ times in a 7-day week
+      for (const count of bottomCountsInWeek.values()) {
+        expect(count).toBeLessThanOrEqual(2);
+      }
+      expect(bottomCountsInWeek.size).toBeGreaterThanOrEqual(3);
     });
   });
 

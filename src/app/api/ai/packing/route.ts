@@ -48,7 +48,7 @@ Strict rules:
 2. Only use item ids that appear in "wardrobeInventory". Never invent ids. Use at most ${MAX_CAPSULE_ITEMS} capsule items and at most ${MAX_ITEMS_PER_OUTFIT} items per outfit.
 3. Return EXACTLY "plan.outfitCount" outfits, numbered day 1..outfitCount.
    - If plan.mode is "daily": one outfit per day of the stay.
-   - If plan.mode is "rotation": the outfits are a REPEATING TEMPLATE for one laundry cycle of plan.cycleDays days. Pick a small core capsule that survives the cycle and re-wear versatile pieces (bottoms, shoes, outer layers) several times. Do NOT plan one outfit per day of the whole stay.
+   - If plan.mode is "rotation": the outfits are a REPEATING TEMPLATE for one laundry cycle of plan.cycleDays days. Pick a versatile core capsule that survives the cycle. Bottoms and shoes must be evenly balanced across the template: NEVER assign the same bottom more than 2 times in a 7-day cycle if 3+ bottoms are available (max 3 times only if 2 bottoms exist), never wear the same bottom on consecutive days, and ensure at least 3-4 distinct bottoms are included in the capsule if the inventory allows. Do NOT plan one outfit per day of the whole stay.
 4. Respect the weather notes. If a day has no forecast, rely on the stated seasonal norms; never claim a forecast exists for those days.
 5. Event days (plan.eventDays) need the most polished outfit available; if photoDay is true, favour pieces that photograph well.
 6. suggestedItems: up to ${MAX_SUGGESTED_ITEMS} NON-wardrobe things the user might need, based on purpose, location, weather and duration (e.g. umbrella in rainy season, power bank and extension cord for a hostel, student ID for school, modest cover for religious venues, sunscreen in heat, plug adapter abroad).

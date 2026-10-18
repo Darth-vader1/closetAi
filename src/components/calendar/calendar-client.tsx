@@ -24,15 +24,20 @@ interface CalendarClientProps {
   initialPlans: PlannedOutfitRow[];
   savedOutfits: OutfitWithItems[];
   imageUrls: Record<string, string>;
+  initialDate?: string;
 }
 
-export function CalendarClient({ initialPlans, savedOutfits, imageUrls }: CalendarClientProps) {
+export function CalendarClient({ initialPlans, savedOutfits, imageUrls, initialDate }: CalendarClientProps) {
   const [plans, setPlans] = useState<PlannedOutfitRow[]>(initialPlans);
   const [selectedDate, setSelectedDate] = useState<string>(() => {
-    return new Date().toISOString().split("T")[0];
+    return initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)
+      ? initialDate
+      : new Date().toISOString().split("T")[0];
   });
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
-    const d = new Date();
+    const d = initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)
+      ? new Date(`${initialDate}T00:00:00`)
+      : new Date();
     const day = d.getDay();
     const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
     const monday = new Date(d.setDate(diff));

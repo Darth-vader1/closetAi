@@ -11,9 +11,12 @@ export interface DailyOutfitEmailProps {
     name: string;
     category: string;
     colour?: string | null;
+    imageUrl?: string | null;
   }>;
   weatherSummary?: string | null;
   unsubscribeToken?: string;
+  date?: string;
+  outfitId?: string;
 }
 
 export function renderDailyOutfitHtml({
@@ -26,9 +29,12 @@ export function renderDailyOutfitHtml({
   items,
   weatherSummary,
   unsubscribeToken,
+  date,
+  outfitId,
 }: DailyOutfitEmailProps): string {
   const appUrl = getAppUrl();
-  const calendarUrl = `${appUrl}/calendar`;
+  const targetDate = date || new Date().toISOString().slice(0, 10);
+  const outfitUrl = `${appUrl}/calendar?date=${encodeURIComponent(targetDate)}`;
   const stylistUrl = `${appUrl}/stylist`;
   const settingsUrl = `${appUrl}/settings`;
   const unsubscribeUrl = unsubscribeToken
@@ -39,8 +45,15 @@ export function renderDailyOutfitHtml({
     .map(
       (item) => `
       <tr style="border-bottom: 1px solid #e7e5e4;">
-        <td style="padding: 12px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-          <strong style="color: #1c1917; font-size: 14px;">${escapeHtml(item.name)}</strong>
+        <td style="padding: 10px 0; width: 56px; vertical-align: middle;">
+          ${
+            item.imageUrl
+              ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}" width="52" height="52" style="width: 52px; height: 52px; object-fit: cover; border-radius: 8px; border: 1px solid #e7e5e4; display: block;" />`
+              : `<div style="width: 52px; height: 52px; border-radius: 8px; background-color: #f5f5f4; border: 1px solid #e7e5e4; text-align: center; line-height: 52px; font-size: 20px;">👔</div>`
+          }
+        </td>
+        <td style="padding: 10px 0 10px 14px; vertical-align: middle; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+          <strong style="color: #1c1917; font-size: 14px; display: block;">${escapeHtml(item.name)}</strong>
           <div style="color: #78716c; font-size: 12px; margin-top: 2px;">
             ${escapeHtml(item.category)}${item.colour ? ` · ${escapeHtml(item.colour)}` : ""}
           </div>
@@ -102,8 +115,8 @@ export function renderDailyOutfitHtml({
 
       <!-- Primary Action -->
       <div style="text-align: center; margin: 32px 0 16px 0;">
-        <a href="${calendarUrl}" style="display: inline-block; background-color: #1c1917; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 30px; font-size: 14px; font-weight: 500; letter-spacing: 0.5px;">
-          View in Outfit Calendar →
+        <a href="${outfitUrl}" style="display: inline-block; background-color: #1c1917; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 30px; font-size: 14px; font-weight: 500; letter-spacing: 0.5px;">
+          View &amp; Wear Today's Outfit →
         </a>
       </div>
       <div style="text-align: center;">

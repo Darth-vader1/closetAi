@@ -169,6 +169,7 @@ export async function GET(request: NextRequest) {
         let explanation = "Color harmony and balanced silhouette ensure effortless confidence.";
         let stylingTip = "Wear with your favorite minimalist accessories.";
         let items: Array<{ name: string; category: string; colour?: string | null; image_path?: string | null }> = [];
+        let outfitId: string | undefined = plannedRow?.outfit_id;
 
         if (plannedRow?.outfits) {
           const o = plannedRow.outfits as unknown as {
@@ -259,6 +260,42 @@ export async function GET(request: NextRequest) {
             colour: i.primaryColour,
             image_path: i.imagePath,
           }));
+
+          // Persist the generated outfit so the user can see and wear it in their calendar
+          try {
+            const { data: newOutfit } = await adminClient
+              .from("outfits")
+              .insert({
+                user_id: userId,
+                name: best.name,
+                occasion: best.occasion || "casual",
+                style_description: best.styleDescription,
+                explanation,
+                styling_tip: best.stylingTip,
+                source: "ai",
+              })
+              .select("id")
+              .maybeSingle();
+
+            if (newOutfit?.id) {
+              outfitId = newOutfit.id;
+              await adminClient.from("outfit_items").insert(
+                best.items.map((item, idx) => ({
+                  outfit_id: newOutfit.id,
+                  item_id: item.id,
+                  position: idx,
+                }))
+              );
+              await adminClient.from("outfit_plans").insert({
+                user_id: userId,
+                outfit_id: newOutfit.id,
+                planned_for: clock.localDate,
+                status: "PLANNED",
+              });
+            }
+          } catch (err) {
+            logger.warn("cron.daily_outfit_persist_failed", { userId, error: err });
+          }
         }
 
         const displayName = profile?.display_name || recipientEmail?.split("@")[0] || "Friend";
@@ -266,6 +303,36 @@ export async function GET(request: NextRequest) {
         // Fetch live weather for the user's city
         const weather = await getLiveWeather(profile?.location || "Lagos");
         const weatherSummary = weather ? `${weather.city}: ${weather.temperatureC}°C · ${weather.condition}` : null;
+
+        // Pre-sign image URLs for Email thumbnails and WhatsApp (7 days expiry for email clients)
+        const emailItems: Array<{
+          name: string;
+          category: string;
+          colour?: string | null;
+          imageUrl?: string | null;
+        }> = [];
+        const signedUrls: string[] = [];
+
+        for (const itm of items) {
+          let signedUrl: string | null = null;
+          if (itm.image_path) {
+            try {
+              const { data: signed } = await adminClient.storage
+                .from("wardrobe")
+                .createSignedUrl(itm.image_path, 60 * 60 * 24 * 7);
+              signedUrl = signed?.signedUrl ?? null;
+              if (signedUrl) signedUrls.push(signedUrl);
+            } catch {
+              signedUrl = null;
+            }
+          }
+          emailItems.push({
+            name: itm.name,
+            category: itm.category,
+            colour: itm.colour,
+            imageUrl: signedUrl,
+          });
+        }
 
         let emailSent = false;
         let waSent = false;
@@ -281,9 +348,11 @@ export async function GET(request: NextRequest) {
             styleDescription,
             explanation,
             stylingTip,
-            items,
+            items: emailItems,
             weatherSummary,
             unsubscribeToken: pref.unsubscribe_token,
+            date: clock.localDate,
+            outfitId,
           });
 
           const sendResult = await sendEmail({
@@ -302,17 +371,6 @@ export async function GET(request: NextRequest) {
 
         // 2. Dispatch WhatsApp (if enabled, phone exists, and WhatsApp provider is configured)
         if (wantWhatsApp && pref.whatsapp_phone) {
-          const signedUrls: string[] = [];
-          for (const itm of items) {
-            if (itm.image_path) {
-              const { data: signed } = await adminClient.storage
-                .from("wardrobe")
-                .createSignedUrl(itm.image_path, 60 * 60);
-              if (signed?.signedUrl) {
-                signedUrls.push(signed.signedUrl);
-              }
-            }
-          }
 
           const waMessage = formatDailyOutfitWhatsApp({
             displayName,
