@@ -651,6 +651,11 @@ function EntryCard({
           {/* Beautify Image Controls (Mode 1: Clean Cutout & Mode 2: AI Enhance) */}
           {entry.stage === "review" ? (
             <div className="mt-2.5 space-y-1.5">
+              <p className="rounded-lg border border-border/70 bg-surface-muted/60 px-2 py-1 text-[10px] leading-snug text-muted">
+                <strong>Notice:</strong> Clean Cutout &amp; AI Enhance send this photo to{" "}
+                <strong>PhotoRoom</strong> (and Gemini for AI Enhance calibration). Original photo is
+                preserved.
+              </p>
               <div className="grid grid-cols-2 gap-1.5">
                 <Button
                   type="button"

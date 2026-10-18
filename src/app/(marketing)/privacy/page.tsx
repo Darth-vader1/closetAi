@@ -24,8 +24,16 @@ export default function PrivacyPage() {
         <li>
           Configured AI providers (Groq, Mistral, and Google Gemini) receive a clothing photo when you use AI photo analysis, or your garment names, colours, materials, and optional model appearance settings (gender, skin tone, and body build) when you use the AI Stylist, Travel Packing Assistant, or Studio Lookbook Photo Generator. Lookbook photos depict AI-generated fashion models styled with descriptions of your garments. If AI isn&apos;t configured, nothing is sent.
         </li>
+        <li>
+          PhotoRoom processes garment photos when you choose Product Studio background removal or image enhancement (Clean Cutout or AI Enhance).
+        </li>
         <li>Vercel hosts the application.</li>
       </ul>
+
+      <h2>Image enhancement (PhotoRoom &amp; AI Enhance)</h2>
+      <p>
+        When you use Product Studio to create a Clean Cutout or run AI Enhance on a garment photo, the selected photo is sent to <strong>PhotoRoom</strong> for neural background segmentation and image enhancement, and (when AI Enhance is selected) to <strong>Google Gemini</strong> to calibrate lighting and wrinkle reduction. Your original uploaded photo is always preserved in your private storage bucket so you can restore it at any time.
+      </p>
 
       <h2>Your photos</h2>
       <p>Photos are stored in a private bucket. They are shown to you through temporary signed links, and notifications that include photos use temporary links that expire.</p>

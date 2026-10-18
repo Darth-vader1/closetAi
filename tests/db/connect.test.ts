@@ -917,10 +917,10 @@ describe("Phase 2: connect_message_attachments & shared item/outfit RLS", () => 
       );
     });
 
-    // Partner can read the shared item and its storage object, but NOT the private item
+    // Partner can read the shared item via shared_wardrobe_items and its storage object, but NOT the private item
     await asUser(db, partner, async () => {
       const items = await db.query<{ id: string; name: string }>(
-        `select id, name from public.wardrobe_items where user_id = $1`,
+        `select id, name from public.shared_wardrobe_items where user_id = $1`,
         [owner],
       );
       expect(items.rows.map((r) => r.id)).toEqual([sharedItemId]);
@@ -942,7 +942,7 @@ describe("Phase 2: connect_message_attachments & shared item/outfit RLS", () => 
       expect(att.rows).toHaveLength(0);
 
       const items = await db.query(
-        `select id from public.wardrobe_items where id = $1`,
+        `select id from public.shared_wardrobe_items where id = $1`,
         [sharedItemId],
       );
       expect(items.rows).toHaveLength(0);
@@ -992,7 +992,7 @@ describe("Phase 2: connect_message_attachments & shared item/outfit RLS", () => 
       expect(links.rows.map((r) => r.item_id)).toEqual([topId, pantsId]);
 
       const visibleItems = await db.query<{ id: string }>(
-        `select id from public.wardrobe_items where user_id = $1`,
+        `select id from public.shared_wardrobe_items where user_id = $1`,
         [owner],
       );
       expect(visibleItems.rows.map((r) => r.id).sort()).toEqual([topId, pantsId].sort());
@@ -1012,7 +1012,7 @@ describe("Phase 2: connect_message_attachments & shared item/outfit RLS", () => 
       expect(outfits.rows).toHaveLength(0);
 
       const visibleItems = await db.query(
-        `select id from public.wardrobe_items where user_id = $1`,
+        `select id from public.shared_wardrobe_items where user_id = $1`,
         [owner],
       );
       expect(visibleItems.rows).toHaveLength(0);
@@ -1111,10 +1111,10 @@ describe("Phase 2: connect_wardrobe_grants & connect_grant_items", () => {
       );
     });
 
-    // Stylist sees only item1 and item2
+    // Stylist sees only item1 and item2 via shared_wardrobe_items
     await asUser(db, stylist, async () => {
       const items = await db.query<{ id: string }>(
-        `select id from public.wardrobe_items where user_id = $1`,
+        `select id from public.shared_wardrobe_items where user_id = $1`,
         [owner],
       );
       expect(items.rows.map((r) => r.id).sort()).toEqual([item1, item2].sort());
@@ -1130,7 +1130,7 @@ describe("Phase 2: connect_wardrobe_grants & connect_grant_items", () => {
 
     await asUser(db, stylist, async () => {
       const items = await db.query<{ id: string }>(
-        `select id from public.wardrobe_items where user_id = $1`,
+        `select id from public.shared_wardrobe_items where user_id = $1`,
         [owner],
       );
       expect(items.rows.map((r) => r.id).sort()).toEqual([item1, item2, item3].sort());
@@ -1146,7 +1146,7 @@ describe("Phase 2: connect_wardrobe_grants & connect_grant_items", () => {
 
     await asUser(db, stylist, async () => {
       const items = await db.query<{ id: string }>(
-        `select id from public.wardrobe_items where user_id = $1`,
+        `select id from public.shared_wardrobe_items where user_id = $1`,
         [owner],
       );
       expect(items.rows).toHaveLength(0);
@@ -1174,9 +1174,9 @@ describe("Phase 2: connect_wardrobe_grants & connect_grant_items", () => {
       );
     });
 
-    // Before block, grantee can read
+    // Before block, grantee can read via shared_wardrobe_items
     await asUser(db, grantee, async () => {
-      const r = await db.query(`select id from public.wardrobe_items where id = $1`, [itemId]);
+      const r = await db.query(`select id from public.shared_wardrobe_items where id = $1`, [itemId]);
       expect(r.rows).toHaveLength(1);
     });
 
@@ -1190,7 +1190,7 @@ describe("Phase 2: connect_wardrobe_grants & connect_grant_items", () => {
 
     // After block, grantee immediately loses read access
     await asUser(db, grantee, async () => {
-      const r = await db.query(`select id from public.wardrobe_items where id = $1`, [itemId]);
+      const r = await db.query(`select id from public.shared_wardrobe_items where id = $1`, [itemId]);
       expect(r.rows).toHaveLength(0);
     });
   });
@@ -1429,5 +1429,429 @@ describe("Round 3 #6: connect_search_users min 2 chars, wildcard escaping & rate
     expect(check.rows).toHaveLength(0);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Round 4 Hardening Attack Tests (migration 20261018000003_connect_hardening_round4)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Round 4 #1: Path forgery protection on wardrobe_items, outfits & storage", () => {
+  it("rejects updating own item image_path, thumbnail_path, medium_path, original_image_path, or beautified_image_path to another user's path or '..' and keeps can_access_storage_object false", async () => {
+    const db = getDb();
+    const victim = await createUser(db, "PathVictim");
+    const attacker = await createUser(db, "PathAttacker");
+    const accomplice = await createUser(db, "PathAccomplice");
+
+    const victimSecretPath = `${victim}/secret-passport.jpg`;
+    await createTestItem(victim, "Victim Jacket", victimSecretPath);
+    const attackerItemId = await createTestItem(attacker, "Attacker Shirt", `${attacker}/legit.jpg`);
+
+    // Attacker grants accomplice full wardrobe access in hopes of exfiltrating victim's file via path forgery
+    await asUser(db, attacker, async () => {
+      await db.query(
+        `insert into public.connect_wardrobe_grants (owner_id, grantee_id, scope, can_view_items)
+         values ($1, $2, 'wardrobe', true)`,
+        [attacker, accomplice],
+      );
+    });
+
+    await asUser(db, attacker, async () => {
+      // 1. Forging image_path to victim's path
+      await expect(
+        db.query(`update public.wardrobe_items set image_path = $1 where id = $2`, [
+          victimSecretPath,
+          attackerItemId,
+        ]),
+      ).rejects.toThrow(/image_path must reside inside the owner folder/i);
+
+      // 2. Forging image_path with '..' traversal inside own prefix
+      await expect(
+        db.query(`update public.wardrobe_items set image_path = $1 where id = $2`, [
+          `${attacker}/../${victim}/secret-passport.jpg`,
+          attackerItemId,
+        ]),
+      ).rejects.toThrow(/image_path must reside inside the owner folder/i);
+
+      // 3. Forging thumbnail_path to victim's path
+      await expect(
+        db.query(`update public.wardrobe_items set thumbnail_path = $1 where id = $2`, [
+          victimSecretPath,
+          attackerItemId,
+        ]),
+      ).rejects.toThrow(/thumbnail_path must reside inside the owner folder/i);
+
+      // 4. Forging medium_path to victim's path
+      await expect(
+        db.query(`update public.wardrobe_items set medium_path = $1 where id = $2`, [
+          victimSecretPath,
+          attackerItemId,
+        ]),
+      ).rejects.toThrow(/medium_path must reside inside the owner folder/i);
+
+      // 5. Forging original_image_path without a '/' (previously skipped exception now removed)
+      await expect(
+        db.query(`update public.wardrobe_items set original_image_path = 'plain-no-slash.jpg' where id = $1`, [
+          attackerItemId,
+        ]),
+      ).rejects.toThrow(/original_image_path must reside inside the owner folder/i);
+
+      // 6. Forging original_image_path to victim's path
+      await expect(
+        db.query(`update public.wardrobe_items set original_image_path = $1 where id = $2`, [
+          victimSecretPath,
+          attackerItemId,
+        ]),
+      ).rejects.toThrow(/original_image_path must reside inside the owner folder/i);
+
+      // 7. Forging beautified_image_path to victim's path
+      await expect(
+        db.query(`update public.wardrobe_items set beautified_image_path = $1 where id = $2`, [
+          victimSecretPath,
+          attackerItemId,
+        ]),
+      ).rejects.toThrow(/beautified_image_path must reside inside the owner folder/i);
+    });
+
+    // Rejects outfits.photo_path forgery on INSERT and UPDATE
+    await asUser(db, attacker, async () => {
+      await expect(
+        db.query(
+          `insert into public.outfits (user_id, name, photo_path) values ($1, 'Forged Look', $2)`,
+          [attacker, victimSecretPath],
+        ),
+      ).rejects.toThrow(/photo_path must reside inside the owner folder/i);
+
+      await expect(
+        db.query(
+          `insert into public.outfits (user_id, name, photo_path) values ($1, 'Traversal Look', $2)`,
+          [attacker, `${attacker}/../${victim}/secret-passport.jpg`],
+        ),
+      ).rejects.toThrow(/photo_path must reside inside the owner folder/i);
+
+      const o = await db.query<{ id: string }>(
+        `insert into public.outfits (user_id, name, photo_path) values ($1, 'Valid Look', $2) returning id`,
+        [attacker, `${attacker}/outfit.jpg`],
+      );
+      await expect(
+        db.query(`update public.outfits set photo_path = $1 where id = $2`, [
+          victimSecretPath,
+          o.rows[0].id,
+        ]),
+      ).rejects.toThrow(/photo_path must reside inside the owner folder/i);
+    });
+
+    // Verify can_access_storage_object stays false for both attacker and accomplice
+    await asUser(db, attacker, async () => {
+      const r = await db.query<{ ok: boolean }>(
+        `select public.can_access_storage_object($1) as ok`,
+        [victimSecretPath],
+      );
+      expect(r.rows[0].ok).toBe(false);
+    });
+
+    await asUser(db, accomplice, async () => {
+      const r = await db.query<{ ok: boolean }>(
+        `select public.can_access_storage_object($1) as ok`,
+        [victimSecretPath],
+      );
+      expect(r.rows[0].ok).toBe(false);
+    });
+  });
+});
+
+describe("Round 4 #2: shared_wardrobe_items view & wardrobe_items_select_shared removal", () => {
+  it("exposes only the 13 allowed columns in shared_wardrobe_items and prevents grantees from reading status, wear_count, last_worn_at, care_type, original_* or beautification_*", async () => {
+    const db = getDb();
+    const owner = await createUser(db, "ViewOwner");
+    const grantee = await createUser(db, "ViewGrantee");
+
+    const res = await db.query<{ id: string }>(
+      `insert into public.wardrobe_items (
+         user_id, name, category, subcategory, primary_colour, secondary_colours,
+         pattern, material, style, image_path, thumbnail_path, medium_path,
+         status, wear_count, last_worn_at, care_type,
+         original_image_path, beautified_image_path, beautification_mode, beautification_status
+       ) values (
+         $1, 'Silk Trench', 'outerwear', 'trench', 'beige', array['black'],
+         'solid', 'silk', 'classic', $2, $3, $4,
+         'DIRTY', 17, now(), 'WASHABLE',
+         $5, $2, 'ai-enhance', 'COMPLETED'
+       ) returning id`,
+      [
+        owner,
+        `${owner}/beautified.png`,
+        `${owner}/thumb.webp`,
+        `${owner}/medium.webp`,
+        `${owner}/raw-messy-bedroom.jpg`,
+      ],
+    );
+    const itemId = res.rows[0].id;
+
+    await asUser(db, owner, async () => {
+      await db.query(
+        `insert into public.connect_wardrobe_grants (owner_id, grantee_id, scope, can_view_items)
+         values ($1, $2, 'wardrobe', true)`,
+        [owner, grantee],
+      );
+    });
+
+    // 1. Inspect information_schema.columns on shared_wardrobe_items
+    const colRes = await db.query<{ column_name: string }>(
+      `select column_name
+       from information_schema.columns
+       where table_schema = 'public'
+         and table_name = 'shared_wardrobe_items'
+       order by ordinal_position`,
+    );
+    expect(colRes.rows.map((r) => r.column_name)).toEqual([
+      "id",
+      "user_id",
+      "name",
+      "category",
+      "subcategory",
+      "primary_colour",
+      "secondary_colours",
+      "pattern",
+      "material",
+      "style",
+      "image_path",
+      "thumbnail_path",
+      "medium_path",
+    ]);
+
+    // 2. Grantee CANNOT read from public.wardrobe_items directly (wardrobe_items_select_shared is gone)
+    await asUser(db, grantee, async () => {
+      const directRows = await db.query(
+        `select id, status, wear_count, last_worn_at, care_type, original_image_path, beautified_image_path, beautification_mode, beautification_status
+         from public.wardrobe_items
+         where id = $1`,
+        [itemId],
+      );
+      expect(directRows.rows).toHaveLength(0);
+
+      // 3. Attempting to select private columns from shared_wardrobe_items fails with undefined_column
+      for (const forbiddenCol of [
+        "status",
+        "wear_count",
+        "last_worn_at",
+        "care_type",
+        "original_image_path",
+        "beautified_image_path",
+        "beautification_mode",
+        "beautification_status",
+        "beautification_provider",
+        "beautification_model",
+      ]) {
+        await expect(
+          db.query(`select ${forbiddenCol} from public.shared_wardrobe_items where id = $1`, [itemId]),
+        ).rejects.toThrow(/column .* does not exist/i);
+      }
+
+      // 4. Grantee CAN read the 13 allowed columns from shared_wardrobe_items
+      const sharedRows = await db.query<Record<string, unknown>>(
+        `select * from public.shared_wardrobe_items where id = $1`,
+        [itemId],
+      );
+      expect(sharedRows.rows).toHaveLength(1);
+      expect(Object.keys(sharedRows.rows[0]).sort()).toEqual(
+        [
+          "id",
+          "user_id",
+          "name",
+          "category",
+          "subcategory",
+          "primary_colour",
+          "secondary_colours",
+          "pattern",
+          "material",
+          "style",
+          "image_path",
+          "thumbnail_path",
+          "medium_path",
+        ].sort(),
+      );
+    });
+  });
+});
+
+describe("Round 4 #3: Hidden categories (Underwear, Intimates, Swimwear) & per-grant excluded_categories", () => {
+  it("never exposes Underwear, Intimates, or Swimwear through wardrobe grants or message attachments, and enforces per-grant excluded_categories", async () => {
+    const db = getDb();
+    const owner = await createUser(db, "HiddenCatOwner");
+    const grantee = await createUser(db, "HiddenCatGrantee");
+
+    const insertCatItem = async (name: string, category: string, subcategory: string | null = null) => {
+      const path = `${owner}/${crypto.randomUUID()}.jpg`;
+      const r = await db.query<{ id: string }>(
+        `insert into public.wardrobe_items (user_id, name, category, subcategory, image_path)
+         values ($1, $2, $3, $4, $5) returning id`,
+        [owner, name, category, subcategory, path],
+      );
+      return { id: r.rows[0].id, path };
+    };
+
+    const shirt = await insertCatItem("Oxford Shirt", "shirts");
+    const coat = await insertCatItem("Wool Overcoat", "outerwear");
+    const sneakers = await insertCatItem("White Sneakers", "shoes");
+    const underwear = await insertCatItem("Cotton Briefs", "Underwear");
+    const intimates = await insertCatItem("Silk Bralette", "Intimates");
+    const swimwear = await insertCatItem("Beach Trunks", "Swimwear");
+    const subcatSwim = await insertCatItem("Resort One-Piece", "activewear", "Swimwear");
+
+    // 1. Grant scope='wardrobe' with excluded_categories = ['outerwear']
+    let grantId = "";
+    await asUser(db, owner, async () => {
+      const g = await db.query<{ id: string }>(
+        `insert into public.connect_wardrobe_grants
+           (owner_id, grantee_id, scope, can_view_items, excluded_categories)
+         values ($1, $2, 'wardrobe', true, array['outerwear']) returning id`,
+        [owner, grantee],
+      );
+      grantId = g.rows[0].id;
+    });
+
+    // Grantee sees shirt and sneakers, but NOT coat (excluded_categories) and NOT underwear/intimates/swimwear
+    await asUser(db, grantee, async () => {
+      const rows = await db.query<{ id: string }>(
+        `select id from public.shared_wardrobe_items where user_id = $1`,
+        [owner],
+      );
+      const visibleIds = rows.rows.map((r) => r.id);
+      expect(visibleIds.sort()).toEqual([shirt.id, sneakers.id].sort());
+      expect(visibleIds).not.toContain(coat.id);
+      expect(visibleIds).not.toContain(underwear.id);
+      expect(visibleIds).not.toContain(intimates.id);
+      expect(visibleIds).not.toContain(swimwear.id);
+      expect(visibleIds).not.toContain(subcatSwim.id);
+    });
+
+    // Updating excluded_categories to also exclude 'shoes' hides sneakers too
+    await asUser(db, owner, async () => {
+      await db.query(
+        `update public.connect_wardrobe_grants
+            set excluded_categories = array['outerwear', 'shoes']
+          where id = $1`,
+        [grantId],
+      );
+    });
+
+    await asUser(db, grantee, async () => {
+      const rows = await db.query<{ id: string }>(
+        `select id from public.shared_wardrobe_items where user_id = $1`,
+        [owner],
+      );
+      expect(rows.rows.map((r) => r.id)).toEqual([shirt.id]);
+    });
+
+    // 2. Even if owner attaches Underwear/Intimates/Swimwear in an active conversation,
+    //    can_access_wardrobe_item, shared_wardrobe_items, and can_access_storage_object stay false!
+    const convId = await startConv(owner, grantee);
+    await acceptConv(grantee, convId);
+
+    await asUser(db, owner, async () => {
+      const m = await db.query<{ id: string }>(
+        `insert into public.connect_messages (conversation_id, sender_id, body)
+         values ($1, $2, 'trying to attach hidden categories') returning id`,
+        [convId, owner],
+      );
+      await db.query(
+        `insert into public.connect_message_attachments (message_id, conversation_id, owner_id, kind, item_id)
+         values ($1, $2, $3, 'item', $4),
+                ($1, $2, $3, 'item', $5),
+                ($1, $2, $3, 'item', $6)`,
+        [m.rows[0].id, convId, owner, underwear.id, intimates.id, swimwear.id],
+      );
+    });
+
+    await asUser(db, grantee, async () => {
+      for (const hidden of [underwear, intimates, swimwear, subcatSwim]) {
+        const access = await db.query<{ ok: boolean }>(
+          `select public.can_access_wardrobe_item($1, $2) as ok`,
+          [hidden.id, owner],
+        );
+        expect(access.rows[0].ok).toBe(false);
+
+        const storageAccess = await db.query<{ ok: boolean }>(
+          `select public.can_access_storage_object($1) as ok`,
+          [hidden.path],
+        );
+        expect(storageAccess.rows[0].ok).toBe(false);
+      }
+
+      const sharedView = await db.query<{ id: string }>(
+        `select id from public.shared_wardrobe_items where id in ($1, $2, $3, $4)`,
+        [underwear.id, intimates.id, swimwear.id, subcatSwim.id],
+      );
+      expect(sharedView.rows).toHaveLength(0);
+    });
+  });
+});
+
+describe("Round 4 #4: Attachments limited to 6 per message and forbidden in pending conversations", () => {
+  it("rejects any attachment on a message in a pending conversation and limits attachments to at most 6 per message in an active conversation", async () => {
+    const db = getDb();
+    const sender = await createUser(db, "AttLimitSender");
+    const recipient = await createUser(db, "AttLimitRecipient");
+
+    const itemIds: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      itemIds.push(await createTestItem(sender, `Piece ${i + 1}`));
+    }
+
+    // 1. Start conversation (status = 'pending') and send the 1 allowed intro message
+    const convId = await startConv(sender, recipient);
+    let pendingMsgId = "";
+    await asUser(db, sender, async () => {
+      const m = await db.query<{ id: string }>(
+        `insert into public.connect_messages (conversation_id, sender_id, body)
+         values ($1, $2, 'Hello in pending request') returning id`,
+        [convId, sender],
+      );
+      pendingMsgId = m.rows[0].id;
+
+      // Attaching even 1 item while conversation status='pending' is rejected
+      await expect(
+        db.query(
+          `insert into public.connect_message_attachments
+             (message_id, conversation_id, owner_id, kind, item_id)
+           values ($1, $2, $3, 'item', $4)`,
+          [pendingMsgId, convId, sender, itemIds[0]],
+        ),
+      ).rejects.toThrow(/pending/i);
+    });
+
+    // 2. Recipient accepts conversation (status = 'active')
+    await acceptConv(recipient, convId);
+
+    await asUser(db, sender, async () => {
+      const m = await db.query<{ id: string }>(
+        `insert into public.connect_messages (conversation_id, sender_id, body)
+         values ($1, $2, 'Here are 6 items') returning id`,
+        [convId, sender],
+      );
+      const activeMsgId = m.rows[0].id;
+
+      // Attaching 6 items succeeds
+      for (let i = 0; i < 6; i++) {
+        await db.query(
+          `insert into public.connect_message_attachments
+             (message_id, conversation_id, owner_id, kind, item_id)
+           values ($1, $2, $3, 'item', $4)`,
+          [activeMsgId, convId, sender, itemIds[i]],
+        );
+      }
+
+      // 7th attachment on the same message is rejected
+      await expect(
+        db.query(
+          `insert into public.connect_message_attachments
+             (message_id, conversation_id, owner_id, kind, item_id)
+           values ($1, $2, $3, 'item', $4)`,
+          [activeMsgId, convId, sender, itemIds[6]],
+        ),
+      ).rejects.toThrow(/at most 6 attachments/i);
+    });
+  });
+});
+
 
 

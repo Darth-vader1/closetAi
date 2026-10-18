@@ -142,8 +142,8 @@ export async function sendMessageAction(
 const shareInConversationSchema = z.object({
   conversationId: z.uuid(),
   body: z.string().trim().max(4000).optional(),
-  itemIds: z.array(z.uuid()).max(8).default([]),
-  outfitIds: z.array(z.uuid()).max(4).default([]),
+  itemIds: z.array(z.uuid()).max(6).default([]),
+  outfitIds: z.array(z.uuid()).max(6).default([]),
 });
 
 export async function shareInConversationAction(
@@ -158,9 +158,13 @@ export async function shareInConversationAction(
   const { conversationId, body, itemIds, outfitIds } = parsed.data;
   const uniqueItems = [...new Set(itemIds)];
   const uniqueOutfits = [...new Set(outfitIds)];
+  const totalAttachments = uniqueItems.length + uniqueOutfits.length;
 
-  if (uniqueItems.length === 0 && uniqueOutfits.length === 0) {
+  if (totalAttachments === 0) {
     return { ok: false, error: "Select at least one clothing item or saved outfit to share." };
+  }
+  if (totalAttachments > 6) {
+    return { ok: false, error: "You can attach at most 6 items or outfits per message." };
   }
 
   const parts: string[] = [];
@@ -202,7 +206,7 @@ export async function shareInConversationAction(
 
   const messageId = msgRow.id as string;
 
-  // 2. Insert attachment rows (DB trigger verifies item/outfit ownership)
+  // 2. Insert attachment rows (DB trigger verifies item/outfit ownership, pending status, and 6-item limit)
   const attachmentPayloads = [
     ...uniqueItems.map((itemId) => ({
       message_id: messageId,
@@ -230,6 +234,13 @@ export async function shareInConversationAction(
     logger.error("connect.share_attachments_failed", { userId: user.id, err: attErr });
     // Roll back the message so no empty orphan message remains
     await supabase.from("connect_messages").delete().eq("id", messageId);
+    const attMsg = attErr.message ?? "";
+    if (attMsg.includes("pending")) {
+      return { ok: false, error: "Attachments are not allowed until the conversation request is accepted." };
+    }
+    if (attMsg.includes("at most 6")) {
+      return { ok: false, error: "A message can have at most 6 attachments." };
+    }
     return { ok: false, error: "You can only share clothing items and outfits that you own." };
   }
 
@@ -349,6 +360,7 @@ const upsertGrantSchema = z.object({
   canRecommend: z.boolean().default(false),
   canSubmitForApproval: z.boolean().default(false),
   canCollaborateRequest: z.boolean().default(false),
+  excludedCategories: z.array(z.string().trim().min(1).max(60)).max(50).default([]),
   itemIds: z.array(z.uuid()).max(200).default([]),
 });
 
@@ -369,6 +381,7 @@ export async function upsertWardrobeGrantAction(
     canRecommend,
     canSubmitForApproval,
     canCollaborateRequest,
+    excludedCategories,
     itemIds,
   } = parsed.data;
 
@@ -377,6 +390,9 @@ export async function upsertWardrobeGrantAction(
   }
 
   const uniqueItemIds = [...new Set(itemIds)];
+  const uniqueExcludedCategories = [
+    ...new Set(excludedCategories.map((c) => c.trim().toLowerCase()).filter(Boolean)),
+  ];
   if (scope === "selected_items" && uniqueItemIds.length === 0) {
     return { ok: false, error: "Pick at least one item to share, or choose 'Entire wardrobe'." };
   }
@@ -405,6 +421,7 @@ export async function upsertWardrobeGrantAction(
         can_recommend: canRecommend,
         can_submit_for_approval: canSubmitForApproval,
         can_collaborate_request: canCollaborateRequest,
+        excluded_categories: uniqueExcludedCategories,
       })
       .eq("id", grantId)
       .eq("owner_id", user.id);
@@ -425,6 +442,7 @@ export async function upsertWardrobeGrantAction(
         can_recommend: canRecommend,
         can_submit_for_approval: canSubmitForApproval,
         can_collaborate_request: canCollaborateRequest,
+        excluded_categories: uniqueExcludedCategories,
       })
       .select("id")
       .single();

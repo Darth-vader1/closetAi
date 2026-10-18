@@ -100,6 +100,7 @@ export interface WardrobeGrantSummary {
   canRecommend: boolean;
   canSubmitForApproval: boolean;
   canCollaborateRequest: boolean;
+  excludedCategories: string[];
   selectedItemIds: string[];
   createdAt: string;
   updatedAt: string;
@@ -148,6 +149,7 @@ export async function resolvePartnerProfiles(
 
 interface RawItemRow {
   id: string;
+  user_id?: string;
   name: string;
   category: string;
   subcategory: string | null;
@@ -156,15 +158,18 @@ interface RawItemRow {
   pattern: string | null;
   material: string | null;
   style: string | null;
-  occasions: string[] | null;
-  seasons: string[] | null;
+  occasions?: string[] | null;
+  seasons?: string[] | null;
   image_path: string;
+  thumbnail_path?: string | null;
+  medium_path?: string | null;
 }
 
 const SHARED_ITEM_COLUMNS =
-  "id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, occasions, seasons, image_path";
+  "id, user_id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, image_path, thumbnail_path, medium_path";
 
 function mapRawItem(row: RawItemRow, urlMap: Map<string, string>): SharedItemCardData {
+  const bestPath = row.thumbnail_path ?? row.medium_path ?? row.image_path;
   return {
     id: row.id,
     name: row.name,
@@ -178,7 +183,7 @@ function mapRawItem(row: RawItemRow, urlMap: Map<string, string>): SharedItemCar
     occasions: row.occasions ?? [],
     seasons: row.seasons ?? [],
     imagePath: row.image_path,
-    imageUrl: urlMap.get(row.image_path) ?? null,
+    imageUrl: urlMap.get(bestPath) ?? urlMap.get(row.image_path) ?? null,
   };
 }
 
@@ -411,7 +416,7 @@ export async function hydrateAttachmentsForMessages(
 
   const [itemsResult, outfitsResult] = await Promise.all([
     activeItemIds.length > 0
-      ? supabase.from("wardrobe_items").select(SHARED_ITEM_COLUMNS).in("id", activeItemIds)
+      ? supabase.from("shared_wardrobe_items").select(SHARED_ITEM_COLUMNS).in("id", activeItemIds)
       : Promise.resolve({ data: [] as RawItemRow[] }),
     activeOutfitIds.length > 0
       ? supabase
@@ -420,10 +425,7 @@ export async function hydrateAttachmentsForMessages(
             id, name, occasion, style_description, explanation, styling_tip, photo_path,
             outfit_items (
               position,
-              wardrobe_items (
-                id, name, category, subcategory, primary_colour, secondary_colours,
-                pattern, material, style, occasions, seasons, image_path
-              )
+              item_id
             )
           `)
           .in("id", activeOutfitIds)
@@ -441,22 +443,38 @@ export async function hydrateAttachmentsForMessages(
     photo_path: string | null;
     outfit_items?: Array<{
       position: number;
-      wardrobe_items: RawItemRow | null;
+      item_id: string;
     }>;
   };
   const rawOutfits = (outfitsResult.data ?? []) as unknown as RawSharedOutfit[];
 
+  const outfitMemberItemIds = [
+    ...new Set(
+      rawOutfits.flatMap((o) => (o.outfit_items ?? []).map((link) => link.item_id).filter(Boolean)),
+    ),
+  ];
+
+  const outfitItemsResult =
+    outfitMemberItemIds.length > 0
+      ? await supabase
+          .from("shared_wardrobe_items")
+          .select(SHARED_ITEM_COLUMNS)
+          .in("id", outfitMemberItemIds)
+      : { data: [] as RawItemRow[] };
+
+  const rawOutfitItems = (outfitItemsResult.data ?? []) as RawItemRow[];
+
   const pathsToSign: string[] = [];
   for (const it of rawItems) {
-    if (it.image_path) pathsToSign.push(it.image_path);
+    const p = it.thumbnail_path ?? it.medium_path ?? it.image_path;
+    if (p) pathsToSign.push(p);
+  }
+  for (const it of rawOutfitItems) {
+    const p = it.thumbnail_path ?? it.medium_path ?? it.image_path;
+    if (p) pathsToSign.push(p);
   }
   for (const o of rawOutfits) {
     if (o.photo_path) pathsToSign.push(o.photo_path);
-    for (const link of o.outfit_items ?? []) {
-      if (link.wardrobe_items?.image_path) {
-        pathsToSign.push(link.wardrobe_items.image_path);
-      }
-    }
   }
 
   const signedUrls =
@@ -469,14 +487,20 @@ export async function hydrateAttachmentsForMessages(
     itemMap.set(it.id, mapRawItem(it, signedUrls));
   }
 
+  const outfitItemMap = new Map<string, SharedItemCardData>();
+  for (const it of rawOutfitItems) {
+    outfitItemMap.set(it.id, mapRawItem(it, signedUrls));
+  }
+
   const outfitMap = new Map<string, SharedOutfitCardData>();
   for (const o of rawOutfits) {
     const outfitItems = (o.outfit_items ?? [])
       .slice()
       .sort((a, b) => a.position - b.position)
-      .flatMap((link) =>
-        link.wardrobe_items ? [mapRawItem(link.wardrobe_items, signedUrls)] : [],
-      );
+      .flatMap((link) => {
+        const card = outfitItemMap.get(link.item_id);
+        return card ? [card] : [];
+      });
     outfitMap.set(o.id, {
       id: o.id,
       name: o.name,
@@ -616,7 +640,12 @@ export async function listShareableWardrobeAndOutfits(
       .limit(100),
   ]);
 
-  const rawItems = (itemsRes.data ?? []) as RawItemRow[];
+  const HIDDEN_CATEGORIES = new Set(["underwear", "intimates", "swimwear"]);
+  const isShareableItem = (it: RawItemRow) =>
+    !HIDDEN_CATEGORIES.has((it.category ?? "").trim().toLowerCase()) &&
+    !HIDDEN_CATEGORIES.has((it.subcategory ?? "").trim().toLowerCase());
+
+  const rawItems = ((itemsRes.data ?? []) as RawItemRow[]).filter(isShareableItem);
   type RawOutfit = {
     id: string;
     name: string;
@@ -639,7 +668,9 @@ export async function listShareableWardrobeAndOutfits(
   for (const o of rawOutfits) {
     if (o.photo_path) paths.push(o.photo_path);
     for (const link of o.outfit_items ?? []) {
-      if (link.wardrobe_items?.image_path) paths.push(link.wardrobe_items.image_path);
+      if (link.wardrobe_items?.image_path && isShareableItem(link.wardrobe_items)) {
+        paths.push(link.wardrobe_items.image_path);
+      }
     }
   }
 
@@ -661,7 +692,11 @@ export async function listShareableWardrobeAndOutfits(
     items: (o.outfit_items ?? [])
       .slice()
       .sort((a, b) => a.position - b.position)
-      .flatMap((l) => (l.wardrobe_items ? [mapRawItem(l.wardrobe_items, signedUrls)] : [])),
+      .flatMap((l) =>
+        l.wardrobe_items && isShareableItem(l.wardrobe_items)
+          ? [mapRawItem(l.wardrobe_items, signedUrls)]
+          : [],
+      ),
   }));
 
   return { items, outfits };
@@ -682,6 +717,7 @@ export async function listWardrobeGrantsForUser(
     .select(`
       id, owner_id, grantee_id, conversation_id, scope,
       can_view_items, can_recommend, can_submit_for_approval, can_collaborate_request,
+      excluded_categories,
       created_at, updated_at,
       connect_grant_items ( item_id )
     `)
@@ -710,6 +746,7 @@ export async function listWardrobeGrantsForUser(
     can_recommend: boolean;
     can_submit_for_approval: boolean;
     can_collaborate_request: boolean;
+    excluded_categories?: string[] | null;
     created_at: string;
     updated_at: string;
     connect_grant_items?: Array<{ item_id: string }>;
@@ -732,6 +769,7 @@ export async function listWardrobeGrantsForUser(
       canRecommend: Boolean(g.can_recommend),
       canSubmitForApproval: Boolean(g.can_submit_for_approval),
       canCollaborateRequest: Boolean(g.can_collaborate_request),
+      excludedCategories: Array.isArray(g.excluded_categories) ? g.excluded_categories : [],
       selectedItemIds: (g.connect_grant_items ?? []).map((gi) => gi.item_id),
       createdAt: g.created_at,
       updatedAt: g.updated_at,
@@ -745,7 +783,8 @@ export async function listWardrobeGrantsForUser(
 }
 
 /**
- * Loads an active shared wardrobe grant and the authorized wardrobe items for a grantee.
+ * Loads an active shared wardrobe grant and the authorized wardrobe items for a grantee
+ * from the least-privilege shared_wardrobe_items view.
  */
 export async function getSharedWardrobeByGrant(
   supabase: SupabaseClient,
@@ -761,10 +800,10 @@ export async function getSharedWardrobeByGrant(
   if (!grant || !grant.canViewItems) return null;
 
   let query = supabase
-    .from("wardrobe_items")
+    .from("shared_wardrobe_items")
     .select(SHARED_ITEM_COLUMNS)
     .eq("user_id", grant.ownerId)
-    .order("created_at", { ascending: false })
+    .order("name", { ascending: true })
     .limit(250);
 
   if (grant.scope === "selected_items") {
@@ -782,7 +821,7 @@ export async function getSharedWardrobeByGrant(
     rawItems.length > 0
       ? await signImageUrls(
           supabase,
-          rawItems.map((r) => r.image_path),
+          rawItems.map((r) => r.thumbnail_path ?? r.medium_path ?? r.image_path),
           "thumbnail",
         )
       : new Map<string, string>();

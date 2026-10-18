@@ -173,6 +173,12 @@ export function ItemBeautifyCard({
           </div>
         </div>
 
+        <p className="mt-2 rounded-xl border border-border/70 bg-surface-muted/60 px-2.5 py-1.5 text-[11px] text-muted">
+          <strong>Privacy notice:</strong> Running Clean Cutout or AI Enhance sends this garment
+          photo to <strong>PhotoRoom</strong> (and Google Gemini for AI Enhance lighting/wrinkle
+          calibration). Your original photo is preserved.
+        </p>
+
         <div
           className="mt-3 grid grid-cols-3 gap-1.5"
           role="group"
@@ -940,6 +946,10 @@ function BeautifyExistingItemModal({
                       Reduces fabric wrinkles and lifts harsh shadows while
                       strictly protecting logos, text, patterns, seams, and
                       garment proportions.
+                    </p>
+                    <p className="mt-1.5 rounded-lg bg-surface-muted/80 px-2 py-1 text-[11px] text-muted">
+                      Uses <strong>PhotoRoom</strong> segmentation &amp;{" "}
+                      <strong>Google Gemini</strong> lighting calibration.
                     </p>
                   </button>
 
