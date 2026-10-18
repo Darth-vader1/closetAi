@@ -342,22 +342,21 @@ describe("search: connect_search_users", () => {
     expect(res.rows.map((r) => r.id)).not.toContain(target);
   });
 
-  it("does NOT substring-match the name of a non-discoverable profile", async () => {
+  it("does NOT substring-match the name of a profile that opted out (discoverable = false)", async () => {
     const db = getDb();
     const searcher = await createUser(db, "SearchSubstr");
     const target = await createUser(db, "ZzUniqueHiddenName");
-    // discoverable defaults to false
+    await db.query(`update public.profiles set discoverable = false where id = $1`, [target]);
     const res = await asUser(db, searcher, async () =>
       db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["ZzUniqueHidden"]),
     );
     expect(res.rows.map((r) => r.id)).not.toContain(target);
   });
 
-  it("substring-matches the name once discoverable = true (opt-in)", async () => {
+  it("substring-matches the name by default (discoverable defaults to true)", async () => {
     const db = getDb();
     const searcher = await createUser(db, "SearchDisc");
     const target = await createUser(db, "ZzDiscoverableName");
-    await db.query(`update public.profiles set discoverable = true where id = $1`, [target]);
 
     const res = await asUser(db, searcher, async () =>
       db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["ZzDiscover"]),
@@ -1351,12 +1350,11 @@ describe("Round 3 #4: connect_is_blocked revoked from authenticated", () => {
   });
 });
 
-describe("Round 3 #6: connect_search_users min 3 chars, wildcard escaping & rate event cleanup", () => {
-  it("rejects/ignores name searches shorter than 3 characters", async () => {
+describe("Round 3 #6: connect_search_users min 2 chars, wildcard escaping & rate event cleanup", () => {
+  it("rejects/ignores name searches shorter than 2 characters and matches 2+ characters", async () => {
     const db = getDb();
     const searcher = await createUser(db, "MinLenSearcher");
     const target = await createUser(db, "AbShortTarget");
-    await db.query(`update public.profiles set discoverable = true where id = $1`, [target]);
 
     const res1 = await asUser(db, searcher, async () =>
       db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["A"]),
@@ -1366,7 +1364,7 @@ describe("Round 3 #6: connect_search_users min 3 chars, wildcard escaping & rate
     const res2 = await asUser(db, searcher, async () =>
       db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["Ab"]),
     );
-    expect(res2.rows.map((r) => r.id)).not.toContain(target);
+    expect(res2.rows.map((r) => r.id)).toContain(target);
 
     const res3 = await asUser(db, searcher, async () =>
       db.query<{ id: string }>(`select * from public.connect_search_users($1)`, ["AbS"]),

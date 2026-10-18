@@ -47,7 +47,7 @@ export default async function SettingsPage() {
     location: profile?.location || "",
     timezone: profile?.timezone || "UTC",
     rewearWornItems: profile?.rewear_worn_items ?? true,
-    discoverable: Boolean(profileRow.data?.discoverable),
+    discoverable: profileRow.data?.discoverable ?? true,
   };
 
   const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

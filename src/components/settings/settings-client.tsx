@@ -73,7 +73,7 @@ export function SettingsClient({
   const [selectedOccasions, setSelectedOccasions] = useState<string[]>(initialProfile.commonOccasions);
   const [location, setLocation] = useState(initialProfile.location);
   const [rewearWornItems, setRewearWornItems] = useState(initialProfile.rewearWornItems);
-  const [discoverable, setDiscoverable] = useState(Boolean(initialProfile.discoverable));
+  const [discoverable, setDiscoverable] = useState(initialProfile.discoverable ?? true);
 
   // Email & WhatsApp Preferences State
   const [dailyEnabled, setDailyEnabled] = useState(initialPreferences.dailyEnabled);

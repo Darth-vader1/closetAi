@@ -47,6 +47,7 @@ export async function completeOnboardingAction(input: unknown): Promise<AuthActi
     common_occasions: d.commonOccasions,
     location: d.location,
     timezone: d.timezone,
+    discoverable: true,
     onboarding_completed_at: new Date().toISOString(),
   };
 
@@ -79,7 +80,7 @@ export async function skipOnboardingAction(): Promise<AuthActionResult> {
   const supabase = await createClient();
   const { error } = await supabase
     .from("profiles")
-    .update({ onboarding_completed_at: new Date().toISOString() })
+    .update({ discoverable: true, onboarding_completed_at: new Date().toISOString() })
     .eq("id", user.id);
   if (error) {
     logger.error("onboarding.skip_failed", { userId: user.id, code: error.code });

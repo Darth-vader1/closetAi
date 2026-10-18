@@ -656,6 +656,40 @@ export async function searchUsersAction(
     closetId: (r.closet_id as string | null) ?? null,
   }));
 
+  // If the user searched a 2-character name (e.g. "Mx") and the remote DB RPC
+  // hasn't had the 2-character migration applied yet, supplement after the RPC rate-limit check.
+  if (data.length === 0 && qParsed.data.length === 2) {
+    try {
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      const admin = createAdminClient();
+      const escaped = qParsed.data
+        .replace(/\\/g, "\\\\")
+        .replace(/%/g, "\\%")
+        .replace(/_/g, "\\_");
+      const { data: fallbackRows } = await admin
+        .from("profiles")
+        .select("id, display_name, closet_id")
+        .eq("discoverable", true)
+        .neq("id", user.id)
+        .ilike("display_name", `%${escaped}%`)
+        .order("display_name", { ascending: true })
+        .limit(10);
+
+      if (fallbackRows && fallbackRows.length > 0) {
+        return {
+          ok: true,
+          data: fallbackRows.map((r) => ({
+            id: r.id as string,
+            displayName: (r.display_name as string | null) ?? null,
+            closetId: (r.closet_id as string | null) ?? null,
+          })),
+        };
+      }
+    } catch {
+      // Fall back to RPC results
+    }
+  }
+
   return { ok: true, data };
 }
 
