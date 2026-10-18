@@ -331,6 +331,60 @@ export function StoreImportCard({
     });
   }, [edited]);
 
+  // When product metadata is loaded, allow pressing Ctrl+V with a copied product image to pair it directly!
+  useEffect(() => {
+    if (!product) return;
+
+    const handleCardPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const dt = e.clipboardData;
+      if (!dt) return;
+
+      const files: File[] = [];
+      if (dt.files && dt.files.length > 0) {
+        files.push(...Array.from(dt.files));
+      } else if (dt.items) {
+        for (const item of Array.from(dt.items)) {
+          if (item.kind === "file" && item.type.startsWith("image/")) {
+            const f = item.getAsFile();
+            if (f) files.push(f);
+          }
+        }
+      }
+
+      if (files.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        onFallbackFilesWithMetadata(files, {
+          initialValues: buildEditedInitialValues(),
+          sourceUrl: product.normalizedUrl,
+          sourceBrand: edited.brand.trim() || null,
+          allowDuplicate,
+        });
+        setProduct(null);
+        setError(null);
+      }
+    };
+
+    window.addEventListener("paste", handleCardPaste, true);
+    return () => window.removeEventListener("paste", handleCardPaste, true);
+  }, [
+    product,
+    edited.brand,
+    allowDuplicate,
+    buildEditedInitialValues,
+    onFallbackFilesWithMetadata,
+  ]);
+
   const handleContinueToReview = useCallback(async () => {
     if (!product) return;
     if (duplicateItem && !allowDuplicate) {
@@ -506,6 +560,7 @@ export function StoreImportCard({
             body?.fallbackHint ??
             "Try selecting another image from the gallery, or right-click the photo on the store page, copy it, and press Ctrl+V here.",
         });
+        fallbackFileInputRef.current?.click();
         return;
       }
 
@@ -517,7 +572,7 @@ export function StoreImportCard({
         return;
       }
 
-      const file = await dataUrlToFile(
+      const file = dataUrlToFile(
         finalDataUrl,
         `store-import.${finalExtension}`,
         finalMimeType,
@@ -544,11 +599,12 @@ export function StoreImportCard({
       setDuplicateItem(null);
       setAllowDuplicate(false);
       setWarnings([]);
-    } catch {
+    } catch (err) {
+      console.error("[StoreImportCard] Error continuing to review:", err);
       setError({
         message: "Could not download the selected product image.",
         fallbackHint:
-          "Try another gallery photo or copy & paste (Ctrl+V) the image directly.",
+          "Try another gallery photo, copy & paste (Ctrl+V) the image directly, or click 'Upload photo & keep extracted details'.",
       });
     } finally {
       setDownloadingImage(false);
