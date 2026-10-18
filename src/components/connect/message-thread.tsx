@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { useVisualViewport } from "@/lib/hooks/use-visual-viewport";
 
 // ─── Attachment Card Subcomponents ────────────────────────────────────────────
 
@@ -581,6 +582,7 @@ export function MessageThread({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const initialScrollDone = useRef(false);
+  const { isKeyboardOpen } = useVisualViewport();
 
   // ── Scroll to bottom handler (WhatsApp-like behavior) ─────────────────
   // Only scrolls if there are enough messages to overflow the visible area.
@@ -621,6 +623,16 @@ export function MessageThread({
     }
   }, [replyingTo]);
 
+  // When the virtual keyboard opens or screen height shrinks on mobile, keep latest messages visible
+  useEffect(() => {
+    if (isKeyboardOpen) {
+      const timer = setTimeout(() => {
+        scrollToBottom("smooth");
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [isKeyboardOpen]);
+
   // ── Scroll to bottom on initial mount or new messages ─────────────────
   useEffect(() => {
     if (!initialScrollDone.current && optimisticMessages.length > 0) {
@@ -632,15 +644,11 @@ export function MessageThread({
   }, [optimisticMessages.length]);
 
   const handleFocus = () => {
-    if (typeof window !== "undefined") {
-      window.scrollTo(0, 0);
-    }
+    // When focusing composer on mobile, scroll message thread smoothly to the bottom
+    // Do NOT call window.scrollTo(0, 0) as that cancels browser layout positioning and hides input under the keyboard
     setTimeout(() => {
-      if (typeof window !== "undefined") {
-        window.scrollTo(0, 0);
-      }
       scrollToBottom("smooth");
-    }, 150);
+    }, 100);
   };
 
   // ── Supabase Realtime subscription ──────────────────────────────────────
@@ -1002,7 +1010,14 @@ export function MessageThread({
       )}
 
       {/* Composer */}
-      <div className="border-t border-border bg-surface px-3 py-2.5 sm:px-4 sm:py-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 shrink-0">
+      <div
+        className={cn(
+          "border-t border-border bg-surface px-3 py-2.5 sm:px-4 sm:py-3 shrink-0 transition-[padding] duration-150",
+          isKeyboardOpen
+            ? "pb-2.5 sm:pb-3"
+            : "pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3",
+        )}
+      >
         {/* Reply preview bar */}
         {replyingTo && (
           <div className="mb-2 flex items-center justify-between gap-2.5 rounded-xl border border-border bg-surface-muted/90 px-3 py-2 text-xs backdrop-blur-sm animate-in fade-in slide-in-from-bottom-2 duration-150">
@@ -1048,9 +1063,14 @@ export function MessageThread({
             disabled={isRecipientOfPending}
             onFocus={handleFocus}
             onChange={(e) => {
+              const prevHeight = e.target.style.height;
               setBody(e.target.value);
               e.target.style.height = "auto";
-              e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+              const newHeight = `${Math.min(e.target.scrollHeight, 140)}px`;
+              e.target.style.height = newHeight;
+              if (prevHeight !== newHeight) {
+                scrollToBottom("auto");
+              }
             }}
             onKeyDown={handleKeyDown}
             placeholder={

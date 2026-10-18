@@ -115,14 +115,26 @@ function sourceLabel(source: ExtractedProductMetadata["extractionSource"]): stri
   }
 }
 
-async function dataUrlToFile(
+function dataUrlToFile(
   dataUrl: string,
   filename: string,
   mimeType: string,
-): Promise<File> {
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  return new File([blob], filename, { type: mimeType || blob.type || "image/jpeg" });
+): File {
+  try {
+    const commaIdx = dataUrl.indexOf(",");
+    const header = commaIdx !== -1 ? dataUrl.slice(0, commaIdx) : "";
+    const base64 = commaIdx !== -1 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+    const match = header.match(/:(.*?);/);
+    const resolvedMime = match ? match[1] : (mimeType || "image/jpeg");
+    const binary = atob(base64);
+    const array = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      array[i] = binary.charCodeAt(i);
+    }
+    return new File([array], filename, { type: resolvedMime });
+  } catch {
+    return new File([], filename, { type: mimeType || "image/jpeg" });
+  }
 }
 
 export function StoreImportCard({
