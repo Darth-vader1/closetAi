@@ -363,7 +363,129 @@ export function StoreImportCard({
         duplicateItem?: DuplicateWardrobeMatch | null;
       } | null;
 
-      if (!res.ok || !body?.ok || !body.path || !body.dataUrl || !body.sha256) {
+      let finalPath = body?.path;
+      let finalDataUrl = body?.dataUrl;
+      let finalSha256 = body?.sha256;
+      let finalExtension = body?.extension ?? "jpg";
+      let finalMimeType = body?.mimeType ?? "image/jpeg";
+      const finalDuplicateItem = body?.duplicateItem ?? null;
+
+      if (!res.ok || !body?.ok || !finalPath || !finalDataUrl || !finalSha256) {
+        // Fallback: If server-side fetch failed (e.g. store CDN blocked server IP or anti-bot challenge),
+        // fetch or extract directly in user's browser where the image is already accessible!
+        try {
+          let blob: Blob | null = null;
+
+          // Tier 2a: Direct browser fetch with referrerPolicy: "no-referrer"
+          try {
+            const directFetch = await fetch(chosenImage.url, {
+              referrerPolicy: "no-referrer",
+              credentials: "omit",
+            });
+            if (directFetch.ok) {
+              const resBlob = await directFetch.blob();
+              if (resBlob && resBlob.size > 0) {
+                blob = resBlob;
+              }
+            }
+          } catch {
+            // direct fetch failed (CORS or network)
+          }
+
+          // Tier 2b: Offscreen Image loaded with crossOrigin="anonymous" and referrerPolicy="no-referrer"
+          if (!blob || blob.size === 0) {
+            blob = await new Promise<Blob | null>((resolve) => {
+              const img = new Image();
+              img.crossOrigin = "anonymous";
+              img.referrerPolicy = "no-referrer";
+              const timer = setTimeout(() => {
+                img.src = "";
+                resolve(null);
+              }, 6000);
+              img.onload = () => {
+                clearTimeout(timer);
+                try {
+                  const canvas = document.createElement("canvas");
+                  canvas.width = img.naturalWidth;
+                  canvas.height = img.naturalHeight;
+                  const ctx = canvas.getContext("2d");
+                  if (!ctx) return resolve(null);
+                  ctx.drawImage(img, 0, 0);
+                  canvas.toBlob((b) => resolve(b), "image/jpeg", 0.95);
+                } catch {
+                  resolve(null);
+                }
+              };
+              img.onerror = () => {
+                clearTimeout(timer);
+                resolve(null);
+              };
+              img.src = chosenImage.url;
+            });
+          }
+
+          // Tier 2c: If offscreen image failed, check if the gallery already has a loaded <img> element
+          if (!blob || blob.size === 0) {
+            const galleryImgs = document.querySelectorAll<HTMLImageElement>(
+              'img[data-import-gallery-img="true"]',
+            );
+            const matchingImg = Array.from(galleryImgs).find(
+              (el) => el.currentSrc === chosenImage.url || el.src === chosenImage.url,
+            );
+            if (matchingImg && matchingImg.naturalWidth > 0) {
+              try {
+                const canvas = document.createElement("canvas");
+                canvas.width = matchingImg.naturalWidth;
+                canvas.height = matchingImg.naturalHeight;
+                const ctx = canvas.getContext("2d");
+                if (ctx) {
+                  ctx.drawImage(matchingImg, 0, 0);
+                  blob = await new Promise<Blob | null>((resolve) =>
+                    canvas.toBlob((b) => resolve(b), "image/jpeg", 0.95),
+                  );
+                }
+              } catch {
+                // Tainted canvas if server omitted Access-Control-Allow-Origin
+              }
+            }
+          }
+
+          if (blob && blob.size > 0) {
+            const ext = blob.type.includes("webp")
+              ? "webp"
+              : blob.type.includes("png")
+                ? "png"
+                : "jpg";
+            const formData = new FormData();
+            formData.append("file", blob, `store-import.${ext}`);
+            const uploadRes = await fetch("/api/wardrobe/upload", {
+              method: "POST",
+              body: formData,
+            });
+            const uploadJson = (await uploadRes.json().catch(() => null)) as {
+              path?: string;
+              url?: string;
+            } | null;
+
+            if (uploadRes.ok && uploadJson?.path) {
+              finalPath = uploadJson.path;
+              finalMimeType = blob.type || "image/jpeg";
+              finalExtension = ext;
+              finalDataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+              finalSha256 = `client-fetch-${Date.now()}`;
+            }
+          }
+        } catch {
+          // Fall through to error
+        }
+      }
+
+      if (!finalPath || !finalDataUrl) {
         setError({
           message:
             body?.error ??
@@ -375,18 +497,18 @@ export function StoreImportCard({
         return;
       }
 
-      if (body.duplicateItem && !allowDuplicate) {
-        setDuplicateItem(body.duplicateItem);
+      if (finalDuplicateItem && !allowDuplicate) {
+        setDuplicateItem(finalDuplicateItem);
         setError({
-          message: `This exact product photo has already been imported ("${body.duplicateItem.name}"). Tick "Import anyway" if you want to add it again.`,
+          message: `This exact product photo has already been imported ("${finalDuplicateItem.name}"). Tick "Import anyway" if you want to add it again.`,
         });
         return;
       }
 
       const file = await dataUrlToFile(
-        body.dataUrl,
-        `store-import.${body.extension ?? "jpg"}`,
-        body.mimeType ?? "image/jpeg",
+        finalDataUrl,
+        `store-import.${finalExtension}`,
+        finalMimeType,
       );
       const previewUrl = URL.createObjectURL(file);
       const initialValues = buildEditedInitialValues();
@@ -394,11 +516,11 @@ export function StoreImportCard({
       onImportReady({
         file,
         previewUrl,
-        originalPath: body.path,
+        originalPath: finalPath,
         initialValues,
         sourceUrl: product.normalizedUrl,
         sourceBrand: edited.brand.trim() || null,
-        sourceImageSha256: body.sha256,
+        sourceImageSha256: finalSha256 ?? "",
         allowDuplicate,
         runCutout,
         runAiAnalysis,
@@ -499,7 +621,11 @@ export function StoreImportCard({
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <a
-              href={bookmarkletCode}
+              ref={(node) => {
+                if (node && bookmarkletCode) {
+                  node.setAttribute("href", bookmarkletCode);
+                }
+              }}
               onClick={(e) => {
                 e.preventDefault();
                 alert("Drag this button up to your Bookmarks Bar, then click it while on any retail store page!");
@@ -805,6 +931,7 @@ export function StoreImportCard({
                             src={img.url}
                             alt={img.alt ?? `Product photo ${index + 1}`}
                             referrerPolicy="no-referrer"
+                            data-import-gallery-img="true"
                             className="h-full w-full object-contain p-1"
                             onError={() => {
                               setFailedImageIndices((prev) => {

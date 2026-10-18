@@ -580,6 +580,7 @@ export interface SafeFetchOptions {
   maxRedirects?: number;
   timeoutMs?: number;
   acceptHeader?: string;
+  referer?: string;
   lookupFn?: DnsLookupFn;
   transportFn?: SafeTransportFn;
   signal?: AbortSignal;
@@ -632,6 +633,7 @@ export async function safeFetchUrl(
       maxBytes,
       signal: options.signal,
       headers: {
+        Host: currentUrl.host,
         Accept:
           options.acceptHeader ??
           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -639,6 +641,7 @@ export async function safeFetchUrl(
         "Accept-Encoding": "identity",
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        ...(options.referer ? { Referer: options.referer } : {}),
       },
     });
 

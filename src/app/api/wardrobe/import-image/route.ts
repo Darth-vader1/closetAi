@@ -54,9 +54,24 @@ export async function POST(request: NextRequest) {
 
     let validatedImage: Awaited<ReturnType<typeof safeFetchImage>>;
     try {
-      validatedImage = await safeFetchImage(parsed.data.imageUrl, {
-        signal: request.signal,
-      });
+      try {
+        validatedImage = await safeFetchImage(parsed.data.imageUrl, {
+          signal: request.signal,
+          referer: parsed.data.sourceUrl || undefined,
+        });
+      } catch (firstErr) {
+        if (
+          firstErr instanceof SafeFetchError &&
+          parsed.data.sourceUrl &&
+          (firstErr.code === "UPSTREAM_ERROR" || firstErr.code === "UPSTREAM_BLOCKED")
+        ) {
+          validatedImage = await safeFetchImage(parsed.data.imageUrl, {
+            signal: request.signal,
+          });
+        } else {
+          throw firstErr;
+        }
+      }
     } catch (err) {
       if (err instanceof SafeFetchError) {
         const isSecurityReject =

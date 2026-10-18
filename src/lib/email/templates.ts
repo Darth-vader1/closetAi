@@ -457,3 +457,172 @@ export function renderEmptyWardrobeReminderHtml({
 </body>
 </html>`;
 }
+
+// ─── Feature Announcement Email Template ──────────────────────────────────────
+
+export interface FeatureAnnouncementItem {
+  title: string;
+  badge?: string;
+  description: string;
+  icon?: string;
+}
+
+export interface FeatureAnnouncementEmailProps {
+  displayName?: string | null;
+  heading?: string;
+  intro?: string;
+  features?: FeatureAnnouncementItem[];
+  ctaUrl?: string;
+  ctaText?: string;
+  unsubscribeToken?: string;
+}
+
+export const DEFAULT_ANNOUNCEMENT_FEATURES: FeatureAnnouncementItem[] = [
+  {
+    icon: "💬",
+    badge: "Connect",
+    title: "Swipe Right to Reply (WhatsApp-Style)",
+    description:
+      "Chatting with style buddies in Closet Connect just got faster. Swipe right on any message bubble to reply with instant quote previews, subtle haptic vibration, and tap-to-jump navigation.",
+  },
+  {
+    icon: "🧳",
+    badge: "Travel",
+    title: "Smart Trip Packing Planner",
+    description:
+      "Never overpack or forget essentials again. Input your destination, dates, and activities, and ClosetAI builds a tailored multi-day wardrobe rotation with luggage weight recommendations.",
+  },
+  {
+    icon: "✨",
+    badge: "Product Studio",
+    title: "AI Garment Beautification",
+    description:
+      "Transform simple hanger or floor photos into professional catalog images. Our AI studio flattens fabric creases, removes messy backgrounds, and adjusts camera angles automatically.",
+  },
+  {
+    icon: "🛍️",
+    badge: "Wardrobe",
+    title: "Universal Store & Clipboard Import",
+    description:
+      "Add clothes you love online in seconds. Paste product links directly into ClosetAI, or simply copy a garment image from any website and press Ctrl+V to import it.",
+  },
+  {
+    icon: "💇‍♀️",
+    badge: "New Category",
+    title: "Wigs & Specialized Care Taxonomy",
+    description:
+      "We've added native support for wigs, headwear, and delicate accessories, complete with tailored care instructions (No-Wash, Wipe-Clean, Washable) to keep pieces in peak condition.",
+  },
+  {
+    icon: "🌤️",
+    badge: "Daily Stylist",
+    title: "Morning Look Recommendations",
+    description:
+      "Wake up to personalized daily outfit inspiration crafted from your clean clothes and tuned to your local weather, with 1-click links to view or log your look.",
+  },
+];
+
+export function renderFeatureAnnouncementHtml({
+  displayName,
+  heading = "What's new in ClosetAI ✨",
+  intro = "We've been hard at work adding new capabilities to make styling, organizing, and planning your outfits more effortless than ever. Here's a look at what's new:",
+  features = DEFAULT_ANNOUNCEMENT_FEATURES,
+  ctaUrl,
+  ctaText = "Explore your closet now →",
+  unsubscribeToken,
+}: FeatureAnnouncementEmailProps = {}): string {
+  const appUrl = getAppUrl();
+  const targetCtaUrl = ctaUrl || `${appUrl}/wardrobe`;
+  const settingsUrl = `${appUrl}/settings`;
+  const unsubscribeUrl = unsubscribeToken
+    ? `${appUrl}/api/email/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}&type=announcement`
+    : settingsUrl;
+
+  const featuresHtml = features
+    .map(
+      (f) => `
+      <div style="margin-bottom: 18px; padding: 18px 20px; background-color: #fafaf9; border: 1px solid #e7e5e4; border-radius: 12px;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="width: 36px; vertical-align: top; font-size: 24px; line-height: 1; padding-top: 2px;">
+              ${f.icon || "✨"}
+            </td>
+            <td style="padding-left: 12px; vertical-align: top;">
+              <div style="margin-bottom: 4px;">
+                ${
+                  f.badge
+                    ? `<span style="display: inline-block; padding: 2px 8px; background-color: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 12px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: #9a4a2f; margin-right: 6px;">${escapeHtml(f.badge)}</span>`
+                    : ""
+                }
+                <strong style="color: #1c1917; font-size: 15px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                  ${escapeHtml(f.title)}
+                </strong>
+              </div>
+              <p style="margin: 0; font-size: 13px; color: #57534e; line-height: 1.55;">
+                ${escapeHtml(f.description)}
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `,
+    )
+    .join("");
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(heading)}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1c1917; line-height: 1.5;">
+  <div style="max-width: 580px; margin: 40px auto; background-color: #ffffff; border: 1px solid #e7e5e4; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+
+    <!-- Header -->
+    <div style="background-color: #1c1917; padding: 36px 36px 32px; text-align: left;">
+      <span style="display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #d6d3d1; margin-bottom: 8px;">CLOSET·AI UPDATE</span>
+      <h1 style="margin: 0; font-family: Georgia, serif; font-size: 26px; font-weight: normal; color: #f5f5f4;">
+        ${escapeHtml(heading)}
+      </h1>
+      ${
+        displayName
+          ? `<p style="margin: 8px 0 0 0; font-size: 14px; color: #a8a29e;">Hello, ${escapeHtml(displayName)}</p>`
+          : ""
+      }
+    </div>
+
+    <!-- Body -->
+    <div style="padding: 36px;">
+      <p style="margin: 0 0 24px 0; font-size: 15px; color: #44403c; line-height: 1.65;">
+        ${escapeHtml(intro)}
+      </p>
+
+      <!-- Feature Cards -->
+      ${featuresHtml}
+
+      <!-- Main CTA Button -->
+      <div style="text-align: center; margin: 32px 0 16px;">
+        <a href="${escapeHtml(targetCtaUrl)}"
+           style="display: inline-block; background-color: #9a4a2f; color: #fffaf5; text-decoration: none; padding: 15px 36px; border-radius: 30px; font-size: 15px; font-weight: 500; letter-spacing: 0.3px;">
+          ${escapeHtml(ctaText)}
+        </a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="background-color: #f5f5f4; border-top: 1px solid #e7e5e4; padding: 22px 36px; text-align: center; font-size: 12px; color: #a8a29e;">
+      <p style="margin: 0 0 6px 0;">You're receiving this product update as a registered member of ClosetAI.</p>
+      <p style="margin: 0;">
+        <a href="${settingsUrl}" style="color: #78716c; text-decoration: underline;">Account Settings</a>
+        &nbsp;·&nbsp;
+        <a href="${unsubscribeUrl}" style="color: #78716c; text-decoration: underline;">Unsubscribe from updates</a>
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+}
+

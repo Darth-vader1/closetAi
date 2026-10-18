@@ -66,8 +66,20 @@ export function extractShareTargetUrl(input: {
   return null;
 }
 
+function decodeEntities(str: string): string {
+  return str
+    .replace(/&#39;|&apos;|&#x27;/gi, "'")
+    .replace(/&quot;|&#x22;/gi, '"')
+    .replace(/&amp;|&#x26;/gi, "&")
+    .replace(/&lt;|&#x3c;/gi, "<")
+    .replace(/&gt;|&#x3e;/gi, ">")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 /**
- * Sanitizes a string by stripping HTML tags and control characters, and trimming length.
+ * Sanitizes a string by stripping HTML tags and control characters, decoding entities, and trimming length.
  */
 function sanitizeField(value: unknown, maxLength: number): string | null {
   if (typeof value !== "string") return null;
@@ -80,7 +92,9 @@ function sanitizeField(value: unknown, maxLength: number): string | null {
     .replace(/[\x00-\x1F\x7F]/g, "")
     .trim();
   if (!stripped) return null;
-  return stripped.slice(0, maxLength);
+  const decoded = decodeEntities(stripped);
+  const cleaned = decoded.replace(/\s*\|\s*[A-Z\s]+(?:USA|UK|US)?$/i, "").trim();
+  return (cleaned || decoded).slice(0, maxLength);
 }
 
 /**
