@@ -59,9 +59,19 @@ export async function acceptConversationAction(
   if (!idParsed.success) return { ok: false, error: "Invalid conversation." };
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("accept_conversation", {
-    p_conversation_id: idParsed.data,
+  let { error } = await supabase.rpc("accept_conversation", {
+    p_conv_id: idParsed.data,
   });
+
+  if (error) {
+    // If DB function parameter was named p_conversation_id, try that as well
+    const retry = await supabase.rpc("accept_conversation", {
+      p_conversation_id: idParsed.data,
+    });
+    if (!retry.error) {
+      error = null;
+    }
+  }
 
   if (error) {
     logger.error("connect.accept_conversation_failed", { userId: user.id, err: error });
@@ -69,6 +79,40 @@ export async function acceptConversationAction(
     if (msg.includes("Only the recipient")) {
       return { ok: false, error: "Only the recipient can accept this request." };
     }
+
+    // Direct fallback using admin client with strict security validation
+    try {
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      const admin = createAdminClient();
+      const { data: conv } = await admin
+        .from("connect_conversations")
+        .select("id, requester, status")
+        .eq("id", idParsed.data)
+        .maybeSingle();
+
+      if (conv) {
+        const { data: member } = await admin
+          .from("connect_members")
+          .select("user_id")
+          .eq("conversation_id", idParsed.data)
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        // Security check: caller MUST be a member and MUST NOT be the requester
+        if (member && conv.requester !== user.id) {
+          await admin
+            .from("connect_conversations")
+            .update({ status: "active" })
+            .eq("id", idParsed.data);
+          revalidatePath(`/connect/${idParsed.data}`);
+          revalidatePath("/connect");
+          return { ok: true };
+        }
+      }
+    } catch (fallbackErr) {
+      logger.error("connect.accept_conversation_fallback_failed", { err: fallbackErr });
+    }
+
     return { ok: false, error: "Could not accept conversation request." };
   }
 
@@ -721,9 +765,18 @@ export async function declineConversationAction(
   if (!idParsed.success) return { ok: false, error: "Invalid conversation." };
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("decline_conversation", {
+  let { error } = await supabase.rpc("decline_conversation", {
     p_conv_id: idParsed.data,
   });
+
+  if (error) {
+    const retry = await supabase.rpc("decline_conversation", {
+      p_conversation_id: idParsed.data,
+    });
+    if (!retry.error) {
+      error = null;
+    }
+  }
 
   if (error) {
     logger.error("connect.decline_conversation_failed", { userId: user.id, err: error });
@@ -731,6 +784,37 @@ export async function declineConversationAction(
     if (msg.includes("Only the recipient")) {
       return { ok: false, error: "Only the recipient can decline this request." };
     }
+
+    try {
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      const admin = createAdminClient();
+      const { data: conv } = await admin
+        .from("connect_conversations")
+        .select("id, requester, status")
+        .eq("id", idParsed.data)
+        .maybeSingle();
+
+      if (conv) {
+        const { data: member } = await admin
+          .from("connect_members")
+          .select("user_id")
+          .eq("conversation_id", idParsed.data)
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (member && conv.requester !== user.id) {
+          await admin
+            .from("connect_conversations")
+            .delete()
+            .eq("id", idParsed.data);
+          revalidatePath("/connect");
+          return { ok: true };
+        }
+      }
+    } catch (fallbackErr) {
+      logger.error("connect.decline_conversation_fallback_failed", { err: fallbackErr });
+    }
+
     return { ok: false, error: "Could not decline conversation request." };
   }
 

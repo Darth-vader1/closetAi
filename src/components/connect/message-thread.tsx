@@ -250,7 +250,21 @@ export function MessageThread({
 
   const [optimisticMessages, addOptimistic] = useOptimistic(
     messages,
-    (prev: Message[], newMsg: Message) => [...prev, newMsg],
+    (state: Message[], newMsg: Message) => {
+      // If the message is already present or already confirmed in state, do not append a duplicate
+      if (
+        state.some(
+          (m) =>
+            m.id === newMsg.id ||
+            (m.senderId === newMsg.senderId &&
+              m.body === newMsg.body &&
+              Math.abs(new Date(m.createdAt).getTime() - new Date(newMsg.createdAt).getTime()) < 15000),
+        )
+      ) {
+        return state;
+      }
+      return [...state, newMsg];
+    },
   );
   const [body, setBody] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -432,28 +446,17 @@ export function MessageThread({
     setBody("");
     setSendError(null);
 
-    // Place directly into messages state so it never vanishes if Realtime is delayed or offline
-    setMessages((prev) => [...prev, optimisticMsg]);
-
     startTransition(async () => {
       addOptimistic(optimisticMsg);
       const result = await sendMessageAction(conversationId, trimmed);
       if (!result.ok) {
         setSendError(result.error);
         setBody(trimmed);
-        // Rollback on failure
-        setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      } else if (result.data) {
-        const confirmedMsg = result.data.message ?? {
-          ...optimisticMsg,
-          id: result.data.id,
-        };
-        // Reconcile: replace tempId with confirmed message from server
+      } else if (result.data?.message) {
+        const confirmedMsg = result.data.message;
         setMessages((prev) => {
-          if (prev.some((m) => m.id === confirmedMsg.id)) {
-            return prev.filter((m) => m.id !== tempId);
-          }
-          return prev.map((m) => (m.id === tempId ? confirmedMsg : m));
+          if (prev.some((m) => m.id === confirmedMsg.id)) return prev;
+          return [...prev, confirmedMsg];
         });
       }
     });
@@ -469,7 +472,10 @@ export function MessageThread({
   // ── Group messages by day ────────────────────────────────────────────────
   type DayGroup = { day: string; messages: Message[] };
   const groups: DayGroup[] = [];
+  const seenIds = new Set<string>();
   for (const msg of optimisticMessages) {
+    if (seenIds.has(msg.id)) continue;
+    seenIds.add(msg.id);
     const day = formatMessageDayLabel(msg.createdAt, referenceNowMs, timeZone);
     const last = groups[groups.length - 1];
     if (last && last.day === day) {
