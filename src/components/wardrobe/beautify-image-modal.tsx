@@ -5,11 +5,14 @@ import {
   AlertTriangle,
   Check,
   Columns2,
+  Eraser,
   Loader2,
+  Paintbrush,
   RefreshCw,
   RotateCcw,
   SlidersHorizontal,
   Sparkles,
+  Undo2,
   Wand2,
   X,
 } from "lucide-react";
@@ -77,7 +80,7 @@ export function ItemBeautifyCard({
   const [modalConfig, setModalConfig] = useState<{
     open: boolean;
     initialMode: BeautificationMode;
-    initialCompareView: "slider" | "side-by-side";
+    initialCompareView: "slider" | "side-by-side" | "refine";
     inspectExistingOnly?: boolean;
   }>({
     open: false,
@@ -339,7 +342,7 @@ interface BeautifyExistingItemModalProps {
   initialOriginalUrl?: string;
   initialBeautifiedUrl?: string;
   initialMode: BeautificationMode;
-  initialCompareView: "slider" | "side-by-side";
+  initialCompareView: "slider" | "side-by-side" | "refine";
   inspectExistingOnly?: boolean;
   hasSavedBeautified: boolean;
   isShowingBeautified: boolean;
@@ -362,6 +365,429 @@ interface CachedPreviewEntry {
   model: string;
 }
 
+interface TouchUpCanvasEditorProps {
+  sourceImageUrl: string;
+  cutoutImageUrl: string;
+  onApply: (blob: Blob) => void;
+  onCancel: () => void;
+}
+
+function TouchUpCanvasEditor({
+  sourceImageUrl,
+  cutoutImageUrl,
+  onApply,
+  onCancel,
+}: TouchUpCanvasEditorProps) {
+  const [brushMode, setBrushMode] = useState<"erase" | "restore">("erase");
+  const [brushSize, setBrushSize] = useState<number>(24);
+  const [canUndo, setCanUndo] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [cursorPos, setCursorPos] = useState<{
+    x: number;
+    y: number;
+    visible: boolean;
+  }>({
+    x: 0,
+    y: 0,
+    visible: false,
+  });
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cutoutImageRef = useRef<HTMLImageElement | null>(null);
+  const isDrawingRef = useRef<boolean>(false);
+  const lastPosRef = useRef<{ x: number; y: number } | null>(null);
+  const undoStackRef = useRef<ImageData[]>([]);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const srcImg = new Image();
+    srcImg.crossOrigin = "anonymous";
+
+    const cutImg = new Image();
+    cutImg.crossOrigin = "anonymous";
+
+    let loadedCount = 0;
+    const onBothLoaded = () => {
+      if (!active) return;
+      try {
+        const w = cutImg.naturalWidth || cutImg.width || 800;
+        const h = cutImg.naturalHeight || cutImg.height || 800;
+
+        const sCanvas = document.createElement("canvas");
+        sCanvas.width = w;
+        sCanvas.height = h;
+        const sCtx = sCanvas.getContext("2d", { willReadFrequently: true });
+        if (!sCtx) throw new Error("Could not create source 2D canvas context.");
+        sCtx.drawImage(srcImg, 0, 0, w, h);
+        sourceCanvasRef.current = sCanvas;
+        cutoutImageRef.current = cutImg;
+
+        const wCanvas = canvasRef.current;
+        if (!wCanvas) return;
+        wCanvas.width = w;
+        wCanvas.height = h;
+        const wCtx = wCanvas.getContext("2d", { willReadFrequently: true });
+        if (!wCtx)
+          throw new Error("Could not create working 2D canvas context.");
+        wCtx.clearRect(0, 0, w, h);
+        wCtx.drawImage(cutImg, 0, 0, w, h);
+
+        undoStackRef.current = [];
+        setCanUndo(false);
+        setLoading(false);
+      } catch (err) {
+        setLoadError(
+          err instanceof Error
+            ? err.message
+            : "Failed to initialize canvas editor.",
+        );
+        setLoading(false);
+      }
+    };
+
+    const onError = () => {
+      if (!active) return;
+      setLoadError("Could not load garment image for touch-up editing.");
+      setLoading(false);
+    };
+
+    srcImg.onload = () => {
+      loadedCount++;
+      if (loadedCount === 2) onBothLoaded();
+    };
+    srcImg.onerror = onError;
+
+    cutImg.onload = () => {
+      loadedCount++;
+      if (loadedCount === 2) onBothLoaded();
+    };
+    cutImg.onerror = onError;
+
+    srcImg.src = sourceImageUrl;
+    cutImg.src = cutoutImageUrl;
+
+    return () => {
+      active = false;
+    };
+  }, [sourceImageUrl, cutoutImageUrl]);
+
+  const getCanvasCoords = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return { x: 0, y: 0 };
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY,
+      };
+    },
+    [],
+  );
+
+  const paintPoint = useCallback(
+    (x: number, y: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const radius = brushSize / 2;
+
+      if (brushMode === "erase") {
+        ctx.save();
+        ctx.globalCompositeOperation = "destination-out";
+        const grad = ctx.createRadialGradient(x, y, radius * 0.4, x, y, radius);
+        grad.addColorStop(0, "rgba(0, 0, 0, 1)");
+        grad.addColorStop(0.85, "rgba(0, 0, 0, 0.95)");
+        grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      } else {
+        const sCanvas = sourceCanvasRef.current;
+        if (!sCanvas) return;
+        ctx.save();
+        ctx.globalCompositeOperation = "source-over";
+        const pattern = ctx.createPattern(sCanvas, "no-repeat");
+        if (pattern) {
+          ctx.fillStyle = pattern;
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    },
+    [brushMode, brushSize],
+  );
+
+  const interpolateAndPaint = useCallback(
+    (fromX: number, fromY: number, toX: number, toY: number) => {
+      const dx = toX - fromX;
+      const dy = toY - fromY;
+      const dist = Math.hypot(dx, dy);
+      const step = Math.max(2, brushSize * 0.2);
+      const numSteps = Math.ceil(dist / step);
+      for (let s = 1; s <= numSteps; s++) {
+        const t = s / numSteps;
+        paintPoint(fromX + dx * t, fromY + dy * t);
+      }
+    },
+    [brushSize, paintPoint],
+  );
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.setPointerCapture(e.pointerId);
+    isDrawingRef.current = true;
+
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const snap = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      undoStackRef.current.push(snap);
+      if (undoStackRef.current.length > 20) {
+        undoStackRef.current.shift();
+      }
+      setCanUndo(true);
+    }
+
+    const coords = getCanvasCoords(e);
+    lastPosRef.current = coords;
+    paintPoint(coords.x, coords.y);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const container = containerRef.current;
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      setCursorPos({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+        visible: true,
+      });
+    }
+
+    if (!isDrawingRef.current || !lastPosRef.current) return;
+    const coords = getCanvasCoords(e);
+    interpolateAndPaint(
+      lastPosRef.current.x,
+      lastPosRef.current.y,
+      coords.x,
+      coords.y,
+    );
+    lastPosRef.current = coords;
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    isDrawingRef.current = false;
+    lastPosRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore if pointer capture already released
+    }
+  };
+
+  const handleUndo = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const prev = undoStackRef.current.pop();
+    if (!prev) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.putImageData(prev, 0, 0);
+    setCanUndo(undoStackRef.current.length > 0);
+  };
+
+  const handleReset = () => {
+    const canvas = canvasRef.current;
+    const cutImg = cutoutImageRef.current;
+    if (!canvas || !cutImg) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const snap = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    undoStackRef.current.push(snap);
+    setCanUndo(true);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(cutImg, 0, 0, canvas.width, canvas.height);
+  };
+
+  const handleApply = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (blob) {
+        onApply(blob);
+      }
+    }, "image/png");
+  };
+
+  return (
+    <div className="flex w-full flex-col items-center gap-3">
+      {/* Top Toolbar: Brush Mode & Size Controls */}
+      <div className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-surface p-2 shadow-xs">
+        <div
+          className="flex items-center gap-1.5"
+          role="group"
+          aria-label="Brush Mode"
+        >
+          <button
+            type="button"
+            onClick={() => setBrushMode("erase")}
+            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+              brushMode === "erase"
+                ? "bg-red-500/15 font-semibold text-red-600 shadow-xs dark:text-red-400"
+                : "text-muted hover:bg-surface-muted hover:text-foreground"
+            }`}
+          >
+            <Eraser className="size-3.5" aria-hidden />
+            Erase Unwanted
+          </button>
+          <button
+            type="button"
+            onClick={() => setBrushMode("restore")}
+            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+              brushMode === "restore"
+                ? "bg-emerald-500/15 font-semibold text-emerald-600 shadow-xs dark:text-emerald-400"
+                : "text-muted hover:bg-surface-muted hover:text-foreground"
+            }`}
+          >
+            <Paintbrush className="size-3.5" aria-hidden />
+            Restore Straps / Lace
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium text-muted">Size:</span>
+            <input
+              type="range"
+              min={6}
+              max={64}
+              step={2}
+              value={brushSize}
+              onChange={(e) => setBrushSize(Number(e.target.value))}
+              aria-label="Brush size"
+              className="w-20 accent-foreground sm:w-28"
+            />
+            <span className="w-8 font-mono text-[11px] text-muted text-right">
+              {brushSize}px
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 border-l border-border pl-2">
+            <button
+              type="button"
+              disabled={!canUndo}
+              onClick={handleUndo}
+              aria-label="Undo last brush stroke"
+              title="Undo last stroke"
+              className="inline-flex size-7 items-center justify-center rounded-lg text-muted hover:bg-surface-muted hover:text-foreground disabled:opacity-30"
+            >
+              <Undo2 className="size-3.5" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              aria-label="Reset cutout to initial state"
+              title="Reset cutout"
+              className="inline-flex size-7 items-center justify-center rounded-lg text-muted hover:bg-surface-muted hover:text-foreground"
+            >
+              <RotateCcw className="size-3.5" aria-hidden />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Center Interactive Working Canvas with Checkerboard Background */}
+      <div
+        ref={containerRef}
+        className="relative flex aspect-square w-full max-w-[26rem] items-center justify-center overflow-hidden rounded-xl border border-border bg-[repeating-conic-gradient(#e5e7eb_0_25%,#ffffff_0_50%)] bg-[size:16px_16px] shadow-sm dark:bg-[repeating-conic-gradient(#27272a_0_25%,#18181b_0_50%)]"
+        onPointerLeave={() => setCursorPos((p) => ({ ...p, visible: false }))}
+      >
+        {loading ? (
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Loader2 className="size-6 animate-spin text-accent" aria-hidden />
+            <p className="text-xs text-muted">
+              Loading cutout for brush touch-up...
+            </p>
+          </div>
+        ) : loadError ? (
+          <div className="p-4 text-center">
+            <AlertTriangle className="mx-auto size-6 text-danger" aria-hidden />
+            <p className="mt-1 text-xs text-danger">{loadError}</p>
+          </div>
+        ) : (
+          <>
+            <canvas
+              ref={canvasRef}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              className="h-full w-full cursor-none touch-none select-none object-contain"
+            />
+            {cursorPos.visible && (
+              <div
+                className={`pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-[width,height] ${
+                  brushMode === "erase"
+                    ? "border-red-500 bg-red-500/20 shadow-xs"
+                    : "border-emerald-500 bg-emerald-500/20 shadow-xs"
+                }`}
+                style={{
+                  left: cursorPos.x,
+                  top: cursorPos.y,
+                  width: brushSize,
+                  height: brushSize,
+                }}
+              />
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Helpful Hint & Bottom Apply/Cancel Actions */}
+      <div className="flex w-full flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] text-muted">
+          {brushMode === "erase"
+            ? "Erasing: drag over unwanted clips, hangers, or fingers."
+            : "Restoring: drag over straps or lace to recover them from original photo."}
+        </p>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            className="text-xs"
+          >
+            Back to Comparison
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleApply}
+            className="text-xs"
+          >
+            <Check className="size-3.5" aria-hidden />
+            Apply &amp; Recenter
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BeautifyExistingItemModal({
   itemId,
   itemName,
@@ -382,9 +808,9 @@ function BeautifyExistingItemModal({
   const [tolerance, setTolerance] = useState<number>(36);
   const [wrinklePct, setWrinklePct] = useState<number>(68);
   const [addShadow, setAddShadow] = useState<boolean>(true);
-  const [compareView, setCompareView] = useState<"slider" | "side-by-side">(
-    initialCompareView,
-  );
+  const [compareView, setCompareView] = useState<
+    "slider" | "side-by-side" | "refine"
+  >(initialCompareView);
   const [sliderPos, setSliderPos] = useState<number>(50);
 
   const [sourceUrl, setSourceUrl] = useState<string | null>(
@@ -393,6 +819,8 @@ function BeautifyExistingItemModal({
   const [previewUrl, setPreviewUrl] = useState<string | null>(
     inspectExistingOnly && initialBeautifiedUrl ? initialBeautifiedUrl : null,
   );
+  const [workingCutoutUrl, setWorkingCutoutUrl] = useState<string | null>(null);
+  const customCutoutUrlRef = useRef<string | null>(null);
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [diagnostics, setDiagnostics] =
     useState<BeautifyQualityDiagnostics | null>(null);
@@ -536,7 +964,9 @@ function BeautifyExistingItemModal({
               }
             : null;
         const inputForStandardizer =
-          cachedPhotoRoomCutoutRef.current ?? workingSourceUrl;
+          customCutoutUrlRef.current ??
+          cachedPhotoRoomCutoutRef.current ??
+          workingSourceUrl;
 
         const result = await beautifyGarmentImage(inputForStandardizer, {
           mode: targetMode,
@@ -600,6 +1030,44 @@ function BeautifyExistingItemModal({
     }
     setMode(nextMode);
     await runPipeline(nextMode, tolerance, addShadow, false, wrinklePct);
+  }
+
+  async function openRefineView() {
+    if (workingCutoutUrl || customCutoutUrlRef.current) {
+      setCompareView("refine");
+      return;
+    }
+    if (cachedPhotoRoomCutoutRef.current) {
+      setWorkingCutoutUrl(cachedPhotoRoomCutoutRef.current);
+      setCompareView("refine");
+      return;
+    }
+    if (!sourceUrl) {
+      setCompareView("refine");
+      return;
+    }
+    setStatus("processing");
+    try {
+      const res = await beautifyGarmentImage(sourceUrl, {
+        mode,
+        category,
+        tolerance,
+        addShadow: false,
+        background: "transparent",
+        targetCanvasSize: 1024,
+      });
+      const url = URL.createObjectURL(res.blob);
+      setWorkingCutoutUrl(url);
+      setStatus("ready");
+      setCompareView("refine");
+    } catch (err) {
+      setStatus("ready");
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : "Could not prepare transparent cutout for touch-up.",
+      );
+    }
   }
 
   async function handleAccept() {
@@ -719,6 +1187,18 @@ function BeautifyExistingItemModal({
                   <Columns2 className="size-3.5" aria-hidden />
                   Compare: Side-by-Side
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void openRefineView()}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition ${
+                    compareView === "refine"
+                      ? "bg-surface text-foreground shadow-xs"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  <Paintbrush className="size-3.5" aria-hidden />
+                  Touch-Up Brush
+                </button>
               </div>
 
               {status === "ready" && (
@@ -776,6 +1256,21 @@ function BeautifyExistingItemModal({
                     </Button>
                   </div>
                 </div>
+              ) : compareView === "refine" ? (
+                <TouchUpCanvasEditor
+                  sourceImageUrl={sourceUrl ?? ""}
+                  cutoutImageUrl={
+                    workingCutoutUrl ?? previewUrl ?? sourceUrl ?? ""
+                  }
+                  onApply={async (refinedBlob) => {
+                    const url = URL.createObjectURL(refinedBlob);
+                    customCutoutUrlRef.current = url;
+                    setWorkingCutoutUrl(url);
+                    setCompareView("slider");
+                    await runPipeline(mode, tolerance, addShadow, true);
+                  }}
+                  onCancel={() => setCompareView("slider")}
+                />
               ) : compareView === "side-by-side" ? (
                 <div className="grid w-full gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
@@ -956,9 +1451,46 @@ function BeautifyExistingItemModal({
                   <button
                     type="button"
                     disabled={isBusy}
+                    onClick={() => {
+                      if (compareView !== "refine") {
+                        void openRefineView();
+                      }
+                    }}
+                    className={`w-full rounded-xl border p-3 text-left transition ${
+                      compareView === "refine"
+                        ? "border-foreground bg-surface shadow-xs"
+                        : "border-border bg-surface/60 hover:border-foreground/40"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                        <Paintbrush
+                          className="size-3.5 text-accent"
+                          aria-hidden
+                        />
+                        3. Touch-Up Masking Brush
+                      </span>
+                      <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">
+                        Precision
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                      Erase lingering hanger hooks, clips, or thumbs. Restore
+                      clipped spaghetti straps and delicate lace directly from
+                      the original photo.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isBusy}
                     onClick={() =>
                       setCompareView((prev) =>
-                        prev === "slider" ? "side-by-side" : "slider",
+                        prev === "slider"
+                          ? "side-by-side"
+                          : prev === "side-by-side"
+                            ? "refine"
+                            : "slider",
                       )
                     }
                     className="w-full rounded-xl border border-border bg-surface/60 p-2.5 text-left transition hover:border-foreground/40"
@@ -969,10 +1501,12 @@ function BeautifyExistingItemModal({
                           className="size-3.5 text-accent"
                           aria-hidden
                         />
-                        3. Compare (
+                        4. Compare (
                         {compareView === "slider"
                           ? "Split Slider"
-                          : "Side-by-Side"}
+                          : compareView === "side-by-side"
+                            ? "Side-by-Side"
+                            : "Touch-Up"}
                         )
                       </span>
                       <span className="text-[10px] font-medium text-muted">

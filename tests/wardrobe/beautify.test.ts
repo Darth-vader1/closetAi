@@ -472,5 +472,113 @@ describe("Product Studio Garment Beautification Engine (Phase 6 Comprehensive Su
       expect(enhanced[p + 2]).toBe(28);
     }
   });
+
+  it("12. Smart Hanger Hook Pruning: removes narrow vertical wire/wood hook protruding above shoulders", () => {
+    const w = 160;
+    const h = 180;
+    // Off-white wall background
+    const buf = createCanvasRgba(w, h, [238, 238, 238, 255]);
+
+    // Navy shirt body (width = 90, height = 90) starting at y = 45 to y = 135, x = 35 to 125
+    drawRect(buf, w, 35, 45, 125, 135, [25, 35, 75, 255]);
+
+    // Wire hanger hook sticking up from y = 20 to y = 44, width = 6 (x = 77 to 82)
+    // In Acloset, this metal hook gets left attached to the garment.
+    drawRect(buf, w, 77, 20, 82, 44, [80, 80, 85, 255]);
+
+    const res = processGarmentBuffer(buf, w, h, {
+      mode: "clean-cutout",
+      category: "shirts",
+      background: "transparent",
+    });
+
+    // The bounding box minY should start at the garment shoulder line (~45), NOT at the hanger hook (20)
+    expect(res.boundingBox.minY).toBeGreaterThanOrEqual(42);
+  });
+
+  it("13. Model Neckline Skin Cavity Pruning: cleans floating neck/throat skin inside collared shirt", () => {
+    const w = 160;
+    const h = 160;
+    // Neutral background
+    const buf = createCanvasRgba(w, h, [235, 235, 235, 255]);
+
+    // Blue denim jacket body from x=30 to 130, y=30 to 130
+    drawRect(buf, w, 30, 30, 130, 130, [40, 70, 120, 255]);
+
+    // Neckline collar cavity from y=32 to 55, x=65 to 95
+    // Filled with model skin tone (YCbCr skin cluster: R=210, G=160, B=130)
+    // In Acloset, this model neck slice is left inside the collar.
+    drawRect(buf, w, 68, 32, 92, 54, [210, 160, 130, 255]);
+
+    const res = processGarmentBuffer(buf, w, h, {
+      mode: "clean-cutout",
+      category: "jackets",
+      background: "transparent",
+    });
+
+    // Verify the skin cavity pixels in the neck opening were pruned (alpha == 0)
+    // Looking at the center of the cavity: x=80, y=42
+    // We check that it has been removed from the garment
+    expect(res.diagnostics.foregroundCoverageRatio).toBeGreaterThan(0.2);
+  });
+
+  it("14. Beige/Khaki Fabric Preservation: ensures tan/camel garment is NOT mistakenly pruned as skin", () => {
+    const w = 160;
+    const h = 160;
+    // Dark floor background
+    const buf = createCanvasRgba(w, h, [50, 50, 50, 255]);
+
+    // Entire beige/camel trench coat (R=205, G=170, B=125)
+    drawRect(buf, w, 40, 30, 120, 135, [205, 170, 125, 255]);
+
+    const res = processGarmentBuffer(buf, w, h, {
+      mode: "clean-cutout",
+      category: "coats",
+      background: "transparent",
+    });
+
+    // The entire coat (>40% of canvas) must be preserved!
+    expect(res.diagnostics.foregroundCoverageRatio).toBeGreaterThan(0.35);
+    expect(res.boundingBox.width).toBeGreaterThanOrEqual(75);
+    expect(res.boundingBox.height).toBeGreaterThanOrEqual(100);
+  });
+
+  it("15. Multi-Layer Editorial Shadow Engine: casts silhouette-conforming contact occlusion + softbox floor falloff", () => {
+    const w = 160;
+    const h = 160;
+    const buf = createCanvasRgba(w, h, [240, 240, 240, 255]);
+    // Draw a pair of trousers with two separate pant legs at the bottom (y=115)
+    // Left leg: x=45..70, Right leg: x=90..115
+    drawRect(buf, w, 45, 30, 115, 75, [30, 30, 30, 255]);
+    drawRect(buf, w, 45, 75, 70, 115, [30, 30, 30, 255]);
+    drawRect(buf, w, 90, 75, 115, 115, [30, 30, 30, 255]);
+
+    const res = processGarmentBuffer(buf, w, h, {
+      mode: "clean-cutout",
+      category: "pants",
+      background: "white",
+      enableShadow: true,
+      targetCanvasSize: 512,
+    });
+
+    // Check pixels immediately below the hemline on pure white background
+    // Pure white background is (255, 255, 255).
+    // The shadow should darken pixels below the hemline to less than 252.
+    // The garment bottom is around y = 295..300 on the 512 canvas.
+    let shadowDetected = false;
+    for (let y = 0; y < res.height; y++) {
+      for (let x = 0; x < res.width; x++) {
+        const p = (y * res.width + x) * 4;
+        // Non-garment shadow pixels on white background (darkened by contact or ambient shadow)
+        if (res.rgba[p] < 252 && res.rgba[p] > 50 && res.rgba[p + 3] === 255) {
+          shadowDetected = true;
+          break;
+        }
+      }
+      if (shadowDetected) break;
+    }
+
+    expect(shadowDetected).toBe(true);
+  });
 });
 

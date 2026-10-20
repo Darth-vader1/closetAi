@@ -478,49 +478,57 @@ export interface FeatureAnnouncementEmailProps {
 }
 
 export const DEFAULT_ANNOUNCEMENT_FEATURES: FeatureAnnouncementItem[] = [
-  {
-    icon: "💬",
-    badge: "Connect",
-    title: "Swipe Right to Reply (WhatsApp-Style)",
-    description:
-      "Chatting with style buddies in Closet Connect just got faster. Swipe right on any message bubble to reply with instant quote previews, subtle haptic vibration, and tap-to-jump navigation.",
-  },
-  {
-    icon: "🧳",
-    badge: "Travel",
-    title: "Smart Trip Packing Planner",
-    description:
-      "Never overpack or forget essentials again. Input your destination, dates, and activities, and ClosetAI builds a tailored multi-day wardrobe rotation with luggage weight recommendations.",
-  },
+  // {
+  //   icon: "💬",
+  //   badge: "Connect",
+  //   title: "Swipe Right to Reply (WhatsApp-Style)",
+  //   description:
+  //     "Chatting with style buddies in Closet Connect just got faster. Swipe right on any message bubble to reply with instant quote previews, subtle haptic vibration, and tap-to-jump navigation.",
+  // },
+  // {
+  //   icon: "🧳",
+  //   badge: "Travel",
+  //   title: "Smart Trip Packing Planner",
+  //   description:
+  //     "Never overpack or forget essentials again. Input your destination, dates, and activities, and ClosetAI builds a tailored multi-day wardrobe rotation with luggage weight recommendations.",
+  // },
+  // {
+  //   icon: "✨",
+  //   badge: "Product Studio",
+  //   title: "AI Garment Beautification",
+  //   description:
+  //     "Transform simple hanger or floor photos into professional catalog images. Our AI studio flattens fabric creases, removes messy backgrounds, and adjusts camera angles automatically.",
+  // },
+  // {
+  //   icon: "🛍️",
+  //   badge: "Wardrobe",
+  //   title: "Universal Store & Clipboard Import",
+  //   description:
+  //     "Add clothes you love online in seconds. Paste product links directly into ClosetAI, or simply copy a garment image from any website and press Ctrl+V to import it.",
+  // },
+  // {
+  //   icon: "💇‍♀️",
+  //   badge: "New Category",
+  //   title: "Wigs & Specialized Care Taxonomy",
+  //   description:
+  //     "We've added native support for wigs, headwear, and delicate accessories, complete with tailored care instructions (No-Wash, Wipe-Clean, Washable) to keep pieces in peak condition.",
+  // },
+  // {
+  //   icon: "🌤️",
+  //   badge: "Daily Stylist",
+  //   title: "Morning Look Recommendations",
+  //   description:
+  //     "Wake up to personalized daily outfit inspiration crafted from your clean clothes and tuned to your local weather, with 1-click links to view or log your look.",
+  // },
   {
     icon: "✨",
-    badge: "Product Studio",
-    title: "AI Garment Beautification",
+    badge: "New",
+    title: "AI Outfit Flatlay Studio",
     description:
-      "Transform simple hanger or floor photos into professional catalog images. Our AI studio flattens fabric creases, removes messy backgrounds, and adjusts camera angles automatically.",
-  },
-  {
-    icon: "🛍️",
-    badge: "Wardrobe",
-    title: "Universal Store & Clipboard Import",
-    description:
-      "Add clothes you love online in seconds. Paste product links directly into ClosetAI, or simply copy a garment image from any website and press Ctrl+V to import it.",
-  },
-  {
-    icon: "💇‍♀️",
-    badge: "New Category",
-    title: "Wigs & Specialized Care Taxonomy",
-    description:
-      "We've added native support for wigs, headwear, and delicate accessories, complete with tailored care instructions (No-Wash, Wipe-Clean, Washable) to keep pieces in peak condition.",
-  },
-  {
-    icon: "🌤️",
-    badge: "Daily Stylist",
-    title: "Morning Look Recommendations",
-    description:
-      "Wake up to personalized daily outfit inspiration crafted from your clean clothes and tuned to your local weather, with 1-click links to view or log your look.",
+      "Compose polished flatlay collages using your actual wardrobe items. Drag, resize, and arrange tops, bottoms, shoes, and accessories on a canvas with one-click layout presets.",
   },
 ];
+
 
 export function renderFeatureAnnouncementHtml({
   displayName,

@@ -4,6 +4,7 @@ import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { OutfitStudio } from "@/components/studio/outfit-studio";
 import { getProfile, requireUser } from "@/lib/auth/session";
 import { generateOutfits } from "@/lib/outfits/engine";
+import { listFlatlayCompositions } from "@/lib/flatlay/queries";
 import { listUserOutfits, signAllOutfitImages } from "@/lib/outfits/queries";
 import { createClient } from "@/lib/supabase/server";
 import { listAllWardrobeItems, signImageUrls } from "@/lib/wardrobe/queries";
@@ -15,15 +16,18 @@ export default async function StudioPage() {
   const profile = await getProfile();
   const supabase = await createClient();
 
-  // 1. Fetch user outfits and all wardrobe items (up to 300) in parallel
-  const [outfits, wardrobeItems] = await Promise.all([
+  // 1. Fetch user outfits, wardrobe items, and saved flatlays in parallel
+  const [outfits, wardrobeItems, flatlays] = await Promise.all([
     listUserOutfits(supabase, user.id).catch(() => []),
     listAllWardrobeItems(supabase, user.id, 300).catch(() => []),
+    listFlatlayCompositions(supabase, user.id).catch(() => []),
   ]);
 
   // 2. Batch-sign image URLs for wardrobe garments (thumbnail for grid) and
   //    full-body outfit photos (medium for preview panels)
-  const itemPaths = wardrobeItems.map((i) => i.imagePath);
+  const itemPaths = wardrobeItems.flatMap((i) =>
+    [i.imagePath, i.beautifiedImagePath].filter(Boolean) as string[]
+  );
   const [itemUrlsMap, outfitUrlsMap] = await Promise.all([
     signImageUrls(supabase, itemPaths, "thumbnail"),
     signAllOutfitImages(supabase, outfits, "thumbnail"),
@@ -58,6 +62,7 @@ export default async function StudioPage() {
         itemImageUrls={itemImageUrls}
         photoUrls={photoUrls}
         initialSuggestions={initialSuggestions}
+        initialFlatlays={flatlays}
       />
     </>
   );

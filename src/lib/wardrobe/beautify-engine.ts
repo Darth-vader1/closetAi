@@ -343,6 +343,203 @@ function computeSobelEdgeStrength(
   return edge;
 }
 
+/**
+ * Prunes narrow top vertical protrusions characteristic of hanger hooks or loops
+ * protruding above the garment's shoulder line.
+ */
+function pruneHangerHook(
+  alphaMask: Uint8Array,
+  width: number,
+  height: number,
+): void {
+  let minX = width;
+  let maxX = -1;
+  let minY = height;
+  let maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (alphaMask[y * width + x] >= 128) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX <= minX || maxY <= minY) return;
+
+  const garmentWidth = maxX - minX + 1;
+  const garmentHeight = maxY - minY + 1;
+
+  // Garment must be large enough to distinguish a hook from small items
+  if (garmentWidth < 40 || garmentHeight < 40) return;
+
+  const maxHookScanY = Math.min(maxY, minY + Math.floor(garmentHeight * 0.35));
+  const maxHookWidth = Math.max(8, Math.floor(garmentWidth * 0.16));
+
+  let hookCutoffY = -1;
+  for (let y = minY; y <= maxHookScanY; y++) {
+    let rowMinX = width;
+    let rowMaxX = -1;
+    for (let x = minX; x <= maxX; x++) {
+      if (alphaMask[y * width + x] >= 128) {
+        if (x < rowMinX) rowMinX = x;
+        if (x > rowMaxX) rowMaxX = x;
+      }
+    }
+
+    if (rowMaxX === -1) {
+      continue;
+    }
+
+    const rowW = rowMaxX - rowMinX + 1;
+    const rowMid = (rowMinX + rowMaxX) / 2;
+    const garmentMid = (minX + maxX) / 2;
+
+    const isNarrow = rowW <= maxHookWidth;
+    const isCentered = Math.abs(rowMid - garmentMid) <= garmentWidth * 0.22;
+
+    if (isNarrow && isCentered) {
+      hookCutoffY = y;
+    } else {
+      // Must widen significantly into the garment shoulders (at least 2.2x hook width or >25% garment width)
+      if (rowW >= Math.max(16, garmentWidth * 0.25) && hookCutoffY >= minY + 2) {
+        const clearMinX = Math.max(0, Math.floor(garmentMid - garmentWidth * 0.25));
+        const clearMaxX = Math.min(width - 1, Math.ceil(garmentMid + garmentWidth * 0.25));
+        for (let py = minY; py <= hookCutoffY; py++) {
+          for (let px = clearMinX; px <= clearMaxX; px++) {
+            alphaMask[py * width + px] = 0;
+          }
+        }
+      }
+      break;
+    }
+  }
+}
+
+/**
+ * Detects whether an RGB pixel matches human skin tone chrominance in YCbCr color space.
+ */
+function isSkinToneRgba(r: number, g: number, b: number): boolean {
+  const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+  const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+  return (
+    cb >= 77 &&
+    cb <= 127 &&
+    cr >= 133 &&
+    cr <= 173 &&
+    r > 45 &&
+    g > 30 &&
+    b > 20 &&
+    r > g &&
+    g > b - 12
+  );
+}
+
+/**
+ * Prunes remnant model/mannequin skin inside collar/neckline cavities of tops & dresses.
+ * Only prunes when skin is an interior cavity enclosed by non-skin fabric and accounts
+ * for a minority fraction (<18%) of the garment, safely preserving beige/tan clothing.
+ */
+function pruneNecklineSkinCavity(
+  rgba: Uint8ClampedArray,
+  alphaMask: Uint8Array,
+  width: number,
+  height: number,
+): void {
+  let minX = width;
+  let maxX = -1;
+  let minY = height;
+  let maxY = -1;
+  let totalForeground = 0;
+  let totalSkinCount = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (alphaMask[idx] >= 128) {
+        totalForeground++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+
+        const p = idx * 4;
+        if (isSkinToneRgba(rgba[p], rgba[p + 1], rgba[p + 2])) {
+          totalSkinCount++;
+        }
+      }
+    }
+  }
+
+  if (totalForeground === 0 || maxX <= minX || maxY <= minY) return;
+
+  // If more than 20% of the entire garment is skin-toned, it is a beige/nude/tan garment!
+  if (totalSkinCount / totalForeground > 0.20) return;
+
+  const garmentWidth = maxX - minX + 1;
+  const garmentHeight = maxY - minY + 1;
+
+  if (garmentWidth < 48 || garmentHeight < 48) return;
+
+  // The neckline cavity lies in the upper-center zone:
+  // Top 5% to 40% of garment height, and center 25% to 75% of garment width
+  const cavityMinY = minY + Math.floor(garmentHeight * 0.05);
+  const cavityMaxY = minY + Math.floor(garmentHeight * 0.40);
+  const cavityMinX = minX + Math.floor(garmentWidth * 0.25);
+  const cavityMaxX = minX + Math.floor(garmentWidth * 0.75);
+
+  const candidates: number[] = [];
+
+  for (let y = cavityMinY; y <= cavityMaxY; y++) {
+    let leftFabricX = -1;
+    let rightFabricX = -1;
+
+    for (let x = minX; x <= maxX; x++) {
+      const idx = y * width + x;
+      if (alphaMask[idx] >= 128) {
+        const p = idx * 4;
+        if (!isSkinToneRgba(rgba[p], rgba[p + 1], rgba[p + 2])) {
+          leftFabricX = x;
+          break;
+        }
+      }
+    }
+
+    for (let x = maxX; x >= minX; x--) {
+      const idx = y * width + x;
+      if (alphaMask[idx] >= 128) {
+        const p = idx * 4;
+        if (!isSkinToneRgba(rgba[p], rgba[p + 1], rgba[p + 2])) {
+          rightFabricX = x;
+          break;
+        }
+      }
+    }
+
+    // Must be bounded by non-skin fabric on both sides (collars/shoulders flanking the neck)
+    if (leftFabricX !== -1 && rightFabricX !== -1 && rightFabricX > leftFabricX) {
+      for (let x = Math.max(cavityMinX, leftFabricX); x <= Math.min(cavityMaxX, rightFabricX); x++) {
+        const idx = y * width + x;
+        if (alphaMask[idx] >= 128) {
+          const p = idx * 4;
+          if (isSkinToneRgba(rgba[p], rgba[p + 1], rgba[p + 2])) {
+            candidates.push(idx);
+          }
+        }
+      }
+    }
+  }
+
+  // Only prune if candidate count is bounded (< 15% of foreground)
+  if (candidates.length > 0 && candidates.length / totalForeground < 0.15) {
+    for (let i = 0; i < candidates.length; i++) {
+      alphaMask[candidates[i]] = 0;
+    }
+  }
+}
+
 interface SegmentationOutput {
   alphaMask: Uint8Array;
   palette: BackgroundSample[];
@@ -552,6 +749,10 @@ function segmentGarment(
       }
     }
   }
+
+  // Prune hanger hook protrusions and neckline cavity skin remnants
+  pruneHangerHook(alphaMask, width, height);
+  pruneNecklineSkinCavity(rgba, alphaMask, width, height);
 
   const primarySize = significantComponents[0]?.size ?? 0;
   const secondarySize = significantComponents[1]?.size ?? 0;
@@ -1614,33 +1815,101 @@ export function processGarmentBuffer(
     }
   }
 
-  // Optional subtle grounded contact shadow under the garment base on opaque backgrounds
+  // Multi-Layer Editorial Studio Shadow Engine (Silhouette Contact Occlusion + Ambient Softbox Falloff)
   if (enableShadow && background !== "transparent") {
     const garmentHalfW = (box.width * scale) / 2;
     const garmentHalfH = (box.height * scale) / 2;
-    const shadowCenterY = Math.min(
-      canvasSize - 8,
-      dstCenterY + garmentHalfH + Math.max(4, canvasSize * 0.014),
-    );
-    const shadowRadiusX = Math.max(16, garmentHalfW * 0.68);
-    const shadowRadiusY = Math.max(4, canvasSize * 0.022);
+    const minScanX = Math.max(0, Math.floor(dstCenterX - garmentHalfW * 1.05));
+    const maxScanX = Math.min(canvasSize - 1, Math.ceil(dstCenterX + garmentHalfW * 1.05));
+    const minScanY = Math.max(0, Math.floor(dstCenterY - garmentHalfH * 0.2));
+    const maxScanY = Math.min(canvasSize - 1, Math.ceil(dstCenterY + garmentHalfH * 1.15));
 
-    const minSY = Math.max(0, Math.floor(shadowCenterY - shadowRadiusY * 1.5));
-    const maxSY = Math.min(canvasSize - 1, Math.ceil(shadowCenterY + shadowRadiusY * 1.5));
-    const minSX = Math.max(0, Math.floor(dstCenterX - shadowRadiusX * 1.25));
-    const maxSX = Math.min(canvasSize - 1, Math.ceil(dstCenterX + shadowRadiusX * 1.25));
+    // 1. Trace the lowest non-transparent contour of the garment on target canvas coordinates
+    const lowestY = new Int32Array(canvasSize).fill(-1);
 
-    for (let y = minSY; y <= maxSY; y++) {
-      const dy = (y - shadowCenterY) / shadowRadiusY;
-      for (let x = minSX; x <= maxSX; x++) {
-        const dx = (x - dstCenterX) / shadowRadiusX;
-        const d2 = dx * dx + dy * dy;
-        if (d2 >= 1) continue;
-        const falloff = Math.pow(1 - d2, 2) * 0.065; // Very subtle 6.5% max studio contact shadow
-        const p = (y * canvasSize + x) * 4;
-        outputRgba[p] = clampByte(outputRgba[p] * (1 - falloff));
-        outputRgba[p + 1] = clampByte(outputRgba[p + 1] * (1 - falloff));
-        outputRgba[p + 2] = clampByte(outputRgba[p + 2] * (1 - falloff));
+    for (let dy = minScanY; dy <= maxScanY; dy++) {
+      const relY = (dy - dstCenterY) / scale;
+      for (let dx = minScanX; dx <= maxScanX; dx++) {
+        const relX = (dx - dstCenterX) / scale;
+        const sx = srcCenterX + (relX * cosR + relY * sinR);
+        const sy = srcCenterY + (-relX * sinR + relY * cosR);
+        if (sx >= 0 && sx < width && sy >= 0 && sy < height) {
+          const idx = (Math.round(sy) * width + Math.round(sx)) * 4;
+          if (cutoutRgba[idx + 3] > 64) {
+            if (dy > lowestY[dx]) {
+              lowestY[dx] = dy;
+            }
+          }
+        }
+      }
+    }
+
+    // Smooth lowestY along the horizontal axis to eliminate single-pixel stepping
+    const smoothedLowestY = new Float32Array(canvasSize).fill(-1);
+    for (let x = minScanX; x <= maxScanX; x++) {
+      if (lowestY[x] === -1) continue;
+      let sum = 0;
+      let count = 0;
+      for (let k = -2; k <= 2; k++) {
+        const nx = x + k;
+        if (nx >= 0 && nx < canvasSize && lowestY[nx] !== -1) {
+          sum += lowestY[nx];
+          count++;
+        }
+      }
+      smoothedLowestY[x] = count > 0 ? sum / count : lowestY[x];
+    }
+
+    const contactDepth = Math.max(4, Math.round(canvasSize * 0.012)); // ~12px on 1024
+    const ambientDepth = Math.max(14, Math.round(canvasSize * 0.032)); // ~33px on 1024
+
+    let globalMaxY = -1;
+    for (let x = minScanX; x <= maxScanX; x++) {
+      if (smoothedLowestY[x] > globalMaxY) {
+        globalMaxY = smoothedLowestY[x];
+      }
+    }
+
+    if (globalMaxY > 0) {
+      // Tier 1: Silhouette-Conforming Contact Occlusion
+      // Follows the exact contour of the hemline/pant cuffs/shoe soles
+      for (let x = minScanX; x <= maxScanX; x++) {
+        const base = smoothedLowestY[x];
+        if (base === -1) continue;
+        const startY = Math.floor(base);
+        const endY = Math.min(canvasSize - 1, startY + contactDepth);
+        for (let y = startY; y <= endY; y++) {
+          const dist = (y - base) / contactDepth;
+          if (dist < 0 || dist > 1) continue;
+          const occlusion = Math.pow(1 - dist, 1.8) * 0.16; // 16% max contact occlusion
+          const p = (y * canvasSize + x) * 4;
+          outputRgba[p] = clampByte(outputRgba[p] * (1 - occlusion));
+          outputRgba[p + 1] = clampByte(outputRgba[p + 1] * (1 - occlusion));
+          outputRgba[p + 2] = clampByte(outputRgba[p + 2] * (1 - occlusion));
+        }
+      }
+
+      // Tier 2: Diffuse Ambient Softbox Floor Shadow
+      // Subtle ambient ground plane gradient under the entire garment
+      const ambientRadiusX = Math.max(24, garmentHalfW * 0.85);
+      const ambientCenterY = Math.min(canvasSize - 4, globalMaxY + ambientDepth * 0.45);
+      const minAY = Math.max(0, Math.floor(globalMaxY - 2));
+      const maxAY = Math.min(canvasSize - 1, Math.ceil(globalMaxY + ambientDepth));
+      const minAX = Math.max(0, Math.floor(dstCenterX - ambientRadiusX * 1.2));
+      const maxAX = Math.min(canvasSize - 1, Math.ceil(dstCenterX + ambientRadiusX * 1.2));
+
+      for (let y = minAY; y <= maxAY; y++) {
+        const dy = (y - ambientCenterY) / (ambientDepth * 0.7);
+        for (let x = minAX; x <= maxAX; x++) {
+          const dx = (x - dstCenterX) / ambientRadiusX;
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= 1) continue;
+          const ambientFalloff = Math.pow(1 - d2, 2) * 0.075; // 7.5% ambient softbox floor falloff
+          const p = (y * canvasSize + x) * 4;
+          outputRgba[p] = clampByte(outputRgba[p] * (1 - ambientFalloff));
+          outputRgba[p + 1] = clampByte(outputRgba[p + 1] * (1 - ambientFalloff));
+          outputRgba[p + 2] = clampByte(outputRgba[p + 2] * (1 - ambientFalloff));
+        }
       }
     }
   }

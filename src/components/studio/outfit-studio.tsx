@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
-import { Camera, Check, Heart, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { Camera, Check, Heart, Layout, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { deleteOutfitAction, saveOutfitAction, toggleOutfitFavouriteAction } from "@/app/(app)/studio/actions";
 import { Button } from "@/components/ui/button";
 import { Alert, Card, EmptyState } from "@/components/ui/card";
@@ -14,6 +14,10 @@ import type { OutfitWithItems } from "@/lib/outfits/queries";
 import type { OutfitSuggestion } from "@/lib/outfits/engine";
 import type { WardrobeItem } from "@/lib/wardrobe/queries";
 import { prepareImage, uploadPhoto } from "@/lib/wardrobe/upload-client";
+import type { FlatlayComposition } from "@/lib/flatlay/types";
+import { generateFlatlayPlacement } from "@/lib/flatlay/engine";
+import { FlatlayStudioEditor } from "./flatlay/flatlay-studio-editor";
+import { FlatlaySavedList } from "./flatlay/flatlay-saved-list";
 
 interface OutfitStudioProps {
   initialOutfits: OutfitWithItems[];
@@ -21,9 +25,10 @@ interface OutfitStudioProps {
   itemImageUrls: Record<string, string>;
   photoUrls: Record<string, string>;
   initialSuggestions: OutfitSuggestion[];
+  initialFlatlays?: FlatlayComposition[];
 }
 
-type Tab = "builder" | "generator" | "saved";
+type Tab = "flatlay" | "builder" | "generator" | "saved";
 
 export function OutfitStudio({
   initialOutfits,
@@ -31,11 +36,17 @@ export function OutfitStudio({
   itemImageUrls,
   photoUrls,
   initialSuggestions,
+  initialFlatlays = [],
 }: OutfitStudioProps) {
-  const [tab, setTab] = useState<Tab>(initialOutfits.length === 0 ? "builder" : "saved");
+  const [tab, setTab] = useState<Tab>("flatlay");
   const [outfits, setOutfits] = useState<OutfitWithItems[]>(initialOutfits);
   const [suggestions, setSuggestions] = useState<OutfitSuggestion[]>(initialSuggestions);
   const [currentPhotoUrls, setCurrentPhotoUrls] = useState<Record<string, string>>(photoUrls);
+
+  // Flatlay State
+  const [flatlays, setFlatlays] = useState<FlatlayComposition[]>(initialFlatlays);
+  const [editingFlatlay, setEditingFlatlay] = useState<FlatlayComposition | null>(null);
+  const [flatlayView, setFlatlayView] = useState<"editor" | "saved">("editor");
 
   // Manual Builder state
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -191,6 +202,32 @@ export function OutfitStudio({
     });
   };
 
+  // Open any saved outfit directly inside Flatlay Studio
+  const handleOpenOutfitInFlatlay = (outfit: OutfitWithItems) => {
+    const arranged = generateFlatlayPlacement(outfit.items, {
+      preset: "collage",
+      aspectRatio: "4:5",
+    });
+
+    setEditingFlatlay({
+      id: "",
+      userId: "",
+      name: `${outfit.name} Flatlay`,
+      preset: "collage",
+      aspectRatio: "4:5",
+      canvasWidth: 1200,
+      canvasHeight: 1500,
+      backgroundColor: "#fcfaf7",
+      backgroundStyle: "plain",
+      items: arranged,
+      outfitId: outfit.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    setTab("flatlay");
+    setFlatlayView("editor");
+  };
+
   const filteredWardrobe = wardrobeItems.filter((item) => {
     if (pickerFilter === "all") return true;
     return categoryGroup(item.category) === pickerFilter;
@@ -201,6 +238,15 @@ export function OutfitStudio({
       {/* Top Navigation Switcher */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Button
+            type="button"
+            size="sm"
+            className="flex-1 sm:flex-initial sm:min-h-11 sm:px-5 sm:text-sm"
+            variant={tab === "flatlay" ? "primary" : "outline"}
+            onClick={() => setTab("flatlay")}
+          >
+            <Sparkles className="mr-1.5 size-4 shrink-0 text-accent-contrast" /> Flatlay Studio
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -217,7 +263,7 @@ export function OutfitStudio({
             variant={tab === "generator" ? "primary" : "outline"}
             onClick={() => setTab("generator")}
           >
-            <Sparkles className="mr-1 size-4 shrink-0" /> Auto-Generate
+            Auto-Generate
           </Button>
           <Button
             type="button"
@@ -230,6 +276,84 @@ export function OutfitStudio({
           </Button>
         </div>
       </div>
+
+      {/* TAB 0: FLATLAY STUDIO */}
+      {tab === "flatlay" && (
+        <div className="space-y-6">
+          {/* Sub-header navigation: Editor vs Saved Boards */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={flatlayView === "editor" ? "dark" : "outline"}
+                onClick={() => setFlatlayView("editor")}
+                className="text-xs"
+              >
+                Canvas Editor
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={flatlayView === "saved" ? "dark" : "outline"}
+                onClick={() => setFlatlayView("saved")}
+                className="text-xs"
+              >
+                Saved Boards ({flatlays.length})
+              </Button>
+            </div>
+
+            {flatlayView === "saved" && (
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  setEditingFlatlay(null);
+                  setFlatlayView("editor");
+                }}
+                className="gap-1.5 text-xs"
+              >
+                <Plus className="size-3.5" />
+                <span>New Board</span>
+              </Button>
+            )}
+          </div>
+
+          {flatlayView === "editor" ? (
+            <FlatlayStudioEditor
+              key={editingFlatlay?.id ?? "fresh_editor"}
+              initialComposition={editingFlatlay}
+              wardrobeItems={wardrobeItems}
+              itemImageUrls={itemImageUrls}
+              savedOutfits={outfits}
+              onSavedSuccess={(savedId) => {
+                // Refresh list
+                const existing = flatlays.find((f) => f.id === savedId);
+                if (!existing) {
+                  // will re-fetch or keep in state
+                }
+              }}
+            />
+          ) : (
+            <FlatlaySavedList
+              compositions={flatlays}
+              itemImageUrls={itemImageUrls}
+              onEditComposition={(comp) => {
+                setEditingFlatlay(comp);
+                setFlatlayView("editor");
+              }}
+              onCreateNew={() => {
+                setEditingFlatlay(null);
+                setFlatlayView("editor");
+              }}
+              onCompositionDeleted={(id) => {
+                setFlatlays((prev) => prev.filter((f) => f.id !== id));
+              }}
+            />
+          )}
+        </div>
+      )}
 
       {/* TAB 1: MANUAL BUILDER */}
       {tab === "builder" && (
@@ -388,23 +512,25 @@ export function OutfitStudio({
                       key={item.id}
                       type="button"
                       onClick={() => toggleItem(item.id)}
-                      className={`group relative flex flex-col overflow-hidden rounded-xl border text-left transition ${
+                      className={`group relative flex flex-col w-full overflow-hidden rounded-xl border bg-surface text-left transition ${
                         isSelected
                           ? "border-accent ring-2 ring-accent/30"
                           : "border-border hover:border-foreground/30"
                       }`}
                     >
-                      <ItemImage
-                        url={itemImageUrls[item.imagePath]}
-                        alt={item.name}
-                        className="aspect-square w-full object-cover"
-                      />
-                      {isSelected && (
-                        <div className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-accent text-white shadow">
-                          <Check className="size-3.5" />
-                        </div>
-                      )}
-                      <div className="p-2.5">
+                      <div className="relative aspect-square w-full shrink-0 overflow-hidden bg-surface-muted">
+                        <ItemImage
+                          url={itemImageUrls[item.imagePath]}
+                          alt={item.name}
+                          className="size-full object-cover"
+                        />
+                        {isSelected && (
+                          <div className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-accent text-white shadow">
+                            <Check className="size-3.5" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-2.5 w-full">
                         <p className="truncate text-xs font-medium">{item.name}</p>
                         <p className="truncate text-[11px] text-muted">{categoryLabel(item.category)}</p>
                       </div>
@@ -560,13 +686,26 @@ export function OutfitStudio({
                     <span className="text-xs text-muted">
                       {outfit.items.length} {outfit.items.length === 1 ? "garment" : "garments"}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(outfit.id)}
-                      className="text-xs text-muted hover:text-danger"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenOutfitInFlatlay(outfit)}
+                        className="h-7 text-[11px] gap-1 px-2.5"
+                      >
+                        <Sparkles className="size-3 text-accent" />
+                        <span>Flatlay Board</span>
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(outfit.id)}
+                        className="grid size-7 place-items-center rounded-lg text-muted hover:text-danger hover:bg-danger-soft transition"
+                        title="Delete outfit"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </Card>
               ))}
