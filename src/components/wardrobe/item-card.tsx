@@ -17,7 +17,14 @@ export function ItemCard({ item, imageUrl }: { item: WardrobeItem; imageUrl: str
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 240px"
         />
         <div className="space-y-1.5 p-4">
-          <h3 className="truncate font-sans text-base font-medium">{item.name}</h3>
+          <div className="flex items-center justify-between gap-1.5">
+            <h3 className="truncate font-sans text-base font-medium">{item.name}</h3>
+            {item.brand && (
+              <span className="shrink-0 rounded-md bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted border border-border/50">
+                {item.brand}
+              </span>
+            )}
+          </div>
           <p className="truncate text-sm text-muted">
             {categoryLabel(item.category)}
             {item.primaryColour ? ` · ${humanise(item.primaryColour)}` : ""}

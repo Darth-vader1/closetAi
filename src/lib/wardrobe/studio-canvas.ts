@@ -163,15 +163,35 @@ export async function removeImageBackground(
 
 function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
+    const isDataOrBlob = url.startsWith("data:") || url.startsWith("blob:");
     const img = new Image();
-    img.crossOrigin = "anonymous";
+
+    // Critical: Setting crossOrigin on data: or blob: URIs causes security errors / onerror in Chrome & Safari!
+    if (!isDataOrBlob) {
+      img.crossOrigin = "anonymous";
+    }
+
     img.onload = () => resolve(img);
-    img.onerror = () =>
-      reject(
-        new Error(
-          "Could not load the garment image for beautification. Please check your connection or retry.",
-        ),
-      );
+    img.onerror = () => {
+      // If anonymous failed on a remote URL (e.g. CORS preflight), retry once without crossOrigin
+      if (img.crossOrigin) {
+        const retry = new Image();
+        retry.onload = () => resolve(retry);
+        retry.onerror = () =>
+          reject(
+            new Error(
+              "Could not load the garment image for beautification. Please check your connection or retry.",
+            ),
+          );
+        retry.src = url;
+      } else {
+        reject(
+          new Error(
+            "Could not load the garment image for beautification. Please check your connection or retry.",
+          ),
+        );
+      }
+    };
     img.src = url;
   });
 }

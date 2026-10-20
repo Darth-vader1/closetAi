@@ -16,6 +16,13 @@ export const itemFieldsSchema = z.object({
   name: z.string().trim().min(1, "Give it a name.").max(120, "Use 120 characters or fewer."),
   category: z.enum(CATEGORY_VALUES, "Choose a category."),
   subcategory: optionalText(60),
+  brand: optionalText(80),
+  price: z.preprocess((val) => {
+    if (val === "" || val === null || val === undefined) return null;
+    const num = Number(val);
+    return isNaN(num) ? null : num;
+  }, z.number().min(0, "Price cannot be negative.").max(999999, "Price is too large.").nullable().optional().default(null)),
+  currency: z.string().trim().min(2).max(4).default("USD"),
   primaryColour: z.enum(WARDROBE_COLOURS).nullable(),
   secondaryColours: z.array(z.enum(WARDROBE_COLOURS)).max(4, "Pick up to 4 secondary colours."),
   pattern: z.enum(PATTERNS).nullable(),

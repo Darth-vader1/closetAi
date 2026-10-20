@@ -580,5 +580,173 @@ describe("Product Studio Garment Beautification Engine (Phase 6 Comprehensive Su
 
     expect(shadowDetected).toBe(true);
   });
+
+  it("16. ClearBackdrop neural segmentation: handles 200 response and quota 402 gracefully", async () => {
+    const { segmentWithClearBackdrop } = await import(
+      "@/lib/wardrobe/enhancement-service"
+    );
+
+    const originalFetch = globalThis.fetch;
+    const tinyPngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+
+    try {
+      // 1. Success case (200 OK)
+      globalThis.fetch = async () =>
+        new Response(tinyPngBytes, {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        });
+
+      const successRes = await segmentWithClearBackdrop(
+        tinyPngBytes,
+        "image/png",
+        "png",
+        "mock_cbk_key",
+      );
+      expect(successRes.ok).toBe(true);
+      if (successRes.ok) {
+        expect(successRes.modelUsed).toBe("clearbackdrop-v1");
+        expect(successRes.pngBytes.length).toBe(tinyPngBytes.length);
+      }
+
+      // 2. Quota exceeded (402 Payment Required)
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ error: "quota_exceeded" }), {
+          status: 402,
+          headers: { "Content-Type": "application/json" },
+        });
+
+      const quotaRes = await segmentWithClearBackdrop(
+        tinyPngBytes,
+        "image/png",
+        "png",
+        "mock_cbk_key",
+      );
+      expect(quotaRes.ok).toBe(false);
+      if (!quotaRes.ok) {
+        expect(quotaRes.status).toBe(402);
+        expect(quotaRes.reason).toContain("ClearBackdrop API quota");
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("17. ClipDrop neural segmentation: handles 200 response and quota 402 gracefully", async () => {
+    const { segmentWithClipDrop } = await import(
+      "@/lib/wardrobe/enhancement-service"
+    );
+
+    const originalFetch = globalThis.fetch;
+    const tinyPngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+
+    try {
+      // 1. Success case (200 OK)
+      globalThis.fetch = async () =>
+        new Response(tinyPngBytes, {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        });
+
+      const successRes = await segmentWithClipDrop(
+        tinyPngBytes,
+        "image/png",
+        "png",
+        "mock_clipdrop_key",
+      );
+      expect(successRes.ok).toBe(true);
+      if (successRes.ok) {
+        expect(successRes.modelUsed).toBe("clipdrop-v1");
+        expect(successRes.pngBytes.length).toBe(tinyPngBytes.length);
+      }
+
+      // 2. Quota exceeded (402 Payment Required)
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ error: "Not enough credits" }), {
+          status: 402,
+          headers: { "Content-Type": "application/json" },
+        });
+
+      const quotaRes = await segmentWithClipDrop(
+        tinyPngBytes,
+        "image/png",
+        "png",
+        "mock_clipdrop_key",
+      );
+      expect(quotaRes.ok).toBe(false);
+      if (!quotaRes.ok) {
+        expect(quotaRes.status).toBe(402);
+        expect(quotaRes.reason).toContain("ClipDrop API quota");
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("18. runGarmentEnhancementService waterfall: calls ClearBackdrop / Remove BG first before PhotoRoom", async () => {
+    const { runGarmentEnhancementService } = await import(
+      "@/lib/wardrobe/enhancement-service"
+    );
+
+    const originalFetch = globalThis.fetch;
+    const originalKey = process.env.CLEAR_BACKDROP_API_KEY;
+    process.env.CLEAR_BACKDROP_API_KEY = "mock_cbk_key";
+    process.env.PHOTOROOM_API_KEY = "mock_photoroom_key";
+    const calls: string[] = [];
+
+    const tinyPngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+
+    try {
+      globalThis.fetch = async (input: RequestInfo | URL) => {
+        const urlStr = String(input);
+        calls.push(urlStr);
+        if (urlStr.includes("clearbackdrop.com")) {
+          return new Response(tinyPngBytes, {
+            status: 200,
+            headers: { "Content-Type": "image/png" },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      };
+
+      const res = await runGarmentEnhancementService({
+        bytes: tinyPngBytes,
+        mimeType: "image/png",
+        extension: "png",
+        mode: "clean-cutout",
+      });
+
+      // ClearBackdrop was called first and succeeded, so PhotoRoom was never invoked!
+      expect(calls[0]).toContain("clearbackdrop.com");
+      expect(calls.some((c) => c.includes("photoroom"))).toBe(false);
+      expect(res.provider).toBe("clearbackdrop");
+      expect(res.status).toBe("ok");
+    } finally {
+      globalThis.fetch = originalFetch;
+      process.env.CLEAR_BACKDROP_API_KEY = originalKey;
+      delete process.env.PHOTOROOM_API_KEY;
+    }
+  });
 });
 

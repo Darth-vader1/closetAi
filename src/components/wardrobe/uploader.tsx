@@ -79,7 +79,7 @@ interface Entry {
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
 function suggestionToValues(
-  s: ClothingSuggestion & { material?: string | null; careType?: string | null },
+  s: ClothingSuggestion & { material?: string | null; careType?: string | null; brand?: string | null },
   baseValues?: ItemFieldsInput | null,
 ): ItemFieldsInput {
   const base = baseValues ?? emptyItemValues();
@@ -90,6 +90,11 @@ function suggestionToValues(
     subcategory: baseValues?.subcategory?.trim()
       ? baseValues.subcategory
       : (s.subcategory ?? ""),
+    brand: baseValues?.brand?.trim()
+      ? baseValues.brand
+      : (s.brand ?? ""),
+    price: baseValues?.price ?? null,
+    currency: baseValues?.currency ?? "USD",
     careType:
       s.careType === "WASHABLE" ||
       s.careType === "WIPE_CLEAN" ||
@@ -1199,9 +1204,7 @@ function EntryCard({
           {entry.stage === "review" ? (
             <div className="mt-2.5 space-y-1.5">
               <p className="rounded-lg border border-border/70 bg-surface-muted/60 px-2 py-1 text-[10px] leading-snug text-muted">
-                <strong>Notice:</strong> Clean Cutout &amp; AI Enhance send this photo to{" "}
-                <strong>PhotoRoom</strong> (and Gemini for AI Enhance calibration). Original photo is
-                preserved.
+                <strong>Studio Processing:</strong> Automatically isolates garment, centers on white canvas, and balances lighting. Original photo is preserved.
               </p>
               <div className="grid grid-cols-2 gap-1.5">
                 <Button

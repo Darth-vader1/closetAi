@@ -269,7 +269,7 @@ function samplePerimeterPalette(
   // Cluster similar border samples so textured backgrounds (bedsheets, wood, walls)
   // are compactly represented while ignoring occasional garment pixels touching 1 edge.
   const clusters: { r: number; g: number; b: number; count: number }[] = [];
-  const mergeThresholdSq = 18 * 18;
+  const mergeThresholdSq = 22 * 22;
 
   for (const s of rawSamples) {
     let matched = false;
@@ -289,8 +289,15 @@ function samplePerimeterPalette(
   }
 
   clusters.sort((a, b) => b.count - a.count);
-  const topClusters = clusters.slice(0, 28);
-  return topClusters.map((c) => ({ r: c.r, g: c.g, b: c.b }));
+  // Filter out low-frequency outlier clusters (<3.2% of perimeter) like thin cables, fingers, clips
+  const minClusterCount = Math.max(2, Math.floor(rawSamples.length * 0.032));
+  const dominantClusters = clusters.filter((c) => c.count >= minClusterCount);
+  const selectedClusters = (dominantClusters.length > 0 ? dominantClusters : clusters).slice(0, 16);
+  return selectedClusters.map((c) => ({
+    r: Math.round(c.r),
+    g: Math.round(c.g),
+    b: Math.round(c.b),
+  }));
 }
 
 function computeSobelEdgeStrength(
@@ -603,10 +610,10 @@ function segmentGarment(
 
     const globalThresholdSq = effectiveTolerance * effectiveTolerance;
     const localStepThresholdSq = Math.max(
-      9 * 9,
-      Math.pow(effectiveTolerance * 0.52, 2),
+      11 * 11,
+      Math.pow(effectiveTolerance * 0.55, 2),
     );
-    const strongEdgeBarrier = avgCenterContrast < 26 ? 48 : 96;
+    const strongEdgeBarrier = avgCenterContrast < 22 ? 48 : 96;
 
     const bgMask = new Uint8Array(total);
     const queue = new Int32Array(total);
@@ -750,14 +757,37 @@ function segmentGarment(
     }
   }
 
-  // Prune hanger hook protrusions and neckline cavity skin remnants
-  pruneHangerHook(alphaMask, width, height);
-  pruneNecklineSkinCavity(rgba, alphaMask, width, height);
-
   const primarySize = significantComponents[0]?.size ?? 0;
   const secondarySize = significantComponents[1]?.size ?? 0;
   const primaryComponentRatio = primarySize / total;
   const secondaryComponentRatio = secondarySize / total;
+
+  // Prune small border-touching outlier components (<10% of primary garment) such as cables or fingers
+  for (let k = 1; k < components.length; k++) {
+    const comp = components[k];
+    const sizeRatio = comp.size / Math.max(1, primarySize);
+    if (sizeRatio < 0.10) {
+      let touchesBorder = false;
+      for (let j = 0; j < comp.indices.length; j++) {
+        const idx = comp.indices[j];
+        const cx = idx % width;
+        const cy = (idx - cx) / width;
+        if (cx <= 1 || cx >= width - 2 || cy <= 1 || cy >= height - 2) {
+          touchesBorder = true;
+          break;
+        }
+      }
+      if (touchesBorder) {
+        for (let j = 0; j < comp.indices.length; j++) {
+          alphaMask[comp.indices[j]] = 0;
+        }
+      }
+    }
+  }
+
+  // Prune hanger hook protrusions and neckline cavity skin remnants
+  pruneHangerHook(alphaMask, width, height);
+  pruneNecklineSkinCavity(rgba, alphaMask, width, height);
 
   // Detect whether multiple distinct garments are present ( vs. a pair of shoes ).
   // A significant secondary component (>14% of primary and >2.5% of total area) triggers advisory.
@@ -1675,7 +1705,7 @@ export function processGarmentBuffer(
     );
   }
 
-  if (!seg.usedExistingAlpha && foregroundCoverageRatio > 0.965 && tightCropDetected) {
+  if (!seg.usedExistingAlpha && foregroundCoverageRatio > 0.985 && tightCropDetected) {
     throw new BeautifyPipelineError(
       "SEGMENTATION_UNRELIABLE",
       "The background could not be reliably separated from the garment. Try photographing the item with a small margin of visible background around all edges.",

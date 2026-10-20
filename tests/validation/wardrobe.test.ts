@@ -31,12 +31,34 @@ describe("itemFieldsSchema", () => {
     expect(out.style).toBeNull();
   });
 
+  it("handles brand and price attributes correctly", () => {
+    const withBrandAndPrice = itemFieldsSchema.parse({
+      ...validItem,
+      brand: "  Nike  ",
+      price: "120.50",
+      currency: "GBP",
+    });
+    expect(withBrandAndPrice.brand).toBe("Nike");
+    expect(withBrandAndPrice.price).toBe(120.5);
+    expect(withBrandAndPrice.currency).toBe("GBP");
+
+    const withNullPrice = itemFieldsSchema.parse({
+      ...validItem,
+      brand: "",
+      price: "",
+    });
+    expect(withNullPrice.brand).toBeNull();
+    expect(withNullPrice.price).toBeNull();
+    expect(withNullPrice.currency).toBe("USD");
+  });
+
   it.each([
     ["empty name", { name: "   " }],
     ["unknown category", { category: "capes" }],
     ["bad colour", { primaryColour: "ultraviolet" }],
     ["warmth out of range", { warmthLevel: 9 }],
     ["fractional warmth", { warmthLevel: 2.5 }],
+    ["negative price", { price: -10 }],
     ["too many secondary colours", { secondaryColours: ["red", "blue", "green", "black", "white"] }],
     ["unknown occasion", { occasions: ["heist"] }],
   ])("rejects %s", (_label, override) => {

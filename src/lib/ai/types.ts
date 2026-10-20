@@ -7,10 +7,9 @@ export type AiTask =
   | "clothing_analysis"
   | "multi_clothing_analysis"
   | "stylist_recommendation"
-  /** @deprecated Superseded by `packing_plan`; kept so older callers still type-check. */
   | "travel_packing_capsule"
-  /** "Pack for..." planner: trips, school terms, work stints, events and long stays. */
-  | "packing_plan";
+  | "packing_plan"
+  | "garment_enhancement";
 
 export interface AiImage {
   bytes: Uint8Array;

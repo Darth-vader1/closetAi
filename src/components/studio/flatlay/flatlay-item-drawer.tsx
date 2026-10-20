@@ -59,9 +59,17 @@ export function FlatlayItemDrawer({
     });
   }, [wardrobeItems, categoryFilter, searchQuery]);
 
-  // Reset pagination whenever filters or tabs change
-  useEffect(() => {
+  // Storing previous filter key to reset pagination during render instead of in an effect
+  const [prevFilterKey, setPrevFilterKey] = useState("wardrobe:all:");
+  const currentFilterKey = `${tab}:${categoryFilter}:${searchQuery}`;
+
+  if (currentFilterKey !== prevFilterKey) {
+    setPrevFilterKey(currentFilterKey);
     setVisibleCount(INITIAL_PAGE_SIZE);
+  }
+
+  // Reset scroll position whenever filters or tabs change
+  useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
     }

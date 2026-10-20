@@ -16,6 +16,9 @@ export interface WardrobeItem {
   name: string;
   category: string;
   subcategory: string | null;
+  brand?: string | null;
+  price?: number | null;
+  currency?: string | null;
   primaryColour: string | null;
   secondaryColours: string[];
   pattern: string | null;
@@ -47,8 +50,10 @@ export interface WardrobeItem {
   createdAt: string;
 }
 
-const COLUMNS =
+const BASE_COLUMNS =
   "id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, occasions, seasons, warmth_level, image_path, status, care_type, is_favourite, ai_analysed, wear_count, last_worn_at, last_washed_at, created_at";
+
+const COLUMNS = `${BASE_COLUMNS}, brand, price, currency`;
 
 const COLUMNS_WITH_BEAUTIFY = `${COLUMNS}, original_image_path, beautified_image_path, beautification_mode, beautification_provider, beautification_model, beautification_status, beautified_at`;
 
@@ -57,6 +62,10 @@ interface Row {
   name: string;
   category: string;
   subcategory: string | null;
+  brand?: string | null;
+  source_brand?: string | null;
+  price?: number | string | null;
+  currency?: string | null;
   primary_colour: string | null;
   secondary_colours: string[] | null;
   pattern: string | null;
@@ -100,6 +109,9 @@ function toItem(row: Row): WardrobeItem {
     name: row.name,
     category: row.category,
     subcategory: row.subcategory,
+    brand: row.brand ?? row.source_brand ?? null,
+    price: row.price != null && row.price !== "" ? Number(row.price) : null,
+    currency: row.currency ?? "USD",
     primaryColour: row.primary_colour,
     secondaryColours: row.secondary_colours ?? [],
     pattern: row.pattern,
@@ -161,7 +173,25 @@ export async function listWardrobeItems(
   }
 
   const from = (query.page - 1) * PAGE_SIZE;
-  const { data, count, error } = await builder.range(from, from + PAGE_SIZE - 1);
+  let { data, count, error } = await builder.range(from, from + PAGE_SIZE - 1);
+  if (error && (error.code === "42703" || error.message.includes("does not exist"))) {
+    let fallbackBuilder = supabase.from("wardrobe_items").select(BASE_COLUMNS, { count: "exact" }).eq("user_id", userId);
+    if (query.q) fallbackBuilder = fallbackBuilder.ilike("name", `%${escapeLike(query.q)}%`);
+    if (query.category) fallbackBuilder = fallbackBuilder.eq("category", query.category);
+    if (query.colour) fallbackBuilder = fallbackBuilder.eq("primary_colour", query.colour);
+    if (query.status) fallbackBuilder = fallbackBuilder.eq("status", query.status);
+    if (query.favouritesOnly) fallbackBuilder = fallbackBuilder.eq("is_favourite", true);
+    switch (query.sort) {
+      case "oldest": fallbackBuilder = fallbackBuilder.order("created_at", { ascending: true }); break;
+      case "name": fallbackBuilder = fallbackBuilder.order("name", { ascending: true }); break;
+      case "least_worn": fallbackBuilder = fallbackBuilder.order("last_worn_at", { ascending: true, nullsFirst: true }).order("created_at", { ascending: false }); break;
+      default: fallbackBuilder = fallbackBuilder.order("created_at", { ascending: false });
+    }
+    const res = await fallbackBuilder.range(from, from + PAGE_SIZE - 1);
+    data = res.data as unknown as typeof data;
+    count = res.count;
+    error = res.error;
+  }
   if (error) throw new Error(`Could not load wardrobe: ${error.message}`);
   return { items: ((data ?? []) as Row[]).map(toItem), total: count ?? 0 };
 }
@@ -182,6 +212,15 @@ export async function getWardrobeItem(supabase: SupabaseClient, userId: string, 
         .eq("id", id)
         .eq("user_id", userId)
         .maybeSingle();
+      if (fallback.error && fallback.error.code === "42703") {
+        const baseFallback = await supabase
+          .from("wardrobe_items")
+          .select(BASE_COLUMNS)
+          .eq("id", id)
+          .eq("user_id", userId)
+          .maybeSingle();
+        return baseFallback.data ? toItem(baseFallback.data as Row) : null;
+      }
       if (fallback.error) throw new Error(`Could not load item: ${fallback.error.message}`);
       return fallback.data ? toItem(fallback.data as Row) : null;
     }

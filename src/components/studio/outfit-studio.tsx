@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
-import { Camera, Check, Heart, Layout, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { Camera, Check, Heart, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { deleteOutfitAction, saveOutfitAction, toggleOutfitFavouriteAction } from "@/app/(app)/studio/actions";
 import { Button } from "@/components/ui/button";
 import { Alert, Card, EmptyState } from "@/components/ui/card";

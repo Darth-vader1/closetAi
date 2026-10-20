@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { Edit3, Sparkles, Trash2, Calendar, Layout } from "lucide-react";
+import { Edit3, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/card";
 import { ItemImage } from "@/components/wardrobe/item-image";

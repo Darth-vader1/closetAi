@@ -35,6 +35,27 @@ function toRow(fields: ReturnType<typeof itemFieldsSchema.parse>) {
     name: fields.name,
     category: fields.category,
     subcategory: fields.subcategory,
+    brand: fields.brand || null,
+    price: fields.price ?? null,
+    currency: fields.currency ?? "USD",
+    primary_colour: fields.primaryColour,
+    secondary_colours: fields.secondaryColours,
+    pattern: fields.pattern,
+    material: fields.material,
+    style: fields.style,
+    occasions: fields.occasions,
+    seasons: fields.seasons,
+    warmth_level: fields.warmthLevel,
+    is_favourite: fields.isFavourite,
+    care_type: fields.careType,
+  };
+}
+
+function toBaseRow(fields: ReturnType<typeof itemFieldsSchema.parse>) {
+  return {
+    name: fields.name,
+    category: fields.category,
+    subcategory: fields.subcategory,
     primary_colour: fields.primaryColour,
     secondary_colours: fields.secondaryColours,
     pattern: fields.pattern,
@@ -169,6 +190,9 @@ export async function saveItemAction(
       error.message.includes("source_url") ||
       error.message.includes("source_brand") ||
       error.message.includes("source_image_sha256") ||
+      error.message.includes("brand") ||
+      error.message.includes("price") ||
+      error.message.includes("currency") ||
       error.code === "42703")
   ) {
     const fallbackInsert = await supabase
@@ -177,7 +201,7 @@ export async function saveItemAction(
         user_id: user.id,
         image_path: imagePath,
         ai_analysed: aiAnalysed,
-        ...toRow(fields),
+        ...toBaseRow(fields),
       })
       .select("id")
       .single();
@@ -215,12 +239,30 @@ export async function updateItemAction(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("wardrobe_items")
     .update(toRow(parsed.data))
     .eq("id", idResult.data)
     .eq("user_id", user.id)
     .select("id");
+
+  if (
+    error &&
+    (error.code === "42703" ||
+      error.message.includes("brand") ||
+      error.message.includes("price") ||
+      error.message.includes("currency"))
+  ) {
+    const fallbackUpdate = await supabase
+      .from("wardrobe_items")
+      .update(toBaseRow(parsed.data))
+      .eq("id", idResult.data)
+      .eq("user_id", user.id)
+      .select("id");
+    data = fallbackUpdate.data;
+    error = fallbackUpdate.error;
+  }
+
   if (error) {
     logger.error("wardrobe.update_failed", {
       userId: user.id,

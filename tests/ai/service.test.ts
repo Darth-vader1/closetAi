@@ -49,6 +49,15 @@ describe("clothingAnalysisSchema", () => {
     expect(out.occasions).toEqual(["everyday", "school"]);
   });
 
+  it("handles brand identification and flags uncertain brand", () => {
+    const withBrand = clothingAnalysisSchema.parse({ ...validRaw, brand: "Nike" });
+    expect(withBrand.brand).toBe("Nike");
+
+    const withUnknownBrand = clothingAnalysisSchema.parse({ ...validRaw, brand: "unknown", uncertain_fields: ["brand"] });
+    expect(withUnknownBrand.brand).toBeNull();
+    expect(withUnknownBrand.uncertainFields).toContain("brand");
+  });
+
   it.each([
     ["unknown category", { category: "spacesuit" }],
     ["confidence above 1", { confidence: 7 }],
@@ -60,10 +69,10 @@ describe("clothingAnalysisSchema", () => {
     expect(clothingAnalysisSchema.safeParse({ ...validRaw, ...override }).success).toBe(false);
   });
 
-  it("has no way to carry material or brand through", () => {
+  it("carries brand through but excludes raw material", () => {
     const out = clothingAnalysisSchema.parse({ ...validRaw, material: "silk", brand: "Gucci" });
     expect(out).not.toHaveProperty("material");
-    expect(out).not.toHaveProperty("brand");
+    expect(out.brand).toBe("Gucci");
   });
 });
 

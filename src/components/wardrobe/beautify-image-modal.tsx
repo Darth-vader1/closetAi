@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Check,
@@ -177,13 +178,11 @@ export function ItemBeautifyCard({
         </div>
 
         <p className="mt-2 rounded-xl border border-border/70 bg-surface-muted/60 px-2.5 py-1.5 text-[11px] text-muted">
-          <strong>Privacy notice:</strong> Running Clean Cutout or AI Enhance sends this garment
-          photo to <strong>PhotoRoom</strong> (and Google Gemini for AI Enhance lighting/wrinkle
-          calibration). Your original photo is preserved.
+          <strong>Privacy notice:</strong> Running Clean Cutout or AI Enhance uses <strong>ClearBackdrop / Remove BG</strong> neural segmentation (and AI Vision for lighting/wrinkle calibration). Your original photo is preserved.
         </p>
 
         <div
-          className="mt-3 grid grid-cols-3 gap-1.5"
+          className="mt-3 grid grid-cols-3 gap-1 sm:gap-1.5"
           role="group"
           aria-label="Product Studio actions"
         >
@@ -199,10 +198,10 @@ export function ItemBeautifyCard({
                 inspectExistingOnly: false,
               })
             }
-            className="px-2 text-xs"
+            className="px-1 sm:px-2 text-[11px] sm:text-xs"
           >
-            <Wand2 className="size-3.5 text-accent" aria-hidden />
-            Clean Cutout
+            <Wand2 className="size-3 sm:size-3.5 shrink-0 text-accent" aria-hidden />
+            <span className="truncate">Clean Cutout</span>
           </Button>
 
           <Button
@@ -217,10 +216,10 @@ export function ItemBeautifyCard({
                 inspectExistingOnly: false,
               })
             }
-            className="px-2 text-xs"
+            className="px-1 sm:px-2 text-[11px] sm:text-xs"
           >
-            <Sparkles className="size-3.5 text-accent" aria-hidden />
-            AI Enhance
+            <Sparkles className="size-3 sm:size-3.5 shrink-0 text-accent" aria-hidden />
+            <span className="truncate">AI Enhance</span>
           </Button>
 
           <Button
@@ -235,10 +234,10 @@ export function ItemBeautifyCard({
                 inspectExistingOnly: hasBothVersions,
               })
             }
-            className="px-2 text-xs"
+            className="px-1 sm:px-2 text-[11px] sm:text-xs"
           >
-            <Columns2 className="size-3.5 text-accent" aria-hidden />
-            Compare
+            <Columns2 className="size-3 sm:size-3.5 shrink-0 text-accent" aria-hidden />
+            <span className="truncate">Compare</span>
           </Button>
         </div>
 
@@ -383,6 +382,7 @@ function TouchUpCanvasEditor({
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState<number>(0);
   const [cursorPos, setCursorPos] = useState<{
     x: number;
     y: number;
@@ -403,77 +403,92 @@ function TouchUpCanvasEditor({
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setLoadError(null);
 
-    const srcImg = new Image();
-    srcImg.crossOrigin = "anonymous";
+    const loadImage = (url: string): Promise<HTMLImageElement> => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        if (!url.startsWith("data:") && !url.startsWith("blob:")) {
+          img.crossOrigin = "anonymous";
+        }
+        img.onload = () => resolve(img);
+        img.onerror = () => {
+          // If anonymous fails (e.g. CORS cache conflict), retry without crossOrigin
+          if (img.crossOrigin) {
+            const fallback = new Image();
+            fallback.onload = () => resolve(fallback);
+            fallback.onerror = () => reject(new Error("Failed to load image"));
+            fallback.src = url;
+          } else {
+            reject(new Error("Failed to load image"));
+          }
+        };
+        img.src = url;
+      });
+    };
 
-    const cutImg = new Image();
-    cutImg.crossOrigin = "anonymous";
-
-    let loadedCount = 0;
-    const onBothLoaded = () => {
-      if (!active) return;
-      try {
-        const w = cutImg.naturalWidth || cutImg.width || 800;
-        const h = cutImg.naturalHeight || cutImg.height || 800;
-
-        const sCanvas = document.createElement("canvas");
-        sCanvas.width = w;
-        sCanvas.height = h;
-        const sCtx = sCanvas.getContext("2d", { willReadFrequently: true });
-        if (!sCtx) throw new Error("Could not create source 2D canvas context.");
-        sCtx.drawImage(srcImg, 0, 0, w, h);
-        sourceCanvasRef.current = sCanvas;
-        cutoutImageRef.current = cutImg;
-
-        const wCanvas = canvasRef.current;
-        if (!wCanvas) return;
-        wCanvas.width = w;
-        wCanvas.height = h;
-        const wCtx = wCanvas.getContext("2d", { willReadFrequently: true });
-        if (!wCtx)
-          throw new Error("Could not create working 2D canvas context.");
-        wCtx.clearRect(0, 0, w, h);
-        wCtx.drawImage(cutImg, 0, 0, w, h);
-
-        undoStackRef.current = [];
-        setCanUndo(false);
-        setLoading(false);
-      } catch (err) {
-        setLoadError(
-          err instanceof Error
-            ? err.message
-            : "Failed to initialize canvas editor.",
-        );
+    // Safety timeout: 10s maximum wait
+    const timeoutId = setTimeout(() => {
+      if (active) {
+        setLoadError("Image took too long to load. Please try again.");
         setLoading(false);
       }
-    };
+    }, 10000);
 
-    const onError = () => {
-      if (!active) return;
-      setLoadError("Could not load garment image for touch-up editing.");
-      setLoading(false);
-    };
+    Promise.all([loadImage(sourceImageUrl), loadImage(cutoutImageUrl)])
+      .then(([srcImg, cutImg]) => {
+        if (!active) return;
+        clearTimeout(timeoutId);
 
-    srcImg.onload = () => {
-      loadedCount++;
-      if (loadedCount === 2) onBothLoaded();
-    };
-    srcImg.onerror = onError;
+        try {
+          const w = cutImg.naturalWidth || cutImg.width || 800;
+          const h = cutImg.naturalHeight || cutImg.height || 800;
 
-    cutImg.onload = () => {
-      loadedCount++;
-      if (loadedCount === 2) onBothLoaded();
-    };
-    cutImg.onerror = onError;
+          const sCanvas = document.createElement("canvas");
+          sCanvas.width = w;
+          sCanvas.height = h;
+          const sCtx = sCanvas.getContext("2d", { willReadFrequently: true });
+          if (!sCtx) throw new Error("Could not create source 2D canvas context.");
+          sCtx.drawImage(srcImg, 0, 0, w, h);
+          sourceCanvasRef.current = sCanvas;
+          cutoutImageRef.current = cutImg;
 
-    srcImg.src = sourceImageUrl;
-    cutImg.src = cutoutImageUrl;
+          const wCanvas = canvasRef.current;
+          if (wCanvas) {
+            wCanvas.width = w;
+            wCanvas.height = h;
+            const wCtx = wCanvas.getContext("2d", { willReadFrequently: true });
+            if (wCtx) {
+              wCtx.clearRect(0, 0, w, h);
+              wCtx.drawImage(cutImg, 0, 0, w, h);
+            }
+          }
+
+          undoStackRef.current = [];
+          setCanUndo(false);
+          setLoading(false);
+        } catch (err) {
+          setLoadError(
+            err instanceof Error
+              ? err.message
+              : "Failed to initialize canvas editor.",
+          );
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        clearTimeout(timeoutId);
+        setLoadError("Could not load garment image for touch-up editing.");
+        setLoading(false);
+      });
 
     return () => {
       active = false;
+      clearTimeout(timeoutId);
     };
-  }, [sourceImageUrl, cutoutImageUrl]);
+  }, [sourceImageUrl, cutoutImageUrl, retryKey]);
 
   const getCanvasCoords = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -714,44 +729,54 @@ function TouchUpCanvasEditor({
         className="relative flex aspect-square w-full max-w-[26rem] items-center justify-center overflow-hidden rounded-xl border border-border bg-[repeating-conic-gradient(#e5e7eb_0_25%,#ffffff_0_50%)] bg-[size:16px_16px] shadow-sm dark:bg-[repeating-conic-gradient(#27272a_0_25%,#18181b_0_50%)]"
         onPointerLeave={() => setCursorPos((p) => ({ ...p, visible: false }))}
       >
-        {loading ? (
-          <div className="flex flex-col items-center gap-2 text-center">
+        <canvas
+          ref={canvasRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          className={`h-full w-full cursor-none touch-none select-none object-contain ${
+            loading || loadError ? "invisible" : ""
+          }`}
+        />
+
+        {loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface/60 text-center backdrop-blur-2xs">
             <Loader2 className="size-6 animate-spin text-accent" aria-hidden />
             <p className="text-xs text-muted">
               Loading cutout for brush touch-up...
             </p>
           </div>
-        ) : loadError ? (
-          <div className="p-4 text-center">
+        )}
+
+        {loadError && !loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-surface/90">
             <AlertTriangle className="mx-auto size-6 text-danger" aria-hidden />
             <p className="mt-1 text-xs text-danger">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => setRetryKey((k) => k + 1)}
+              className="mt-2 text-xs font-semibold text-accent underline hover:text-accent-contrast"
+            >
+              Retry
+            </button>
           </div>
-        ) : (
-          <>
-            <canvas
-              ref={canvasRef}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-              className="h-full w-full cursor-none touch-none select-none object-contain"
-            />
-            {cursorPos.visible && (
-              <div
-                className={`pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-[width,height] ${
-                  brushMode === "erase"
-                    ? "border-red-500 bg-red-500/20 shadow-xs"
-                    : "border-emerald-500 bg-emerald-500/20 shadow-xs"
-                }`}
-                style={{
-                  left: cursorPos.x,
-                  top: cursorPos.y,
-                  width: brushSize,
-                  height: brushSize,
-                }}
-              />
-            )}
-          </>
+        )}
+
+        {!loading && !loadError && cursorPos.visible && (
+          <div
+            className={`pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-[width,height] ${
+              brushMode === "erase"
+                ? "border-red-500 bg-red-500/20 shadow-xs"
+                : "border-emerald-500 bg-emerald-500/20 shadow-xs"
+            }`}
+            style={{
+              left: cursorPos.x,
+              top: cursorPos.y,
+              width: brushSize,
+              height: brushSize,
+            }}
+          />
         )}
       </div>
 
@@ -847,6 +872,22 @@ function BeautifyExistingItemModal({
       cache.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && status !== "saving") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, status]);
 
   const runPipeline = useCallback(
     async (
@@ -1117,27 +1158,27 @@ function BeautifyExistingItemModal({
     status === "processing" ||
     status === "saving";
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-2 sm:p-4 md:p-6 backdrop-blur-xs overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="beautify-modal-title"
     >
-      <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-border bg-surface shadow-2xl">
+      <div className="flex max-h-[96vh] sm:max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl sm:rounded-3xl border border-border bg-surface shadow-2xl my-auto">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-4">
-          <div>
+        <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-6 sm:py-4">
+          <div className="min-w-0 pr-2">
             <div className="flex items-center gap-2">
-              <Sparkles className="size-4 text-accent" aria-hidden />
+              <Sparkles className="size-4 shrink-0 text-accent" aria-hidden />
               <h2
                 id="beautify-modal-title"
-                className="font-display text-xl font-medium"
+                className="font-display text-base sm:text-xl font-medium truncate"
               >
                 Product Studio &mdash; Garment Beautification
               </h2>
             </div>
-            <p className="mt-0.5 text-xs text-muted">
+            <p className="mt-0.5 text-[11px] sm:text-xs text-muted truncate">
               {itemName} &middot; Standardized for {categoryLabel(category)}{" "}
               (1024&times;1024 #FFFFFF studio canvas, original preserved)
             </p>
@@ -1147,14 +1188,14 @@ function BeautifyExistingItemModal({
             disabled={status === "saving"}
             onClick={onClose}
             aria-label="Close Product Studio dialog"
-            className="inline-flex size-9 items-center justify-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground disabled:opacity-50"
+            className="inline-flex size-8 sm:size-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface-muted hover:text-foreground disabled:opacity-50"
           >
             <X className="size-4" aria-hidden />
           </button>
         </div>
 
         {/* Body */}
-        <div className="grid flex-1 gap-6 overflow-y-auto p-6 lg:grid-cols-[1fr_20rem]">
+        <div className="grid flex-1 gap-4 sm:gap-6 overflow-y-auto p-3 sm:p-5 lg:p-6 lg:grid-cols-[1fr_20rem]">
           {/* Left: Comparison Stage */}
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1166,46 +1207,50 @@ function BeautifyExistingItemModal({
                 <button
                   type="button"
                   onClick={() => setCompareView("slider")}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition ${
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 text-xs font-medium transition ${
                     compareView === "slider"
                       ? "bg-surface text-foreground shadow-xs"
                       : "text-muted hover:text-foreground"
                   }`}
                 >
-                  <SlidersHorizontal className="size-3.5" aria-hidden />
-                  Compare: Before / After Slider
+                  <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden />
+                  <span className="hidden sm:inline">Compare: </span>Slider
                 </button>
                 <button
                   type="button"
                   onClick={() => setCompareView("side-by-side")}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition ${
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 text-xs font-medium transition ${
                     compareView === "side-by-side"
                       ? "bg-surface text-foreground shadow-xs"
                       : "text-muted hover:text-foreground"
                   }`}
                 >
-                  <Columns2 className="size-3.5" aria-hidden />
-                  Compare: Side-by-Side
+                  <Columns2 className="size-3.5 shrink-0" aria-hidden />
+                  <span className="hidden sm:inline">Compare: </span>Side-by-Side
                 </button>
                 <button
                   type="button"
                   onClick={() => void openRefineView()}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition ${
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 text-xs font-medium transition ${
                     compareView === "refine"
                       ? "bg-surface text-foreground shadow-xs"
                       : "text-muted hover:text-foreground"
                   }`}
                 >
-                  <Paintbrush className="size-3.5" aria-hidden />
-                  Touch-Up Brush
+                  <Paintbrush className="size-3.5 shrink-0" aria-hidden />
+                  Touch-Up<span className="hidden sm:inline"> Brush</span>
                 </button>
               </div>
 
               {status === "ready" && (
-                <span className="text-xs text-muted">
+                <span className="text-[11px] sm:text-xs text-muted truncate">
                   {providerUsed.includes("photoroom")
                     ? "PhotoRoom Neural Cutout"
-                    : "Studio Cutout"}{" "}
+                    : providerUsed.includes("clearbackdrop")
+                      ? "ClearBackdrop Neural Cutout"
+                      : providerUsed.includes("clipdrop")
+                        ? "ClipDrop Neural Cutout"
+                        : "Studio Cutout"}{" "}
                   &middot;{" "}
                   {mode === "ai-enhance"
                     ? "AI Enhance (Wrinkle & Lighting)"
@@ -1215,7 +1260,7 @@ function BeautifyExistingItemModal({
             </div>
 
             {/* Canvas Comparison Area */}
-            <div className="relative flex min-h-[22rem] flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface-muted/60 p-4">
+            <div className="relative flex min-h-[16rem] sm:min-h-[20rem] lg:min-h-[22rem] flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface-muted/60 p-2 sm:p-4">
               {status === "processing" || status === "loading-source" ? (
                 <div className="flex flex-col items-center gap-3 text-center">
                   <Loader2
@@ -1307,7 +1352,7 @@ function BeautifyExistingItemModal({
                 </div>
               ) : (
                 /* Interactive Before / After Split Slider */
-                <div className="relative aspect-square w-full max-w-[26rem] select-none overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+                <div className="relative aspect-square w-full max-w-[18rem] sm:max-w-[22rem] md:max-w-[26rem] select-none overflow-hidden rounded-xl border border-border bg-white shadow-sm">
                   {previewUrl && (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
@@ -1409,7 +1454,7 @@ function BeautifyExistingItemModal({
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted">
-                      Removes background via PhotoRoom, crops margins, centers
+                      Removes background via ClearBackdrop / Remove BG, crops margins, centers
                       &amp; scales on pure white (#FFFFFF). Preserves 100%
                       original garment pixels.
                     </p>
@@ -1443,8 +1488,8 @@ function BeautifyExistingItemModal({
                       garment proportions.
                     </p>
                     <p className="mt-1.5 rounded-lg bg-surface-muted/80 px-2 py-1 text-[11px] text-muted">
-                      Uses <strong>PhotoRoom</strong> segmentation &amp;{" "}
-                      <strong>Google Gemini</strong> lighting calibration.
+                      Uses <strong>ClearBackdrop / Remove BG</strong> segmentation &amp;{" "}
+                      <strong>AI Vision</strong> lighting calibration.
                     </p>
                   </button>
 
@@ -1664,4 +1709,7 @@ function BeautifyExistingItemModal({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(modalContent, document.body);
 }

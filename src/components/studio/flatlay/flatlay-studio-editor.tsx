@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import type Konva from "konva";
 import { Loader2, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { generateFlatlayPlacement } from "@/lib/flatlay/engine";
 import {
   CANVAS_ASPECT_RATIOS,

@@ -16,6 +16,7 @@ const careType = z.enum([...CARE_TYPES, "unknown"]);
 const UNCERTAIN_FIELDS = [
   "category",
   "subcategory",
+  "brand",
   "primary_colour",
   "secondary_colours",
   "pattern",
@@ -30,6 +31,7 @@ export const clothingAnalysisSchema = z
     name: z.string().trim().min(1).max(120),
     category: z.enum(CATEGORY_VALUES),
     subcategory: z.string().trim().max(60),
+    brand: z.string().trim().max(80).optional().nullable(),
     primary_colour: colour,
     secondary_colours: z.array(colour).max(4),
     pattern,
@@ -44,6 +46,7 @@ export const clothingAnalysisSchema = z
     name: v.name,
     category: v.category,
     subcategory: v.subcategory || null,
+    brand: v.brand === "unknown" || !v.brand ? null : v.brand,
     primaryColour: v.primary_colour === "unknown" ? null : v.primary_colour,
     secondaryColours: [...new Set(v.secondary_colours.filter((c) => c !== "unknown" && c !== v.primary_colour))],
     pattern: v.pattern === "unknown" ? null : v.pattern,
@@ -61,9 +64,13 @@ export type ClothingSuggestion = z.output<typeof clothingAnalysisSchema>;
 export const clothingAnalysisJsonSchema = {
   type: "object",
   properties: {
-    name: { type: "string", description: "Short descriptive name, e.g. 'Navy slim-fit chinos'. No brand names." },
+    name: { type: "string", description: "Short descriptive name, e.g. 'Navy slim-fit chinos'. Avoid guessing brands in the name unless a brand is clearly visible." },
     category: { type: "string", enum: [...CATEGORY_VALUES] },
     subcategory: { type: "string", description: "More specific type, e.g. 'crew neck'. Empty string if unsure." },
+    brand: {
+      type: "string",
+      description: "Brand name if visibly identifiable from a logo (e.g. Nike Swoosh, Adidas Trefoil/3-stripes, Jordan Jumpman, Ralph Lauren, Puma), text, or collar/care tag. Return 'unknown' if no brand is clearly visible.",
+    },
     primary_colour: { type: "string", enum: [...WARDROBE_COLOURS, "unknown"] },
     secondary_colours: { type: "array", items: { type: "string", enum: [...WARDROBE_COLOURS, "unknown"] } },
     pattern: { type: "string", enum: [...PATTERNS, "unknown"] },
@@ -86,7 +93,8 @@ export const clothingAnalysisJsonSchema = {
 
 export const CLOTHING_SYSTEM_PROMPT = [
   "You catalogue a single clothing item or accessory from a photo for a personal wardrobe app.",
-  "Describe only what is visible. Never guess brand or material.",
+  "Describe only what is visible.",
+  "For brand: inspect the item for clearly visible brand logos (e.g. Nike Swoosh, Adidas Trefoil or 3-Stripes, Jordan Jumpman, Puma, Ralph Lauren, Carhartt, etc.), embroidered marks, printed text, or legible collar/wash tags. If clearly visible, return the canonical brand name (e.g. 'Nike', 'Adidas', 'Uniqlo', 'Zara', 'Gucci'). If no brand identifier is clearly visible, answer 'unknown'. Never guess brands without visual evidence.",
   "For care_type: choose WASHABLE for most clothing (shirts, trousers, dresses), WIPE_CLEAN for shoes and leather items, NO_WASH for accessories like watches, belts, jewelry, bags, and sunglasses.",
   "If you are not sure about a field, answer 'unknown' (or an empty list) and add that field to uncertain_fields.",
   "Pick the closest category from the allowed list; use 'other' if none fit.",
@@ -169,6 +177,7 @@ export const detectedClothingItemSchema = z
     name: z.string().trim().min(1).max(120),
     category: flexibleCategory,
     subcategory: z.string().trim().max(60).optional().nullable().transform((v) => v || ""),
+    brand: z.string().trim().max(80).optional().nullable().transform((v) => (v === "unknown" || !v ? null : v)),
     primary_colour: flexibleColour.optional().default("unknown"),
     secondary_colours: z.preprocess((v) => (Array.isArray(v) ? v : []), z.array(flexibleColour).max(4)).optional().default([]),
     pattern: flexiblePattern.optional().default("unknown"),
@@ -194,6 +203,7 @@ export const detectedClothingItemSchema = z
       name: v.name,
       category: v.category,
       subcategory: v.subcategory || null,
+      brand: v.brand ?? null,
       primaryColour: v.primary_colour === "unknown" ? null : v.primary_colour,
       secondaryColours: [...new Set(v.secondary_colours.filter((c) => c !== "unknown" && c !== v.primary_colour))],
       pattern: v.pattern === "unknown" ? null : v.pattern,

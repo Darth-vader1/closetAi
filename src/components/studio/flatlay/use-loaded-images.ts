@@ -1,34 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function useLoadedImages(imageUrls: Record<string, string>) {
   const [images, setImages] = useState<Record<string, HTMLImageElement>>({});
-  const [loading, setLoading] = useState(false);
+  const [failedPaths, setFailedPaths] = useState<Record<string, boolean>>({});
+  const cacheRef = useRef<Record<string, HTMLImageElement>>({});
 
   useEffect(() => {
     let isCancelled = false;
     const paths = Object.keys(imageUrls);
 
-    if (paths.length === 0) {
-      return;
-    }
-
-    setLoading(true);
-    let pendingCount = paths.length;
-
     paths.forEach((path) => {
       const url = imageUrls[path];
-      if (!url) {
-        pendingCount--;
-        if (pendingCount === 0 && !isCancelled) setLoading(false);
-        return;
-      }
+      if (!url) return;
 
-      // If already loaded in state, skip network load
-      if (images[path]?.complete) {
-        pendingCount--;
-        if (pendingCount === 0 && !isCancelled) setLoading(false);
+      // If already loaded in cache, skip network load
+      if (cacheRef.current[path]?.complete) {
         return;
       }
 
@@ -36,10 +24,9 @@ export function useLoadedImages(imageUrls: Record<string, string>) {
       img.crossOrigin = "anonymous";
 
       img.onload = () => {
+        cacheRef.current[path] = img;
         if (!isCancelled) {
           setImages((prev) => ({ ...prev, [path]: img }));
-          pendingCount--;
-          if (pendingCount === 0) setLoading(false);
         }
       };
 
@@ -47,16 +34,17 @@ export function useLoadedImages(imageUrls: Record<string, string>) {
         // Fallback without crossOrigin in case CORS header is rejected
         const fallbackImg = new window.Image();
         fallbackImg.onload = () => {
+          cacheRef.current[path] = fallbackImg;
           if (!isCancelled) {
             setImages((prev) => ({ ...prev, [path]: fallbackImg }));
           }
         };
+        fallbackImg.onerror = () => {
+          if (!isCancelled) {
+            setFailedPaths((prev) => ({ ...prev, [path]: true }));
+          }
+        };
         fallbackImg.src = url;
-
-        if (!isCancelled) {
-          pendingCount--;
-          if (pendingCount === 0) setLoading(false);
-        }
       };
 
       img.src = url;
@@ -66,6 +54,11 @@ export function useLoadedImages(imageUrls: Record<string, string>) {
       isCancelled = true;
     };
   }, [imageUrls]);
+
+  const paths = Object.keys(imageUrls);
+  const loading = paths.some(
+    (path) => Boolean(imageUrls[path]) && !images[path]?.complete && !failedPaths[path]
+  );
 
   return { images, loading };
 }

@@ -192,3 +192,26 @@ export function getPhotoRoomApiKey(source: Record<string, string | undefined> = 
   return key.length > 0 ? key : null;
 }
 
+/** Optional server-side ClearBackdrop / Remove BG API key for neural garment background segmentation. */
+export function getClearBackdropApiKey(source: Record<string, string | undefined> = process.env): string | null {
+  const key = (
+    source.CLEAR_BACKDROP_API_KEY ??
+    source.CLEARBACKDROP_API_KEY ??
+    source.REMOVE_BG_API_KEY ??
+    ""
+  ).trim();
+  return key.length > 0 ? key : null;
+}
+
+/** Optional server-side ClipDrop API key for neural garment background segmentation. */
+export function getClipDropApiKey(source: Record<string, string | undefined> = process.env): string | null {
+  const key = (source.CLIPDROP_API_KEY ?? source.JASPER_API_KEY ?? "").trim();
+  return key.length > 0 ? key : null;
+}
+
+/** Optional server-side Leonardo AI API key for neural garment background segmentation. */
+export function getLeonardoApiKey(source: Record<string, string | undefined> = process.env): string | null {
+  const key = (source.LEONARDO_API_KEY ?? source.REMOVE_BG_API_KEY ?? "").trim();
+  return key.length > 0 ? key : null;
+}
+

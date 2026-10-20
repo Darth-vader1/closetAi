@@ -42,6 +42,9 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
     name: item.name,
     category: item.category,
     subcategory: item.subcategory ?? "",
+    brand: item.brand ?? "",
+    price: item.price ?? null,
+    currency: item.currency ?? "USD",
     careType: item.careType,
     primaryColour: item.primaryColour as ItemFieldsInput["primaryColour"],
     secondaryColours: item.secondaryColours as ItemFieldsInput["secondaryColours"],
@@ -83,9 +86,58 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
 
         <div className="space-y-6">
           <div>
-            <h1 className="text-3xl sm:text-4xl">{item.name}</h1>
-            <p className="mt-1 text-muted">{categoryLabel(item.category)}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-3xl sm:text-4xl">{item.name}</h1>
+              {item.brand && (
+                <span className="rounded-lg bg-surface-muted px-2.5 py-1 text-xs font-semibold uppercase tracking-wider text-muted border border-border">
+                  {item.brand}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-muted">
+              {item.brand ? `${item.brand} · ` : ""}
+              {categoryLabel(item.category)}
+            </p>
           </div>
+
+          {item.price != null && item.price > 0 && (
+            <Card className="border-accent/30 bg-accent-soft/30">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-accent">
+                    Cost Per Wear
+                  </span>
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-2xl font-bold tracking-tight text-foreground">
+                      {new Intl.NumberFormat(undefined, {
+                        style: "currency",
+                        currency: item.currency || "USD",
+                      }).format(item.price / Math.max(item.wearCount, 1))}
+                    </span>
+                    <span className="text-xs text-muted">/ wear</span>
+                  </div>
+                </div>
+
+                <div className="text-right text-xs text-muted space-y-1">
+                  <p>
+                    Purchased for{" "}
+                    <span className="font-semibold text-foreground">
+                      {new Intl.NumberFormat(undefined, {
+                        style: "currency",
+                        currency: item.currency || "USD",
+                      }).format(item.price)}
+                    </span>
+                  </p>
+                  <p>
+                    Recorded wears:{" "}
+                    <span className="font-semibold text-foreground">
+                      {item.wearCount} {item.wearCount === 1 ? "time" : "times"}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </Card>
+          )}
 
           <Card>
             <h2 className="text-xl">Laundry status</h2>

@@ -34,6 +34,35 @@ export function ItemFieldsForm({ form, idPrefix, highlight = [] }: { form: ItemF
       </Field>
 
       <div className="grid gap-5 sm:grid-cols-2">
+        <Field id={id("brand")} label="Brand" hint={uncertain("brand") ?? "e.g. Nike, Adidas, Zara."} error={errors.brand?.message}>
+          <Input id={id("brand")} placeholder="e.g. Nike" {...form.register("brand")} />
+        </Field>
+        <Field id={id("price")} label="Price tag / Cost" hint="Optional, used for Cost-Per-Wear." error={errors.price?.message}>
+          <div className="relative flex items-center">
+            <select
+              aria-label="Currency"
+              className="absolute left-2.5 h-7 rounded-md border border-border bg-surface-muted px-1.5 text-xs font-semibold text-foreground focus:outline-none"
+              {...form.register("currency")}
+            >
+              <option value="USD">$ USD</option>
+              <option value="GBP">£ GBP</option>
+              <option value="EUR">€ EUR</option>
+              <option value="NGN">₦ NGN</option>
+              <option value="CAD">$ CAD</option>
+              <option value="AUD">$ AUD</option>
+              <option value="JPY">¥ JPY</option>
+            </select>
+            <Input
+              id={id("price")}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              className="pl-24"
+              {...form.register("price")}
+            />
+          </div>
+        </Field>
         <Field id={id("category")} label="Category" error={errors.category?.message} hint={uncertain("category")}>
           <Select id={id("category")} aria-invalid={!!errors.category} {...form.register("category")}>
             <option value="" disabled>Choose…</option>
@@ -175,6 +204,9 @@ export function emptyItemValues(): ItemFieldsInput {
     name: "",
     category: "" as ItemFieldsInput["category"],
     subcategory: "",
+    brand: "",
+    price: null,
+    currency: "USD",
     careType: "WASHABLE",
     primaryColour: null,
     secondaryColours: [],

@@ -4,8 +4,6 @@ import {
   ArrowDown,
   ArrowUp,
   Download,
-  Flame,
-  Layout,
   Lock,
   LockOpen,
   Plus,
@@ -13,11 +11,8 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
-  Sparkles,
   Trash2,
   Undo2,
-  Layers,
-  Palette,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
@@ -157,6 +152,19 @@ export function FlatlayToolbar({
           >
             <RefreshCw className="size-3.5" />
             <span className="hidden sm:inline">Regenerate</span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onReset}
+            disabled={itemCount === 0}
+            className="gap-1.5 text-xs"
+            title="Reset to default arrangement"
+          >
+            <RotateCcw className="size-3.5" />
+            <span className="hidden sm:inline">Reset</span>
           </Button>
 
           <Button
