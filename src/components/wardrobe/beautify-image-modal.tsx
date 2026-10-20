@@ -400,11 +400,19 @@ function TouchUpCanvasEditor({
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
   const undoStackRef = useRef<ImageData[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [prevLoadKey, setPrevLoadKey] = useState<string>(
+    `${sourceImageUrl}:${cutoutImageUrl}:${retryKey}`,
+  );
+  const currentLoadKey = `${sourceImageUrl}:${cutoutImageUrl}:${retryKey}`;
+
+  if (currentLoadKey !== prevLoadKey) {
+    setPrevLoadKey(currentLoadKey);
+    setLoading(true);
+    setLoadError(null);
+  }
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setLoadError(null);
 
     const loadImage = (url: string): Promise<HTMLImageElement> => {
       return new Promise((resolve, reject) => {
@@ -1244,13 +1252,15 @@ function BeautifyExistingItemModal({
 
               {status === "ready" && (
                 <span className="text-[11px] sm:text-xs text-muted truncate">
-                  {providerUsed.includes("photoroom")
-                    ? "PhotoRoom Neural Cutout"
-                    : providerUsed.includes("clearbackdrop")
-                      ? "ClearBackdrop Neural Cutout"
-                      : providerUsed.includes("clipdrop")
-                        ? "ClipDrop Neural Cutout"
-                        : "Studio Cutout"}{" "}
+                  {providerUsed.includes("removebg")
+                    ? "Remove.bg Neural Cutout"
+                    : providerUsed.includes("photoroom")
+                      ? "PhotoRoom Neural Cutout"
+                      : providerUsed.includes("clearbackdrop")
+                        ? "ClearBackdrop Neural Cutout"
+                        : providerUsed.includes("clipdrop")
+                          ? "ClipDrop Neural Cutout"
+                          : "Studio Cutout"}{" "}
                   &middot;{" "}
                   {mode === "ai-enhance"
                     ? "AI Enhance (Wrinkle & Lighting)"

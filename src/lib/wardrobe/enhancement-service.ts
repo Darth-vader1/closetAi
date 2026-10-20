@@ -5,6 +5,7 @@ import {
   getClearBackdropApiKey,
   getClipDropApiKey,
   getPhotoRoomApiKey,
+  getRemoveBgApiKey,
 } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { sniffImage } from "@/lib/security/image-sniff";
@@ -14,6 +15,10 @@ import type {
 } from "@/lib/wardrobe/beautify-engine";
 
 export type BeautificationProviderId =
+  | "removebg"
+  | "removebg+gemini"
+  | "removebg+groq"
+  | "removebg+mistral"
   | "photoroom"
   | "photoroom+gemini"
   | "photoroom+groq"
@@ -403,6 +408,92 @@ export async function segmentWithClipDrop(
 }
 
 /**
+ * Calls official Remove.bg API (`https://api.remove.bg/v1.0/removebg`)
+ * to isolate the clothing item with high-fidelity semantic segmentation.
+ */
+export async function segmentWithRemoveBg(
+  bytes: Uint8Array,
+  mimeType: string,
+  ext: string,
+  apiKey: string,
+  options?: {
+    parentSignal?: AbortSignal;
+  },
+): Promise<
+  | { ok: true; pngBytes: Uint8Array; modelUsed: string }
+  | { ok: false; status?: number; reason: string }
+> {
+  const parentSignal = options?.parentSignal;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 16_000);
+  const onParentAbort = () => controller.abort();
+  parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+
+  try {
+    const fd = new FormData();
+    fd.append(
+      "image_file",
+      new Blob([Buffer.from(bytes)], { type: mimeType }),
+      `garment.${ext}`,
+    );
+    fd.append("size", "auto");
+    fd.append("format", "png");
+
+    const res = await fetch("https://api.remove.bg/v1.0/removebg", {
+      method: "POST",
+      headers: {
+        "X-Api-Key": apiKey,
+        Accept: "image/png, application/json",
+      },
+      body: fd,
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      logger.warn("removebg.segment_failed", { status: res.status });
+      if (res.status === 402 || res.status === 429) {
+        return {
+          ok: false,
+          status: res.status,
+          reason: "Remove.bg API quota or rate limit reached.",
+        };
+      }
+      return {
+        ok: false,
+        status: res.status,
+        reason: "Remove.bg segmentation was unavailable for this photo.",
+      };
+    }
+
+    const outBytes = new Uint8Array(await res.arrayBuffer());
+    const sniffed = sniffImage(outBytes);
+    if (!sniffed) {
+      return {
+        ok: false,
+        reason: "Remove.bg returned an invalid image format.",
+      };
+    }
+
+    return {
+      ok: true,
+      pngBytes: outBytes,
+      modelUsed: "remove-bg-v1",
+    };
+  } catch (err) {
+    logger.warn("removebg.segment_exception", {
+      message: err instanceof Error ? err.message : "unknown",
+    });
+    return {
+      ok: false,
+      reason: "Remove.bg connection timed out.",
+    };
+  } finally {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener("abort", onParentAbort);
+  }
+}
+
+/**
  * Inspects a garment image with Gemini Vision (`@google/genai` REST endpoint)
  * to calibrate fabric-constrained wrinkle reduction, cast-shadow recovery,
  * exposure, white balance, and graphic/text protection.
@@ -524,34 +615,58 @@ export async function runGarmentEnhancementService(
   req: GarmentEnhancementRequest,
 ): Promise<GarmentEnhancementServiceResult> {
   let cutoutDataUrl: string | null = null;
-  let activeSegmentationProvider: "photoroom" | "clearbackdrop" | "clipdrop" | null = null;
+  let activeSegmentationProvider: "removebg" | "photoroom" | "clearbackdrop" | "clipdrop" | null = null;
   let segmentationModel = "closetai-cv-v2";
   let fallbackReason: string | null = null;
 
   if (!req.skipSegmentation) {
-    // Tier 1: Try Remove BG / ClearBackdrop first
-    const clearBackdropKey = getClearBackdropApiKey();
-    if (clearBackdropKey) {
-      const cbResult = await segmentWithClearBackdrop(
+    // Tier 1: Try official Remove.bg if configured
+    const removeBgKey = getRemoveBgApiKey();
+    if (removeBgKey) {
+      const rbgResult = await segmentWithRemoveBg(
         req.bytes,
         req.mimeType,
         req.extension,
-        clearBackdropKey,
+        removeBgKey,
         { parentSignal: req.signal },
       );
-      if (cbResult.ok) {
+      if (rbgResult.ok) {
         cutoutDataUrl = `data:image/png;base64,${Buffer.from(
-          cbResult.pngBytes,
+          rbgResult.pngBytes,
         ).toString("base64")}`;
-        activeSegmentationProvider = "clearbackdrop";
-        segmentationModel = cbResult.modelUsed;
-        fallbackReason = null; // Clean neural cutout succeeded via ClearBackdrop!
+        activeSegmentationProvider = "removebg";
+        segmentationModel = rbgResult.modelUsed;
+        fallbackReason = null; // Clean neural cutout succeeded via Remove.bg!
       } else {
-        fallbackReason = cbResult.reason;
+        fallbackReason = rbgResult.reason;
       }
     }
 
-    // Tier 2: Try PhotoRoom as secondary neural fallback if Remove BG was unconfigured or failed
+    // Tier 2: Try ClearBackdrop if Remove.bg was unconfigured or failed
+    if (!cutoutDataUrl) {
+      const clearBackdropKey = getClearBackdropApiKey();
+      if (clearBackdropKey) {
+        const cbResult = await segmentWithClearBackdrop(
+          req.bytes,
+          req.mimeType,
+          req.extension,
+          clearBackdropKey,
+          { parentSignal: req.signal },
+        );
+        if (cbResult.ok) {
+          cutoutDataUrl = `data:image/png;base64,${Buffer.from(
+            cbResult.pngBytes,
+          ).toString("base64")}`;
+          activeSegmentationProvider = "clearbackdrop";
+          segmentationModel = cbResult.modelUsed;
+          fallbackReason = null; // Clean neural cutout succeeded via ClearBackdrop!
+        } else if (!fallbackReason) {
+          fallbackReason = cbResult.reason;
+        }
+      }
+    }
+
+    // Tier 3: Try PhotoRoom as secondary neural fallback
     if (!cutoutDataUrl) {
       const photoRoomKey = getPhotoRoomApiKey();
       if (photoRoomKey) {
@@ -578,7 +693,7 @@ export async function runGarmentEnhancementService(
       }
     }
 
-    // Tier 3: Try ClipDrop (Jasper) if Remove BG & PhotoRoom were missing or exhausted quota
+    // Tier 4: Try ClipDrop (Jasper) if previous providers were missing or exhausted quota
     if (!cutoutDataUrl) {
       const clipDropKey = getClipDropApiKey();
       if (clipDropKey) {
@@ -667,7 +782,13 @@ export async function runGarmentEnhancementService(
     const validated = aiEnhancementResponseSchema.safeParse(rawResult);
     if (validated.success) {
       let providerName: BeautificationProviderId;
-      if (activeSegmentationProvider === "photoroom") {
+      if (activeSegmentationProvider === "removebg") {
+        providerName = aiAvailability.provider.name.includes("groq")
+          ? "removebg+groq"
+          : aiAvailability.provider.name.includes("mistral")
+            ? "removebg+mistral"
+            : "removebg+gemini";
+      } else if (activeSegmentationProvider === "photoroom") {
         providerName = aiAvailability.provider.name.includes("groq")
           ? "photoroom+groq"
           : aiAvailability.provider.name.includes("mistral")

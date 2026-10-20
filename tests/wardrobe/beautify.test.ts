@@ -748,5 +748,63 @@ describe("Product Studio Garment Beautification Engine (Phase 6 Comprehensive Su
       delete process.env.PHOTOROOM_API_KEY;
     }
   });
+
+  it("19. Remove.bg neural segmentation: handles 200 response and quota 402 gracefully", async () => {
+    const { segmentWithRemoveBg } = await import(
+      "@/lib/wardrobe/enhancement-service"
+    );
+
+    const originalFetch = globalThis.fetch;
+    const tinyPngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+
+    try {
+      // 1. Success case (200 OK)
+      globalThis.fetch = async () =>
+        new Response(tinyPngBytes, {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        });
+
+      const successRes = await segmentWithRemoveBg(
+        tinyPngBytes,
+        "image/png",
+        "png",
+        "mock_removebg_key",
+      );
+      expect(successRes.ok).toBe(true);
+      if (successRes.ok) {
+        expect(successRes.modelUsed).toBe("remove-bg-v1");
+        expect(successRes.pngBytes.length).toBe(tinyPngBytes.length);
+      }
+
+      // 2. Quota exceeded (402 Payment Required)
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ error: "insufficient_credits" }), {
+          status: 402,
+          headers: { "Content-Type": "application/json" },
+        });
+
+      const quotaRes = await segmentWithRemoveBg(
+        tinyPngBytes,
+        "image/png",
+        "png",
+        "mock_removebg_key",
+      );
+      expect(quotaRes.ok).toBe(false);
+      if (!quotaRes.ok) {
+        expect(quotaRes.status).toBe(402);
+        expect(quotaRes.reason).toContain("Remove.bg API quota");
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
