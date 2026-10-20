@@ -6,11 +6,13 @@ import {
   AlertTriangle,
   Check,
   Columns2,
+  Crop,
   Eraser,
   Loader2,
   Paintbrush,
   RefreshCw,
   RotateCcw,
+  RotateCw,
   SlidersHorizontal,
   Sparkles,
   Undo2,
@@ -24,6 +26,7 @@ import {
 } from "@/app/(app)/wardrobe/actions";
 import { Button } from "@/components/ui/button";
 import { FavouriteButton } from "@/components/wardrobe/favourite-button";
+import { ImageCropperModal } from "@/components/wardrobe/image-cropper-modal";
 import { ItemImage } from "@/components/wardrobe/item-image";
 import type {
   AiEnhancementParams,
@@ -31,6 +34,10 @@ import type {
   BeautifyQualityDiagnostics,
 } from "@/lib/wardrobe/beautify-engine";
 import { categoryLabel } from "@/lib/wardrobe/categories";
+import {
+  rotateImage,
+  type TransformedImageResult,
+} from "@/lib/wardrobe/image-transform-client";
 import { beautifyGarmentImage } from "@/lib/wardrobe/studio-canvas";
 import { uploadPhoto } from "@/lib/wardrobe/upload-client";
 
@@ -157,7 +164,11 @@ export function ItemBeautifyCard({
         {isShowingBeautified && (
           <div className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-surface/90 px-2.5 py-1 text-[11px] font-medium text-foreground backdrop-blur-sm">
             <Sparkles className="size-3 text-accent" aria-hidden />
-            {modeUsed === "ai-enhance" ? "AI Enhanced" : "Clean Cutout"}
+            {modeUsed === "catalog-flatlay"
+              ? "AI Flat-Lay"
+              : modeUsed === "ai-enhance"
+                ? "AI Enhanced"
+                : "Clean Cutout"}
           </div>
         )}
       </div>
@@ -849,6 +860,9 @@ function BeautifyExistingItemModal({
   const [sourceUrl, setSourceUrl] = useState<string | null>(
     initialOriginalUrl ?? null,
   );
+  const [editedSourceBlob, setEditedSourceBlob] = useState<Blob | null>(null);
+  const editedSourceDataUrlRef = useRef<string | null>(null);
+  const [isCropperOpen, setIsCropperOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(
     inspectExistingOnly && initialBeautifiedUrl ? initialBeautifiedUrl : null,
   );
@@ -864,7 +878,13 @@ function BeautifyExistingItemModal({
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const isBusy =
+    status === "loading-source" ||
+    status === "processing" ||
+    status === "saving";
+
   const cachedPhotoRoomCutoutRef = useRef<string | null>(null);
+  const cachedCatalogFlatLayRef = useRef<string | null>(null);
   const cachedAiParamsRef = useRef<AiEnhancementParams | null>(null);
   const renderedCacheRef = useRef<Map<string, CachedPreviewEntry>>(new Map());
   const [providerUsed, setProviderUsed] = useState<string>("photoroom");
@@ -941,30 +961,47 @@ function BeautifyExistingItemModal({
           );
         }
 
-        // 2. Call /api/ai/beautify to obtain PhotoRoom neural background cutout (cached per item)
+        // 2. Call /api/ai/beautify to obtain neural background cutout or generative catalog flat-lay (cached per item)
         // and, when Mode 2 (ai-enhance) is requested, Gemini wrinkle/lighting calibration.
-        const needCutout = !cachedPhotoRoomCutoutRef.current || forceReprocess;
+        const isFlatLayMode = targetMode === "catalog-flatlay";
+        const needCutout = isFlatLayMode
+          ? !cachedCatalogFlatLayRef.current || forceReprocess
+          : !cachedPhotoRoomCutoutRef.current || forceReprocess;
         const needAiParams =
           targetMode === "ai-enhance" &&
           (!cachedAiParamsRef.current || forceReprocess);
 
-        let currentProvider = cachedPhotoRoomCutoutRef.current
-          ? "photoroom"
-          : "local-studio";
-        let currentModel = cachedPhotoRoomCutoutRef.current
-          ? "photoroom-v2-edit"
-          : "closetai-cv-v2";
+        let currentProvider = isFlatLayMode
+          ? cachedCatalogFlatLayRef.current
+            ? "mistral-flux"
+            : "local-studio"
+          : cachedPhotoRoomCutoutRef.current
+            ? "removebg"
+            : "local-studio";
+        let currentModel = isFlatLayMode
+          ? cachedCatalogFlatLayRef.current
+            ? "mistral-medium-2505+flux-1.1-pro-ultra"
+            : "closetai-cv-v2"
+          : cachedPhotoRoomCutoutRef.current
+            ? "remove-bg-v1"
+            : "closetai-cv-v2";
 
         if (needCutout || needAiParams) {
           try {
+            const requestPayload: Record<string, unknown> = {
+              mode: targetMode,
+              skipSegmentation: isFlatLayMode ? false : !needCutout,
+            };
+            if (editedSourceDataUrlRef.current) {
+              requestPayload.imageDataUrl = editedSourceDataUrlRef.current;
+            } else {
+              requestPayload.path = originalImagePath;
+            }
+
             const res = await fetch("/api/ai/beautify", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                path: originalImagePath,
-                mode: targetMode,
-                skipSegmentation: !needCutout,
-              }),
+              body: JSON.stringify(requestPayload),
             });
             if (res.ok) {
               const body = (await res.json()) as {
@@ -976,7 +1013,11 @@ function BeautifyExistingItemModal({
                 reason?: string | null;
               };
               if (body.cutoutDataUrl) {
-                cachedPhotoRoomCutoutRef.current = body.cutoutDataUrl;
+                if (isFlatLayMode) {
+                  cachedCatalogFlatLayRef.current = body.cutoutDataUrl;
+                } else {
+                  cachedPhotoRoomCutoutRef.current = body.cutoutDataUrl;
+                }
               }
               if (body.provider) {
                 currentProvider = body.provider;
@@ -1012,9 +1053,12 @@ function BeautifyExistingItemModal({
                 ),
               }
             : null;
+        const activeCutout = isFlatLayMode
+          ? (cachedCatalogFlatLayRef.current ?? cachedPhotoRoomCutoutRef.current)
+          : cachedPhotoRoomCutoutRef.current;
         const inputForStandardizer =
           customCutoutUrlRef.current ??
-          cachedPhotoRoomCutoutRef.current ??
+          activeCutout ??
           workingSourceUrl;
 
         const result = await beautifyGarmentImage(inputForStandardizer, {
@@ -1119,6 +1163,60 @@ function BeautifyExistingItemModal({
     }
   }
 
+  const handleApplyTransformedImage = useCallback(
+    async (result: TransformedImageResult) => {
+      setEditedSourceBlob(result.blob);
+      setSourceUrl(result.url);
+
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(result.blob);
+        });
+        editedSourceDataUrlRef.current = dataUrl;
+      } catch {
+        // Fallback: local CV can use sourceUrl
+      }
+
+      cachedPhotoRoomCutoutRef.current = null;
+      cachedCatalogFlatLayRef.current = null;
+      cachedAiParamsRef.current = null;
+      customCutoutUrlRef.current = null;
+      renderedCacheRef.current.clear();
+
+      void runPipeline(mode, tolerance, addShadow, true, wrinklePct);
+    },
+    [mode, tolerance, addShadow, wrinklePct, runPipeline],
+  );
+
+  const handleQuickRotate = useCallback(
+    async (degrees: 90 | -90) => {
+      if (!sourceUrl || isBusy) return;
+      try {
+        const res = await rotateImage(sourceUrl, degrees);
+        await handleApplyTransformedImage(res);
+      } catch (err) {
+        console.error("Quick rotate failed:", err);
+      }
+    },
+    [sourceUrl, isBusy, handleApplyTransformedImage],
+  );
+
+  const handleRevertOrientation = useCallback(() => {
+    if (!initialOriginalUrl) return;
+    setEditedSourceBlob(null);
+    editedSourceDataUrlRef.current = null;
+    setSourceUrl(initialOriginalUrl);
+    cachedPhotoRoomCutoutRef.current = null;
+    cachedCatalogFlatLayRef.current = null;
+    cachedAiParamsRef.current = null;
+    customCutoutUrlRef.current = null;
+    renderedCacheRef.current.clear();
+    void runPipeline(mode, tolerance, addShadow, true, wrinklePct);
+  }, [initialOriginalUrl, mode, tolerance, addShadow, wrinklePct, runPipeline]);
+
   async function handleAccept() {
     if (!previewBlob || status === "saving" || status === "processing") return;
     setStatus("saving");
@@ -1126,6 +1224,15 @@ function BeautifyExistingItemModal({
 
     try {
       const controller = new AbortController();
+
+      let updatedOriginalPath: string | undefined;
+      if (editedSourceBlob) {
+        updatedOriginalPath = await uploadPhoto(editedSourceBlob, {
+          signal: controller.signal,
+          onProgress: () => {},
+        });
+      }
+
       const uploadedPath = await uploadPhoto(previewBlob, {
         signal: controller.signal,
         onProgress: () => {},
@@ -1133,6 +1240,7 @@ function BeautifyExistingItemModal({
 
       const saved = await saveBeautifiedImageAction(itemId, {
         beautifiedPath: uploadedPath,
+        originalPath: updatedOriginalPath,
         mode,
         provider: providerUsed,
         model: modelUsed,
@@ -1160,11 +1268,6 @@ function BeautifyExistingItemModal({
       );
     }
   }
-
-  const isBusy =
-    status === "loading-source" ||
-    status === "processing" ||
-    status === "saving";
 
   const modalContent = (
     <div
@@ -1203,68 +1306,166 @@ function BeautifyExistingItemModal({
         </div>
 
         {/* Body */}
-        <div className="grid flex-1 gap-4 sm:gap-6 overflow-y-auto p-3 sm:p-5 lg:p-6 lg:grid-cols-[1fr_20rem]">
+        <div className="grid flex-1 gap-4 sm:gap-6 overflow-y-auto p-3 sm:p-5 lg:p-6 lg:grid-cols-[1fr_20.5rem]">
           {/* Left: Comparison Stage */}
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div
-                className="inline-flex rounded-xl border border-border bg-surface-muted p-1"
-                role="group"
-                aria-label="Compare Original and Processed"
+          <div className="flex flex-col gap-3 min-w-0">
+            {/* Primary Mode Switcher (Always visible above canvas) */}
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-surface-muted/90 p-1.5">
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => handleModeSwitch("clean-cutout")}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                  mode === "clean-cutout"
+                    ? "bg-surface text-foreground shadow-xs font-semibold"
+                    : "text-muted hover:text-foreground"
+                }`}
               >
-                <button
-                  type="button"
-                  onClick={() => setCompareView("slider")}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 text-xs font-medium transition ${
-                    compareView === "slider"
-                      ? "bg-surface text-foreground shadow-xs"
-                      : "text-muted hover:text-foreground"
-                  }`}
+                <Wand2 className="size-3.5 text-accent" aria-hidden />
+                1. Clean Cutout
+              </button>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => handleModeSwitch("ai-enhance")}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                  mode === "ai-enhance"
+                    ? "bg-surface text-foreground shadow-xs font-semibold"
+                    : "text-muted hover:text-foreground"
+                }`}
+              >
+                <Sparkles className="size-3.5 text-accent" aria-hidden />
+                2. AI Enhance
+              </button>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => handleModeSwitch("catalog-flatlay")}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                  mode === "catalog-flatlay"
+                    ? "bg-accent text-white shadow-xs font-semibold ring-1 ring-accent"
+                    : "bg-accent/15 text-foreground hover:bg-accent/25"
+                }`}
+              >
+                <Sparkles className="size-3.5" aria-hidden />
+                ✨ 4. AI Catalog Flat-Lay (ChatGPT-Style)
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div
+                  className="inline-flex rounded-xl border border-border bg-surface-muted p-1"
+                  role="group"
+                  aria-label="Compare Original and Processed"
                 >
-                  <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden />
-                  <span className="hidden sm:inline">Compare: </span>Slider
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCompareView("side-by-side")}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 text-xs font-medium transition ${
-                    compareView === "side-by-side"
-                      ? "bg-surface text-foreground shadow-xs"
-                      : "text-muted hover:text-foreground"
-                  }`}
+                  <button
+                    type="button"
+                    onClick={() => setCompareView("slider")}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 text-xs font-medium transition ${
+                      compareView === "slider"
+                        ? "bg-surface text-foreground shadow-xs"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden />
+                    <span className="hidden sm:inline">Compare: </span>Slider
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCompareView("side-by-side")}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 text-xs font-medium transition ${
+                      compareView === "side-by-side"
+                        ? "bg-surface text-foreground shadow-xs"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    <Columns2 className="size-3.5 shrink-0" aria-hidden />
+                    <span className="hidden sm:inline">Compare: </span>Side-by-Side
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void openRefineView()}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 text-xs font-medium transition ${
+                      compareView === "refine"
+                        ? "bg-surface text-foreground shadow-xs"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    <Paintbrush className="size-3.5 shrink-0" aria-hidden />
+                    Touch-Up<span className="hidden sm:inline"> Brush</span>
+                  </button>
+                </div>
+
+                {/* Quick Rotate & Interactive Crop Controls */}
+                <div
+                  className="inline-flex items-center gap-1 rounded-xl border border-border bg-surface-muted p-1"
+                  role="group"
+                  aria-label="Image Orientation and Cropping"
                 >
-                  <Columns2 className="size-3.5 shrink-0" aria-hidden />
-                  <span className="hidden sm:inline">Compare: </span>Side-by-Side
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void openRefineView()}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 text-xs font-medium transition ${
-                    compareView === "refine"
-                      ? "bg-surface text-foreground shadow-xs"
-                      : "text-muted hover:text-foreground"
-                  }`}
-                >
-                  <Paintbrush className="size-3.5 shrink-0" aria-hidden />
-                  Touch-Up<span className="hidden sm:inline"> Brush</span>
-                </button>
+                  <button
+                    type="button"
+                    disabled={isBusy || !sourceUrl}
+                    onClick={() => void handleQuickRotate(-90)}
+                    title="Rotate 90° counter-clockwise"
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-surface hover:text-foreground transition disabled:opacity-40"
+                  >
+                    <RotateCcw className="size-3.5 shrink-0" aria-hidden />
+                    <span className="hidden sm:inline">Rotate </span>-90°
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isBusy || !sourceUrl}
+                    onClick={() => void handleQuickRotate(90)}
+                    title="Rotate 90° clockwise"
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-surface hover:text-foreground transition disabled:opacity-40"
+                  >
+                    <RotateCw className="size-3.5 shrink-0" aria-hidden />
+                    <span className="hidden sm:inline">Rotate </span>+90°
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isBusy || !sourceUrl}
+                    onClick={() => setIsCropperOpen(true)}
+                    title="Rotate & Crop bounds"
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-muted hover:bg-surface hover:text-foreground transition disabled:opacity-40"
+                  >
+                    <Crop className="size-3.5 shrink-0 text-accent" aria-hidden />
+                    <span>Rotate &amp; Crop</span>
+                  </button>
+                </div>
+
+                {editedSourceBlob && (
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={handleRevertOrientation}
+                    className="text-[11px] text-accent hover:underline font-medium px-1"
+                  >
+                    Revert Orientation
+                  </button>
+                )}
               </div>
 
               {status === "ready" && (
                 <span className="text-[11px] sm:text-xs text-muted truncate">
-                  {providerUsed.includes("removebg")
-                    ? "Remove.bg Neural Cutout"
-                    : providerUsed.includes("photoroom")
-                      ? "PhotoRoom Neural Cutout"
-                      : providerUsed.includes("clearbackdrop")
-                        ? "ClearBackdrop Neural Cutout"
-                        : providerUsed.includes("clipdrop")
-                          ? "ClipDrop Neural Cutout"
-                          : "Studio Cutout"}{" "}
+                  {providerUsed.includes("flux")
+                    ? "FLUX 1.1 Pro Flat-Lay"
+                    : providerUsed.includes("removebg")
+                      ? "Remove.bg Neural Cutout"
+                      : providerUsed.includes("photoroom")
+                        ? "PhotoRoom Neural Cutout"
+                        : providerUsed.includes("clearbackdrop")
+                          ? "ClearBackdrop Neural Cutout"
+                          : providerUsed.includes("clipdrop")
+                            ? "ClipDrop Neural Cutout"
+                            : "Studio Cutout"}{" "}
                   &middot;{" "}
-                  {mode === "ai-enhance"
-                    ? "AI Enhance (Wrinkle & Lighting)"
-                    : "Clean Cutout (#FFFFFF)"}
+                  {mode === "catalog-flatlay"
+                    ? "AI Catalog Flat-Lay (#FFFFFF)"
+                    : mode === "ai-enhance"
+                      ? "AI Enhance (Wrinkle & Lighting)"
+                      : "Clean Cutout (#FFFFFF)"}
                 </span>
               )}
             </div>
@@ -1279,9 +1480,11 @@ function BeautifyExistingItemModal({
                   />
                   <div>
                     <p className="text-sm font-medium text-foreground">
-                      {mode === "ai-enhance"
-                        ? "Reducing fabric wrinkles & balancing studio lighting (protecting logos & text)..."
-                        : "Removing background & centering on 1024×1024 #FFFFFF studio canvas..."}
+                      {mode === "catalog-flatlay"
+                        ? "Generating AI Catalog Flat-Lay (erasing human limbs & inpainting insoles)..."
+                        : mode === "ai-enhance"
+                          ? "Reducing fabric wrinkles & balancing studio lighting (protecting logos & text)..."
+                          : "Removing background & centering on 1024×1024 #FFFFFF studio canvas..."}
                     </p>
                     <p className="mt-1 text-xs text-muted">
                       Your original photo will never be overwritten.
@@ -1346,7 +1549,12 @@ function BeautifyExistingItemModal({
                   <div className="space-y-1.5">
                     <span className="block text-center text-xs font-medium text-foreground">
                       Processed (
-                      {mode === "ai-enhance" ? "AI Enhance" : "Clean Cutout"})
+                      {mode === "catalog-flatlay"
+                        ? "AI Flat-Lay"
+                        : mode === "ai-enhance"
+                          ? "AI Enhance"
+                          : "Clean Cutout"}
+                      )
                     </span>
                     <div className="aspect-square overflow-hidden rounded-xl border border-border bg-white">
                       {previewUrl && (
@@ -1396,7 +1604,11 @@ function BeautifyExistingItemModal({
                     Original
                   </span>
                   <span className="pointer-events-none absolute right-2.5 top-2.5 rounded-md bg-accent/90 px-2 py-0.5 text-[11px] font-medium text-white">
-                    {mode === "ai-enhance" ? "AI Enhanced" : "Clean Cutout"}
+                    {mode === "catalog-flatlay"
+                      ? "AI Flat-Lay"
+                      : mode === "ai-enhance"
+                        ? "AI Enhanced"
+                        : "Clean Cutout"}
                   </span>
                   <input
                     type="range"
@@ -1437,8 +1649,8 @@ function BeautifyExistingItemModal({
           </div>
 
           {/* Right: Three Product Studio Operations & Controls */}
-          <div className="flex flex-col justify-between gap-5 rounded-2xl border border-border bg-surface-muted/40 p-4">
-            <div className="space-y-5">
+          <div className="flex flex-col justify-between gap-4 rounded-2xl border border-border bg-surface-muted/40 p-3 sm:p-4 overflow-y-auto max-h-[75vh] lg:max-h-[calc(92vh-90px)]">
+            <div className="space-y-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted">
                   Product Studio Operations
@@ -1448,14 +1660,14 @@ function BeautifyExistingItemModal({
                     type="button"
                     disabled={isBusy}
                     onClick={() => handleModeSwitch("clean-cutout")}
-                    className={`w-full rounded-xl border p-3 text-left transition ${
+                    className={`w-full rounded-xl border p-2.5 text-left transition ${
                       mode === "clean-cutout"
                         ? "border-foreground bg-surface shadow-xs"
                         : "border-border bg-surface/60 hover:border-foreground/40"
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
                         <Wand2 className="size-3.5 text-accent" aria-hidden />
                         1. Clean Cutout
                       </span>
@@ -1463,10 +1675,8 @@ function BeautifyExistingItemModal({
                         Standard
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-muted">
-                      Removes background via ClearBackdrop / Remove BG, crops margins, centers
-                      &amp; scales on pure white (#FFFFFF). Preserves 100%
-                      original garment pixels.
+                    <p className="mt-1 text-[11px] text-muted leading-relaxed">
+                      Removes background via ClearBackdrop / Remove BG, centered on pure white (#FFFFFF). 100% faithful original pixels.
                     </p>
                   </button>
 
@@ -1474,14 +1684,14 @@ function BeautifyExistingItemModal({
                     type="button"
                     disabled={isBusy}
                     onClick={() => handleModeSwitch("ai-enhance")}
-                    className={`w-full rounded-xl border p-3 text-left transition ${
+                    className={`w-full rounded-xl border p-2.5 text-left transition ${
                       mode === "ai-enhance"
                         ? "border-foreground bg-surface shadow-xs"
                         : "border-border bg-surface/60 hover:border-foreground/40"
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
                         <Sparkles
                           className="size-3.5 text-accent"
                           aria-hidden
@@ -1492,14 +1702,8 @@ function BeautifyExistingItemModal({
                         Wrinkle &amp; Light
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-muted">
-                      Reduces fabric wrinkles and lifts harsh shadows while
-                      strictly protecting logos, text, patterns, seams, and
-                      garment proportions.
-                    </p>
-                    <p className="mt-1.5 rounded-lg bg-surface-muted/80 px-2 py-1 text-[11px] text-muted">
-                      Uses <strong>ClearBackdrop / Remove BG</strong> segmentation &amp;{" "}
-                      <strong>AI Vision</strong> lighting calibration.
+                    <p className="mt-1 text-[11px] text-muted leading-relaxed">
+                      Smooths wrinkles &amp; lifts shadows while strictly protecting logos, text, patterns, and seams.
                     </p>
                   </button>
 
@@ -1511,14 +1715,14 @@ function BeautifyExistingItemModal({
                         void openRefineView();
                       }
                     }}
-                    className={`w-full rounded-xl border p-3 text-left transition ${
+                    className={`w-full rounded-xl border p-2.5 text-left transition ${
                       compareView === "refine"
                         ? "border-foreground bg-surface shadow-xs"
                         : "border-border bg-surface/60 hover:border-foreground/40"
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
                         <Paintbrush
                           className="size-3.5 text-accent"
                           aria-hidden
@@ -1529,10 +1733,35 @@ function BeautifyExistingItemModal({
                         Precision
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-muted">
-                      Erase lingering hanger hooks, clips, or thumbs. Restore
-                      clipped spaghetti straps and delicate lace directly from
-                      the original photo.
+                    <p className="mt-1 text-[11px] text-muted leading-relaxed">
+                      Erase lingering hanger hooks, clips, or thumbs. Restore clipped spaghetti straps directly.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => handleModeSwitch("catalog-flatlay")}
+                    className={`w-full rounded-xl border p-2.5 text-left transition ${
+                      mode === "catalog-flatlay"
+                        ? "border-accent bg-accent/5 ring-1 ring-accent shadow-xs"
+                        : "border-border bg-surface/60 hover:border-foreground/40"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                        <Sparkles
+                          className="size-3.5 text-accent"
+                          aria-hidden
+                        />
+                        ✨ 4. AI Catalog Flat-Lay
+                      </span>
+                      <span className="rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                        Limb Removal
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted leading-relaxed">
+                      ChatGPT-style inpainting: erases feet, socks &amp; hands; inpaints clean insoles/collars on studio white.
                     </p>
                   </button>
 
@@ -1548,7 +1777,7 @@ function BeautifyExistingItemModal({
                             : "slider",
                       )
                     }
-                    className="w-full rounded-xl border border-border bg-surface/60 p-2.5 text-left transition hover:border-foreground/40"
+                    className="w-full rounded-xl border border-border bg-surface/60 p-2 text-left transition hover:border-foreground/40"
                   >
                     <div className="flex items-center justify-between">
                       <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
@@ -1556,7 +1785,7 @@ function BeautifyExistingItemModal({
                           className="size-3.5 text-accent"
                           aria-hidden
                         />
-                        4. Compare (
+                        5. Compare (
                         {compareView === "slider"
                           ? "Split Slider"
                           : compareView === "side-by-side"
@@ -1676,8 +1905,8 @@ function BeautifyExistingItemModal({
               </div>
             </div>
 
-            {/* Footer Actions: Accept, Reject, Restore Original */}
-            <div className="space-y-2 border-t border-border pt-4">
+            {/* Footer Actions: Accept, Reject, Restore Original (Sticky at bottom of sidebar) */}
+            <div className="sticky bottom-0 -mx-3 sm:-mx-4 -mb-3 sm:-mb-4 px-3 sm:px-4 py-3 bg-surface/95 border-t border-border backdrop-blur-xs shadow-md space-y-2">
               <Button
                 type="button"
                 disabled={isBusy || status !== "ready" || !previewBlob}
@@ -1720,6 +1949,23 @@ function BeautifyExistingItemModal({
     </div>
   );
 
+  const renderedOutput = (
+    <>
+      {modalContent}
+      {isCropperOpen && sourceUrl && (
+        <ImageCropperModal
+          isOpen={isCropperOpen}
+          imageUrl={sourceUrl}
+          onClose={() => setIsCropperOpen(false)}
+          onApply={(res) => {
+            void handleApplyTransformedImage(res);
+          }}
+          title="Rotate & Crop Garment"
+        />
+      )}
+    </>
+  );
+
   if (typeof document === "undefined") return null;
-  return createPortal(modalContent, document.body);
+  return createPortal(renderedOutput, document.body);
 }

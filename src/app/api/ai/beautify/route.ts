@@ -13,11 +13,19 @@ import {
 } from "@/lib/wardrobe/enhancement-service";
 import { WARDROBE_BUCKET } from "@/lib/wardrobe/queries";
 
-const requestSchema = z.object({
-  path: z.string().min(1).max(300),
-  mode: z.enum(["clean-cutout", "ai-enhance"]).optional().default("clean-cutout"),
-  skipSegmentation: z.boolean().optional().default(false),
-});
+const requestSchema = z
+  .object({
+    path: z.string().min(1).max(300).optional(),
+    imageDataUrl: z.string().optional(),
+    mode: z
+      .enum(["clean-cutout", "ai-enhance", "catalog-flatlay"])
+      .optional()
+      .default("clean-cutout"),
+    skipSegmentation: z.boolean().optional().default(false),
+  })
+  .refine((data) => Boolean(data.path || data.imageDataUrl), {
+    message: "Either path or imageDataUrl must be provided.",
+  });
 
 const json = (body: Record<string, unknown>, status = 200) =>
   NextResponse.json(body, {
@@ -49,11 +57,14 @@ export async function POST(request: NextRequest) {
     const parsed = requestSchema.safeParse(
       await request.json().catch(() => null),
     );
-    if (!parsed.success || !isOwnStoragePath(parsed.data.path, user.id)) {
+    if (!parsed.success) {
+      return json({ error: "Invalid photo reference." }, 400);
+    }
+    if (parsed.data.path && !isOwnStoragePath(parsed.data.path, user.id)) {
       return json({ error: "Invalid photo reference." }, 400);
     }
 
-    const { path, mode, skipSegmentation } = parsed.data;
+    const { path, imageDataUrl, mode, skipSegmentation } = parsed.data;
 
     const supabase = await createClient();
     const quota = await takeAiQuota(supabase, user.id, "ANALYSE_IMAGE");
@@ -69,34 +80,67 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const { data: blob, error: downloadError } = await supabase.storage
-      .from(WARDROBE_BUCKET)
-      .download(path);
+    let bytes: Uint8Array;
+    let mimeType: "image/jpeg" | "image/png" | "image/webp";
+    let extension: "jpg" | "png" | "webp";
 
-    if (downloadError || !blob) {
-      return json({ error: "We couldn't find that photo." }, 404);
-    }
+    if (imageDataUrl) {
+      const match = imageDataUrl.match(/^data:(image\/(jpeg|png|webp));base64,(.+)$/i);
+      if (!match) {
+        return json({ error: "Unsupported image data URL format." }, 400);
+      }
+      const rawBuf = Buffer.from(match[3], "base64");
+      if (rawBuf.byteLength === 0 || rawBuf.byteLength > MAX_UPLOAD_BYTES) {
+        return json(
+          { error: "Image exceeds the 4 MB processing limit." },
+          413,
+        );
+      }
+      const candidateBytes = new Uint8Array(rawBuf.buffer, rawBuf.byteOffset, rawBuf.byteLength);
+      const kind = sniffImage(candidateBytes);
+      if (!kind) {
+        return json(
+          { error: "Unsupported or malformed image file." },
+          415,
+        );
+      }
+      bytes = candidateBytes;
+      mimeType = kind.mimeType;
+      extension = kind.extension;
+    } else if (path) {
+      const { data: blob, error: downloadError } = await supabase.storage
+        .from(WARDROBE_BUCKET)
+        .download(path);
 
-    if (blob.size === 0 || blob.size > MAX_UPLOAD_BYTES) {
-      return json(
-        { error: "Image exceeds the 4 MB processing limit." },
-        413,
-      );
-    }
+      if (downloadError || !blob) {
+        return json({ error: "We couldn't find that photo." }, 404);
+      }
 
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const kind = sniffImage(bytes);
-    if (!kind) {
-      return json(
-        { error: "Unsupported or malformed image file." },
-        415,
-      );
+      if (blob.size === 0 || blob.size > MAX_UPLOAD_BYTES) {
+        return json(
+          { error: "Image exceeds the 4 MB processing limit." },
+          413,
+        );
+      }
+
+      bytes = new Uint8Array(await blob.arrayBuffer());
+      const kind = sniffImage(bytes);
+      if (!kind) {
+        return json(
+          { error: "Unsupported or malformed image file." },
+          415,
+        );
+      }
+      mimeType = kind.mimeType;
+      extension = kind.extension;
+    } else {
+      return json({ error: "No image source provided." }, 400);
     }
 
     const serviceResult = await runGarmentEnhancementService({
       bytes,
-      mimeType: kind.mimeType,
-      extension: kind.extension,
+      mimeType,
+      extension,
       mode,
       skipSegmentation,
       signal: request.signal,

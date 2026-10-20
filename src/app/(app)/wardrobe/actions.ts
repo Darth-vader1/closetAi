@@ -417,9 +417,12 @@ export async function saveBeautifiedImageAction(
   const parsed = saveBeautifiedImageSchema.safeParse(input);
   if (!parsed.success) return fail("Invalid beautified image data.");
 
-  const { beautifiedPath, mode, provider, model } = parsed.data;
+  const { beautifiedPath, originalPath, mode, provider, model } = parsed.data;
   if (!isOwnStoragePath(beautifiedPath, user.id)) {
     return fail("Unauthorized image storage path.");
+  }
+  if (originalPath && !isOwnStoragePath(originalPath, user.id)) {
+    return fail("Unauthorized original image storage path.");
   }
 
   const supabase = await createClient();
@@ -433,7 +436,7 @@ export async function saveBeautifiedImageAction(
   }
 
   const previousBeautified = item.beautifiedImagePath ?? null;
-  const preservedOriginal = item.originalImagePath ?? item.imagePath;
+  const preservedOriginal = originalPath ?? (item.originalImagePath ?? item.imagePath);
   const resolvedProvider = provider ?? "local-studio";
   const resolvedModel = model ?? "closetai-cv-v2";
   const nowIso = new Date().toISOString();

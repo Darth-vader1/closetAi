@@ -73,6 +73,7 @@ export const createItemSchema = itemFieldsSchema.extend({
 
 export const saveBeautifiedImageSchema = z.object({
   beautifiedPath: z.string().min(1).max(300),
+  originalPath: z.string().min(1).max(300).optional(),
   mode: beautificationModeSchema,
   provider: z.string().max(64).nullable().optional(),
   model: z.string().max(120).nullable().optional(),

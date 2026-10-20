@@ -806,5 +806,53 @@ describe("Product Studio Garment Beautification Engine (Phase 6 Comprehensive Su
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("20. AI Catalog Flat-Lay mode: pipeline processes catalog-flatlay mode cleanly", async () => {
+    const { processGarmentBuffer } = await import(
+      "@/lib/wardrobe/beautify-engine"
+    );
+
+    const w = 64;
+    const h = 64;
+    const buf = createCanvasRgba(w, h, [0, 0, 0, 0]);
+    // Draw a small shoe silhouette in center
+    drawRect(buf, w, 20, 20, 44, 44, [140, 80, 40, 255]);
+
+    const res = processGarmentBuffer(buf, w, h, {
+      mode: "catalog-flatlay",
+      targetCanvasSize: 256,
+    });
+
+    expect(res.modeUsed).toBe("catalog-flatlay");
+    expect(res.width).toBe(256);
+    expect(res.height).toBe(256);
+  });
+
+  it("21. Garment enhancement service in catalog-flatlay mode: returns generative inpainting or clean cutout fallback", async () => {
+    const { runGarmentEnhancementService } = await import(
+      "@/lib/wardrobe/enhancement-service"
+    );
+
+    const tinyPngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+
+    const res = await runGarmentEnhancementService({
+      bytes: tinyPngBytes,
+      mimeType: "image/png",
+      extension: "png",
+      mode: "catalog-flatlay",
+      skipSegmentation: true,
+    });
+
+    expect(res).toBeDefined();
+    expect(["ok", "fallback"]).toContain(res.status);
+    expect(res.params).toBeDefined();
+  });
 });
 

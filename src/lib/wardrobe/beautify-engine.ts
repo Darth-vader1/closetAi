@@ -1,6 +1,9 @@
 import { categoryGroup, type CategoryGroup } from "@/lib/wardrobe/categories";
 
-export type BeautificationMode = "clean-cutout" | "ai-enhance";
+export type BeautificationMode =
+  | "clean-cutout"
+  | "ai-enhance"
+  | "catalog-flatlay";
 
 export type BeautifyBackgroundStyle =
   | "white"
@@ -1739,8 +1742,8 @@ export function processGarmentBuffer(
   const protectedDetailRatio = protectionAnalysis.protectedDetailRatio;
   let wrinkleVarianceReductionRatio = 0;
 
-  // STEP E (Optional Mode 2): Conservative AI/Photometric Enhancement on the clean cutout
-  let modeUsed: BeautificationMode = "clean-cutout";
+  // STEP E (Optional Mode 2 & Mode 3): AI Enhancement / Catalog Flat-Lay
+  let modeUsed: BeautificationMode = requestedMode === "catalog-flatlay" ? "catalog-flatlay" : "clean-cutout";
   let aiFallbackUsed = false;
 
   if (requestedMode === "ai-enhance") {

@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { getAiProvider } from "@/lib/ai/service";
+import { generateStudioCatalogFlatLay } from "@/lib/ai/studio-flatlay-generator";
 import {
   getClearBackdropApiKey,
   getClipDropApiKey,
@@ -31,6 +32,10 @@ export type BeautificationProviderId =
   | "clipdrop+gemini"
   | "clipdrop+groq"
   | "clipdrop+mistral"
+  | "gemini+mistral-flux"
+  | "groq+mistral-flux"
+  | "mistral+mistral-flux"
+  | "mistral-flux"
   | "gemini"
   | "groq"
   | "mistral"
@@ -41,6 +46,7 @@ export interface GarmentEnhancementRequest {
   mimeType: string;
   extension: string;
   mode: BeautificationMode;
+  category?: string | null;
   skipSegmentation?: boolean;
   usePhotoRoomRelighting?: boolean;
   signal?: AbortSignal;
@@ -619,6 +625,36 @@ export async function runGarmentEnhancementService(
   let segmentationModel = "closetai-cv-v2";
   let fallbackReason: string | null = null;
 
+  // Generative AI Mode: Catalog Flat-Lay (ChatGPT-style inpainting / limb removal)
+  if (req.mode === "catalog-flatlay") {
+    try {
+      const flatLayResult = await generateStudioCatalogFlatLay({
+        bytes: req.bytes,
+        mimeType: req.mimeType,
+        category: req.category,
+        signal: req.signal,
+      });
+
+      if (flatLayResult.ok && flatLayResult.base64Image) {
+        return {
+          status: "ok",
+          provider: (flatLayResult.provider as BeautificationProviderId) ?? "mistral-flux",
+          model: flatLayResult.model ?? "mistral-medium-2505+flux-1.1-pro-ultra",
+          cutoutDataUrl: flatLayResult.base64Image,
+          params: DEFAULT_ENHANCEMENT_PARAMS,
+          reason: null,
+        };
+      }
+      fallbackReason =
+        flatLayResult.error ??
+        "Catalog flat-lay generator busy; falling back to clean cutout.";
+    } catch (err) {
+      logger.warn("ai.catalog_flatlay_failed", { err });
+      fallbackReason =
+        "Catalog flat-lay generator busy; falling back to clean cutout.";
+    }
+  }
+
   if (!req.skipSegmentation) {
     // Tier 1: Try official Remove.bg if configured
     const removeBgKey = getRemoveBgApiKey();
@@ -718,8 +754,8 @@ export async function runGarmentEnhancementService(
     }
   }
 
-  // Mode 1: Clean Cutout
-  if (req.mode === "clean-cutout") {
+  // Mode 1: Clean Cutout (or fallback from Mode 3 Catalog Flat-Lay)
+  if (req.mode === "clean-cutout" || req.mode === "catalog-flatlay") {
     return {
       status: activeSegmentationProvider ? "ok" : "fallback",
       provider: activeSegmentationProvider ?? "local-studio",

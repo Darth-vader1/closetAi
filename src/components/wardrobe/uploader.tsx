@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, CheckCircle2, CheckSquare, Globe, ImagePlus, Layers, Loader2, RefreshCw, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { Camera, CheckCircle2, CheckSquare, Crop, Globe, ImagePlus, Layers, Loader2, RefreshCw, RotateCcw, RotateCw, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { discardUploadAction, saveItemAction } from "@/app/(app)/wardrobe/actions";
 import type { ClothingSuggestion, DetectedClothingItem } from "@/lib/ai/schemas";
 import { Button } from "@/components/ui/button";
 import { Alert, Card } from "@/components/ui/card";
+import { ImageCropperModal } from "@/components/wardrobe/image-cropper-modal";
 import { emptyItemValues, ItemFieldsForm } from "@/components/wardrobe/item-fields";
 import { MultiItemCard } from "@/components/wardrobe/multi-item-card";
 import {
@@ -27,6 +28,10 @@ import type {
   BeautificationMode,
 } from "@/lib/wardrobe/beautify-engine";
 import { cropGarmentFromImage } from "@/lib/wardrobe/crop-items";
+import {
+  rotateImage,
+  type TransformedImageResult,
+} from "@/lib/wardrobe/image-transform-client";
 import { beautifyGarmentImage } from "@/lib/wardrobe/studio-canvas";
 import {
   analysePhoto,
@@ -771,6 +776,64 @@ export function WardrobeUploader({
     [patch],
   );
 
+  const [cropperEntry, setCropperEntry] = useState<Entry | null>(null);
+
+  const applyTransformedImageToEntry = useCallback(
+    async (entry: Entry, res: TransformedImageResult) => {
+      patch(entry.id, {
+        previewUrl: res.url,
+        originalPreviewUrl: res.url,
+        stage: "review",
+      });
+
+      const controller = new AbortController();
+      let newUploadedPath: string | null = null;
+      try {
+        newUploadedPath = await uploadPhoto(res.blob, {
+          signal: controller.signal,
+          onProgress: () => {},
+        });
+      } catch (err) {
+        console.error("Failed to upload transformed image:", err);
+      }
+
+      patch(entry.id, {
+        path: newUploadedPath ?? entry.path,
+        originalPath: newUploadedPath ?? entry.originalPath,
+        photoRoomCutoutDataUrl: null,
+        beautifiedPath: null,
+        beautifiedPreviewUrl: undefined,
+        isCutout: false,
+      });
+
+      if (entry.isCutout && entry.beautifyMode && newUploadedPath) {
+        const updatedEntry: Entry = {
+          ...entry,
+          previewUrl: res.url,
+          originalPreviewUrl: res.url,
+          path: newUploadedPath,
+          originalPath: newUploadedPath,
+          photoRoomCutoutDataUrl: null,
+        };
+        await runBeautifyOnEntry(updatedEntry, entry.beautifyMode);
+      }
+    },
+    [patch, runBeautifyOnEntry],
+  );
+
+  const handleRotateEntry = useCallback(
+    async (entry: Entry, degrees: 90 | -90) => {
+      const source = entry.originalPreviewUrl ?? entry.previewUrl;
+      try {
+        const res = await rotateImage(source, degrees);
+        await applyTransformedImageToEntry(entry, res);
+      } catch (err) {
+        console.error("Failed to rotate entry image:", err);
+      }
+    },
+    [applyTransformedImageToEntry],
+  );
+
   const handleStoreImportReady = useCallback(
     (payload: ImportedEntryPayload) => {
       const id = crypto.randomUUID();
@@ -1117,6 +1180,8 @@ export function WardrobeUploader({
               onRetry={retry}
               onSave={save}
               onBeautify={runBeautifyOnEntry}
+              onRotate={handleRotateEntry}
+              onOpenCropper={(e) => setCropperEntry(e)}
               onAnalyse={(e) => {
                 if (!e.path) return;
                 const fresh = new AbortController();
@@ -1132,6 +1197,19 @@ export function WardrobeUploader({
           </li>
         ))}
       </ul>
+
+      {cropperEntry && (
+        <ImageCropperModal
+          isOpen={Boolean(cropperEntry)}
+          imageUrl={cropperEntry.originalPreviewUrl ?? cropperEntry.previewUrl}
+          onClose={() => setCropperEntry(null)}
+          onApply={(res) => {
+            void applyTransformedImageToEntry(cropperEntry, res);
+            setCropperEntry(null);
+          }}
+          title={`Rotate & Crop: ${cropperEntry.file.name}`}
+        />
+      )}
     </div>
   );
 }
@@ -1147,6 +1225,8 @@ function EntryCard({
   onImportMultiItems,
   onDismissMulti,
   onBeautify,
+  onRotate,
+  onOpenCropper,
   registerSubmitter,
   unregisterSubmitter,
 }: {
@@ -1160,6 +1240,8 @@ function EntryCard({
   onImportMultiItems: (entry: Entry, selected: DetectedClothingItem[]) => void;
   onDismissMulti: (id: string) => void;
   onBeautify: (entry: Entry, mode: BeautificationMode) => void;
+  onRotate: (entry: Entry, degrees: 90 | -90) => void;
+  onOpenCropper: (entry: Entry) => void;
   registerSubmitter: (id: string, fn: () => Promise<boolean>) => void;
   unregisterSubmitter: (id: string) => void;
 }) {
@@ -1200,9 +1282,42 @@ function EntryCard({
             </span>
           ) : null}
 
-          {/* Beautify Image Controls (Mode 1: Clean Cutout & Mode 2: AI Enhance) */}
+          {/* Rotate & Crop and Beautify Image Controls */}
           {entry.stage === "review" ? (
             <div className="mt-2.5 space-y-1.5">
+              <div className="flex items-center justify-between gap-1 rounded-lg border border-border/80 bg-surface-muted/60 p-1">
+                <button
+                  type="button"
+                  title="Rotate 90° counter-clockwise"
+                  onClick={() => onRotate(entry, -90)}
+                  disabled={entry.processingCutout}
+                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11px] font-medium text-muted hover:bg-surface hover:text-foreground transition disabled:opacity-40"
+                >
+                  <RotateCcw className="size-3" aria-hidden />
+                  <span>-90°</span>
+                </button>
+                <button
+                  type="button"
+                  title="Rotate 90° clockwise"
+                  onClick={() => onRotate(entry, 90)}
+                  disabled={entry.processingCutout}
+                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11px] font-medium text-muted hover:bg-surface hover:text-foreground transition disabled:opacity-40"
+                >
+                  <RotateCw className="size-3" aria-hidden />
+                  <span>+90°</span>
+                </button>
+                <button
+                  type="button"
+                  title="Rotate & Crop garment bounds"
+                  onClick={() => onOpenCropper(entry)}
+                  disabled={entry.processingCutout}
+                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-md py-1 text-[11px] font-medium text-muted hover:bg-surface hover:text-foreground transition disabled:opacity-40"
+                >
+                  <Crop className="size-3 text-accent" aria-hidden />
+                  <span>Crop</span>
+                </button>
+              </div>
+
               <p className="rounded-lg border border-border/70 bg-surface-muted/60 px-2 py-1 text-[10px] leading-snug text-muted">
                 <strong>Studio Processing:</strong> Automatically isolates garment, centers on white canvas, and balances lighting. Original photo is preserved.
               </p>
