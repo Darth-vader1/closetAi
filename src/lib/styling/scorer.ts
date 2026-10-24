@@ -81,14 +81,22 @@ export function scoreOutfit(
   const accessories = profiles.filter((p) => p.role === "accessory");
 
   // 1. Occasion & dress-code suitability (0..20)
+  const wantsSporty =
+    ctx.constraints.dressCode === "athletic" ||
+    (ctx.constraints.styles.includes("sporty") && !ctx.constraints.styles.includes("smart_casual"));
+
   let occasionScore = 14;
   const targetOccasion = ctx.constraints.occasion;
   if (targetOccasion) {
-    const matches = core.filter((p) => p.item.occasions.includes(targetOccasion)).length;
+    const matches = core.filter(
+      (p) =>
+        p.item.occasions.includes(targetOccasion) ||
+        (wantsSporty && (p.athletic || p.item.occasions.includes("sport"))),
+    ).length;
     const ratio = core.length > 0 ? matches / core.length : 0;
     occasionScore = 8 + Math.round(ratio * 12);
   }
-  const [minF, maxF] = TARGET_FORMALITY[ctx.constraints.dressCode];
+  const [minF, maxF] = wantsSporty ? TARGET_FORMALITY.athletic : TARGET_FORMALITY[ctx.constraints.dressCode];
   const avgFormality = core.reduce((s, p) => s + p.formality, 0) / Math.max(1, core.length);
   if (avgFormality >= minF && avgFormality <= maxF) {
     occasionScore += 2;
@@ -107,6 +115,13 @@ export function scoreOutfit(
     if (tops[0].athletic !== bottom.athletic && !ctx.constraints.styles.includes("streetwear")) {
       compatibilityScore -= 3;
     }
+    if (wantsSporty) {
+      if (bottom.athletic || ["joggers", "athletic_shorts", "leggings"].includes(bottom.type)) {
+        compatibilityScore += 2;
+      } else {
+        compatibilityScore -= 4;
+      }
+    }
   }
   if (onepiece && ctx.constraints.dressCode === "traditional" && onepiece.type === "traditional_set") {
     compatibilityScore += 2;
@@ -123,7 +138,11 @@ export function scoreOutfit(
     ...(ctx.feedback?.userPreferredStyles ?? []),
   ]);
   if (desiredStyles.size > 0) {
-    const styleHits = core.filter((p) => p.item.style && desiredStyles.has(p.item.style)).length;
+    const styleHits = core.filter(
+      (p) =>
+        (p.item.style && desiredStyles.has(p.item.style)) ||
+        (desiredStyles.has("sporty") && (p.athletic || p.item.occasions.includes("sport"))),
+    ).length;
     styleScore = 6 + Math.min(9, styleHits * 3);
   }
   if (ctx.constraints.simple) {

@@ -44,6 +44,34 @@ export interface PipelineInput {
   limit?: number;
 }
 
+function garmentAffinity(p: GarmentProfile, constraints: StylingConstraints): number {
+  let s = 0;
+  const wantsSporty =
+    constraints.dressCode === "athletic" ||
+    (constraints.styles.includes("sporty") && !constraints.styles.includes("smart_casual"));
+
+  if (constraints.anchorGroups.some((g) => g.includes(p.id))) s += 100;
+  if (wantsSporty) {
+    if (p.athletic) s += 30;
+    if (p.item.occasions.includes("sport")) s += 20;
+    if (["joggers", "athletic_shorts", "leggings", "athletic_top", "sneakers", "track_jacket", "windbreaker"].includes(p.type)) {
+      s += 15;
+    }
+    if (["generic_trousers", "chinos", "tailored_trousers", "jeans", "shirt", "dress_shirt", "loafers", "dress_shoes"].includes(p.type) && !p.athletic) {
+      s -= 40;
+    }
+  }
+  if (constraints.occasion && p.item.occasions.includes(constraints.occasion)) s += 15;
+  if (p.item.style && constraints.styles.includes(p.item.style)) s += 12;
+  if (p.colour && (constraints.requiredColours.includes(p.colour) || constraints.preferredColours.includes(p.colour))) {
+    s += 10;
+  }
+  if (constraints.palette?.mode === "single" && p.colour === constraints.palette.colours[0]) {
+    s += 25;
+  }
+  return s;
+}
+
 /** Deterministic candidate generator that constructs plausible outfits before validation. */
 export function buildDeterministicCandidates(
   eligibleProfiles: GarmentProfile[],
@@ -57,14 +85,21 @@ export function buildDeterministicCandidates(
     return true;
   });
 
-  const tops = usable.filter((p) => p.role === "top" && !p.layering);
-  const layeringTops = usable.filter((p) => p.role === "top" && p.layering);
-  const allTops = [...tops, ...layeringTops];
-  const bottoms = usable.filter((p) => p.role === "bottom");
-  const onepieces = usable.filter((p) => p.role === "onepiece");
-  const shoes = usable.filter((p) => p.role === "shoes");
-  const outers = usable.filter((p) => p.role === "outer");
+  const byAffinity = (a: GarmentProfile, b: GarmentProfile) =>
+    garmentAffinity(b, constraints) - garmentAffinity(a, constraints);
+
+  const tops = usable.filter((p) => p.role === "top" && !p.layering).sort(byAffinity);
+  const layeringTops = usable.filter((p) => p.role === "top" && p.layering).sort(byAffinity);
+  const allTops = [...tops, ...layeringTops].sort(byAffinity);
+  const bottoms = usable.filter((p) => p.role === "bottom").sort(byAffinity);
+  const onepieces = usable.filter((p) => p.role === "onepiece").sort(byAffinity);
+  const shoes = usable.filter((p) => p.role === "shoes").sort(byAffinity);
+  const outers = usable.filter((p) => p.role === "outer").sort(byAffinity);
   const accessories = usable.filter((p) => p.role === "accessory");
+
+  const wantsSporty =
+    constraints.dressCode === "athletic" ||
+    (constraints.styles.includes("sporty") && !constraints.styles.includes("smart_casual"));
 
   const proposals: ProposedOutfit[] = [];
 
@@ -74,8 +109,12 @@ export function buildDeterministicCandidates(
     if (shoe) ids.push(shoe.id);
     if (outer) ids.push(outer.id);
 
-    // Optional belt only when bottom supports belts and belt matches shoe/neutral
-    if (!["joggers", "leggings", "athletic_shorts", "shorts", "jorts"].includes(bottom.type)) {
+    // Optional belt only when not sporty/athletic and bottom supports belts and belt matches shoe/neutral
+    if (
+      !wantsSporty &&
+      !bottom.athletic &&
+      !["joggers", "leggings", "athletic_shorts", "shorts", "jorts"].includes(bottom.type)
+    ) {
       const belt = accessories.find(
         (a) => a.type === "belt" && (!shoe?.colour || !a.colour || a.colour === shoe.colour),
       );
@@ -83,7 +122,9 @@ export function buildDeterministicCandidates(
     }
 
     const name = `${top.item.name} & ${bottom.item.name}`;
-    const styleDesc = top.item.style
+    const styleDesc = wantsSporty
+      ? "Athletic streetwear ensemble"
+      : top.item.style
       ? `${top.item.style.replace(/_/g, " ")} ensemble`
       : "Coordinated everyday look";
     const tip =
@@ -95,7 +136,7 @@ export function buildDeterministicCandidates(
 
     proposals.push({
       name,
-      occasion: constraints.occasion ?? undefined,
+      occasion: wantsSporty ? "sport" : constraints.occasion ?? undefined,
       itemIds: ids,
       styleDescription: styleDesc,
       stylingTip: tip,
@@ -354,10 +395,14 @@ export function runStylingPipeline(input: PipelineInput): PipelineResult {
 
   const seenComboKeys = new Set<string>();
 
+  const eligibleShoes = eligibleProfiles
+    .filter((p) => p.role === "shoes" && isReliable(p))
+    .sort((a, b) => garmentAffinity(b, constraints) - garmentAffinity(a, constraints));
+
   for (const cand of allCandidates) {
     // Deduplicate identical item combinations
-    const dedupIds = [...new Set(cand.itemIds)];
-    const comboKey = [...dedupIds].sort().join("|");
+    let dedupIds = [...new Set(cand.itemIds)];
+    let comboKey = [...dedupIds].sort().join("|");
     if (seenComboKeys.has(comboKey)) continue;
 
     // Exclude recently worn/recommended combinations when avoidRepeatDays or wantsDifferent is set
@@ -374,7 +419,27 @@ export function runStylingPipeline(input: PipelineInput): PipelineResult {
       continue;
     }
 
-    const v = validateOutfit(dedupIds, valCtx, profilesById);
+    let v = validateOutfit(dedupIds, valCtx, profilesById);
+    // If an AI proposal omitted footwear but all its other garments are valid, try completing with an eligible shoe
+    if (
+      !v.ok &&
+      cand.source === "ai" &&
+      v.hard.length === 1 &&
+      v.hard[0].code === "MISSING_FOOTWEAR" &&
+      eligibleShoes.length > 0
+    ) {
+      for (const shoe of eligibleShoes) {
+        const candidateWithShoe = [...dedupIds, shoe.id];
+        const vWithShoe = validateOutfit(candidateWithShoe, valCtx, profilesById);
+        if (vWithShoe.ok) {
+          dedupIds = candidateWithShoe;
+          comboKey = [...dedupIds].sort().join("|");
+          v = vWithShoe;
+          break;
+        }
+      }
+    }
+
     if (!v.ok) {
       rejected.push({
         source: cand.source,
@@ -384,6 +449,7 @@ export function runStylingPipeline(input: PipelineInput): PipelineResult {
       continue;
     }
 
+    if (seenComboKeys.has(comboKey)) continue;
     seenComboKeys.add(comboKey);
     const profiles = dedupIds.map((id) => profilesById.get(id)!).filter(Boolean);
     const scored = scoreOutfit(profiles, v.archetype, v.warnings, {
@@ -399,60 +465,90 @@ export function runStylingPipeline(input: PipelineInput): PipelineResult {
     });
   }
 
-  // Sort by score descending (with a slight tie-breaker for AI explanations when scores are within 2 points)
+  // Sort by score descending (with a tie-breaker for validated AI proposals when scores are within 6 points)
   validCandidates.sort((a, b) => {
     const diff = b.scored.score - a.scored.score;
-    if (Math.abs(diff) <= 2 && a.proposal.source !== b.proposal.source) {
+    if (Math.abs(diff) <= 6 && a.proposal.source !== b.proposal.source) {
       return a.proposal.source === "ai" ? -1 : 1;
     }
     return diff;
   });
 
-  // Diversity ranking: avoid returning 3 outfits that share the exact same top+bottom pair
+  // Diversity ranking: prefer distinct primary tops and bottoms across the returned looks when alternatives exist
   const selected: FinalOutfit[] = [];
+  const selectedComboKeys = new Set<string>();
   const usedCorePairs = new Set<string>();
+  const usedTops = new Set<string>();
+  const usedBottoms = new Set<string>();
 
-  for (const entry of validCandidates) {
+  const distinctTopsCount = new Set(
+    validCandidates.map((c) => c.profiles.find((p) => p.role === "top")?.id).filter(Boolean),
+  ).size;
+  const distinctBottomsCount = new Set(
+    validCandidates.map((c) => c.profiles.find((p) => p.role === "bottom")?.id).filter(Boolean),
+  ).size;
+
+  for (const pass of ["strict_diversity", "pair_diversity"] as const) {
     if (selected.length >= limit) break;
+    for (const entry of validCandidates) {
+      if (selected.length >= limit) break;
 
-    const coreIds = entry.profiles
-      .filter((p) => p.role === "top" || p.role === "bottom" || p.role === "onepiece")
-      .map((p) => p.id)
-      .sort()
-      .join("|");
+      const entryComboKey = [...entry.proposal.itemIds].sort().join("|");
+      if (selectedComboKeys.has(entryComboKey)) continue;
 
-    if (usedCorePairs.has(coreIds) && validCandidates.length > limit) {
-      continue;
-    }
+      const coreIds = entry.profiles
+        .filter((p) => p.role === "top" || p.role === "bottom" || p.role === "onepiece")
+        .map((p) => p.id)
+        .sort()
+        .join("|");
 
-    // Final validation gate (Step 14 of Phase 8)
-    const finalCheck = validateOutfit(entry.proposal.itemIds, valCtx, profilesById);
-    if (!finalCheck.ok) {
-      rejected.push({
-        source: entry.proposal.source,
-        codes: finalCheck.hard.map((h) => h.code),
-        messages: finalCheck.hard.map((h) => h.message),
+      if (usedCorePairs.has(coreIds) && validCandidates.length > limit) {
+        continue;
+      }
+
+      const primaryTopId = entry.profiles.find((p) => p.role === "top")?.id;
+      const primaryBottomId = entry.profiles.find((p) => p.role === "bottom")?.id;
+
+      if (pass === "strict_diversity") {
+        if (primaryTopId && usedTops.has(primaryTopId) && distinctTopsCount >= limit) continue;
+        if (primaryBottomId && usedBottoms.has(primaryBottomId) && distinctBottomsCount >= limit) continue;
+      }
+
+      // Final validation gate (Step 14 of Phase 8)
+      const finalCheck = validateOutfit(entry.proposal.itemIds, valCtx, profilesById);
+      if (!finalCheck.ok) {
+        if (pass === "strict_diversity") {
+          rejected.push({
+            source: entry.proposal.source,
+            codes: finalCheck.hard.map((h) => h.code),
+            messages: finalCheck.hard.map((h) => h.message),
+          });
+        }
+        continue;
+      }
+
+      selectedComboKeys.add(entryComboKey);
+      usedCorePairs.add(coreIds);
+      if (primaryTopId) usedTops.add(primaryTopId);
+      if (primaryBottomId) usedBottoms.add(primaryBottomId);
+
+      const factExplanation = buildFactExplanation(entry.profiles, entry.scored.archetype, constraints);
+      const explanation =
+        entry.proposal.source === "ai"
+          ? sanitiseExplanation(entry.proposal.explanation, entry.profiles, entry.scored.archetype, constraints)
+          : factExplanation;
+
+      selected.push({
+        ...entry.proposal,
+        explanation,
+        archetype: entry.scored.archetype,
+        score: entry.scored.score,
+        breakdown: entry.scored.breakdown,
+        warnings: entry.scored.warnings,
+        factExplanation,
+        caveat: buildCaveat(entry.scored.warnings),
       });
-      continue;
     }
-
-    usedCorePairs.add(coreIds);
-    const factExplanation = buildFactExplanation(entry.profiles, entry.scored.archetype, constraints);
-    const explanation =
-      entry.proposal.source === "ai"
-        ? sanitiseExplanation(entry.proposal.explanation, entry.profiles, entry.scored.archetype, constraints)
-        : factExplanation;
-
-    selected.push({
-      ...entry.proposal,
-      explanation,
-      archetype: entry.scored.archetype,
-      score: entry.scored.score,
-      breakdown: entry.scored.breakdown,
-      warnings: entry.scored.warnings,
-      factExplanation,
-      caveat: buildCaveat(entry.scored.warnings),
-    });
   }
 
   const fallback =

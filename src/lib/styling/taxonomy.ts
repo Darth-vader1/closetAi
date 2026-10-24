@@ -96,8 +96,9 @@ export const TYPE_DEFS: Record<GarmentType, TypeDef> = {
 const TEXT_RULES: Array<[GarmentType, RegExp]> = [
   ["underwear", /\b(underwear|boxers?|briefs?|panties|bras?|lingerie|singlet)\b/],
   ["socks", /\bsocks?\b/],
+  ["athletic_shorts", /\b(gym|athletic|running|training|sport|basketball|football|workout|track|sweat|drawstring|elastic[- ]?waist) (?:shorts?|jorts?)\b/],
   ["jorts", /\bjorts?\b|\bdenim shorts?\b/],
-  ["athletic_shorts", /\b(gym|athletic|running|training|sport|basketball|football|workout|track) shorts?\b/],
+  ["shorts", /\bcargo shorts?\b/],
   ["dress_shirt", /\b(dress|formal|button[- ]?(?:up|down)|oxford|tuxedo) shirts?\b|\bbutton[- ]?(?:up|down)\b/],
   ["dress_shoes", /\b(dress shoes?|oxfords?|derbys?|brogues?|monk straps?|formal shoes?)\b/],
   ["track_jacket", /\b(track|training|bomber track) jackets?\b/],
@@ -112,13 +113,13 @@ const TEXT_RULES: Array<[GarmentType, RegExp]> = [
   ["romper", /\brompers?\b|\bplaysuits?\b/],
   ["dress", /\b(dress|gown|sundress|maxi|midi dress)\b/],
   ["leggings", /\bleggings?\b|\byoga pants\b|\btights\b/],
-  ["joggers", /\b(joggers?|sweat ?pants|track ?pants|track bottoms|trackies|jogging bottoms)\b/],
+  ["joggers", /\b(joggers?|sweat ?pants|track ?pants|track bottoms|trackies|jogging bottoms)\b|\b(elastic[- ]?waist|drawstring|drawing strings?)\b.*\b(trousers?|pants?|bottoms?)\b|\b(trousers?|pants?|bottoms?)\b.*\b(elastic[- ]?waist|drawstring|drawing strings?)\b/],
   ["cargo_pants", /\bcargo(?:s| pants| trousers)?\b/],
   ["chinos", /\bchinos?\b|\bkhakis?\b/],
   ["tailored_trousers", /\b(tailored|dress|formal|suit|pleated|slacks?|office) (pants|trousers)\b|\bslacks\b/],
   ["jeans", /\bjeans?\b|\bdenim (pants|trousers)\b/],
   ["capri_pants", /\bcapri/],
-  ["shorts", /\bshorts?\b|\bbermudas?\b/],
+  ["shorts", /\bshorts\b|\bbermudas?\b/],
   ["skirt", /\bskirts?\b|\bskort\b/],
   ["loafers", /\bloafers?\b|\bmoccasins?\b/],
   ["heels", /\b(heels?|pumps?|stilettos?|wedges?|platforms?)\b/],
@@ -135,8 +136,8 @@ const TEXT_RULES: Array<[GarmentType, RegExp]> = [
   ["tank_top", /\b(tank tops?|tanks?|vests?|camisoles?|sleeveless)\b/],
   ["crop_top", /\bcrop(?:ped)? (top|tee|t-shirt)s?\b|\bbralette\b/],
   ["athletic_top", /\b(jerseys?|gym (tee|top|shirt)s?|athletic (tee|top|shirt)s?|performance (tee|top|shirt)s?|dri-?fit|sports bra|compression|workout (top|tee|shirt))\b/],
-  ["t_shirt", /\b(t-?shirts?|tees?|tee-shirts?)\b/],
-  ["shirt", /\b(shirts?|henley)\b/],
+  ["t_shirt", /\b(t-?shirts?|tees?|tee-shirts?|henley)\b/],
+  ["shirt", /\bshirts?\b/],
   ["belt", /\bbelts?\b/],
   ["watch", /\bwatch(?:es)?\b/],
   ["bag", /\b(bags?|backpacks?|handbags?|clutch|tote|satchel|crossbody|purse|briefcase)\b/],
@@ -214,9 +215,14 @@ function text(item: WardrobeItem): string {
   return `${item.name ?? ""} ${item.subcategory ?? ""}`.toLowerCase().replace(/[_]+/g, " ");
 }
 
-export function matchTextType(value: string): GarmentType | null {
-  const t = value.toLowerCase();
-  for (const [type, re] of TEXT_RULES) if (re.test(t)) return type;
+export function matchTextType(value: string, preferredRole?: GarmentRole): GarmentType | null {
+  const t = value
+    .toLowerCase()
+    .replace(/\b(?:short|long|three[- ]quarter|cap|half)[- ]sleeve(?:d|s)?\b/g, " ");
+  for (const [type, re] of TEXT_RULES) {
+    if (preferredRole && TYPE_DEFS[type].role !== preferredRole) continue;
+    if (re.test(t)) return type;
+  }
   return null;
 }
 
@@ -252,7 +258,7 @@ export function readDescriptors(item: WardrobeItem) {
 export function profileGarment(item: WardrobeItem): GarmentProfile {
   const t = text(item);
   const evidence: string[] = [];
-  const textType = matchTextType(t);
+  let textType = matchTextType(t);
   const catType = categoryType(item.category);
   const catRole = roleOfCategoryGroup(item.category);
 
@@ -260,7 +266,17 @@ export function profileGarment(item: WardrobeItem): GarmentProfile {
   let confidence: Confidence = "unknown";
 
   if (textType) {
-    const textRole = TYPE_DEFS[textType].role;
+    let textRole = TYPE_DEFS[textType].role;
+    // If a secondary modifier word (e.g. "windbreaker" in "Grey elastic waist trousers windbreaker")
+    // matched another role, check whether the text also explicitly names a garment matching `catRole`.
+    if (catRole !== "unknown" && textRole !== catRole && textRole !== "excluded") {
+      const roleAlignedType = matchTextType(t, catRole);
+      if (roleAlignedType) {
+        textType = roleAlignedType;
+        textRole = TYPE_DEFS[roleAlignedType].role;
+      }
+    }
+
     type = textType;
     evidence.push(`name/subcategory suggests ${textType}`);
     if (catRole === "unknown") {
@@ -298,7 +314,12 @@ export function profileGarment(item: WardrobeItem): GarmentProfile {
   if (style === "sporty" && def.role !== "accessory") formality = Math.min(formality, 2);
   formality = clamp(formality, 1, 5);
 
-  const athletic = Boolean(def.athletic) || (def.role !== "accessory" && (style === "sporty" || ATHLETIC_TEXT.test(t)));
+  const nonAthleticFootwear = type === "sandals" || type === "slides" || type === "loafers" || type === "dress_shoes" || type === "boots" || type === "heels" || type === "flats";
+  const athletic =
+    Boolean(def.athletic) ||
+    (def.role !== "accessory" &&
+      !nonAthleticFootwear &&
+      (style === "sporty" || item.occasions.includes("sport") || ATHLETIC_TEXT.test(t)));
 
   let silhouette: Silhouette | null = null;
   for (const [s, re] of SILHOUETTE_RULES) {

@@ -94,6 +94,65 @@ describe("Phase 2: Garment Understanding & Uncertain Classifications", () => {
     expect(sp.colour).toBeNull();
     expect(isReliable(sp)).toBe(true);
   });
+
+  it("never misclassifies short-sleeve t-shirts as shorts and blocks ankle-length dress trousers & belts on sporty casual streetwear", () => {
+    const shortSleeveTee = makeItem({
+      id: "ss-tee",
+      name: "Navy short-sleeve t-shirt with white piping",
+      category: "t-shirts",
+      subcategory: "short sleeve",
+      primaryColour: "navy",
+      style: "sporty",
+      occasions: ["everyday", "sport"],
+    });
+    const elasticTrousers = makeItem({
+      id: "elastic-jog",
+      name: "Grey elastic waist trousers windbreaker",
+      category: "trousers",
+      subcategory: "elastic waist",
+      primaryColour: "grey",
+      style: "casual",
+      occasions: ["everyday", "sport"],
+    });
+    const ankleTrousers = makeItem({
+      id: "ankle-trousers",
+      name: "Dark brown ankle-length trousers",
+      category: "trousers",
+      subcategory: "ankle-length",
+      primaryColour: "brown",
+      style: "smart_casual",
+      occasions: ["everyday", "work", "formal_event"],
+    });
+    const studdedBelt = makeItem({
+      id: "studded-belt",
+      name: "White studded belt",
+      category: "belts",
+      primaryColour: "white",
+      style: "streetwear",
+    });
+    const sneakers = BASE_WARDROBE.find((i) => i.id === "shoe-white-sneakers")!;
+
+    const teeProfile = profileGarment(shortSleeveTee);
+    expect(teeProfile.type).toBe("t_shirt");
+    expect(teeProfile.role).toBe("top");
+    expect(isReliable(teeProfile)).toBe(true);
+
+    const jogProfile = profileGarment(elasticTrousers);
+    expect(jogProfile.type).toBe("joggers");
+    expect(jogProfile.role).toBe("bottom");
+    expect(jogProfile.athletic).toBe(true);
+    expect(isReliable(jogProfile)).toBe(true);
+
+    const r = runStylingPipeline({
+      allItems: [shortSleeveTee, elasticTrousers, ankleTrousers, studdedBelt, sneakers],
+      prompt: "Comfortable, athletic-inspired everyday streetwear",
+    });
+    expect(r.outfits.length).toBeGreaterThan(0);
+    expect(r.outfits[0].itemIds).toContain("ss-tee");
+    expect(r.outfits[0].itemIds).toContain("elastic-jog");
+    expect(r.outfits[0].itemIds).not.toContain("ankle-trousers");
+    expect(r.outfits[0].itemIds).not.toContain("studded-belt");
+  });
 });
 
 describe("Phase 10A: Wardrobe Edge Cases (1 - 12)", () => {

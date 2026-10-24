@@ -302,7 +302,19 @@ export function validateOutfit(
 
   if (wantsSporty) {
     for (const p of profiles) {
-      if (FORMAL_TYPES.has(p.type) || (dc === "athletic" && ["jeans", "skirt", "dress", "jumpsuit", "boots", "sandals"].includes(p.type))) {
+      const isAnchored = ctx.constraints.anchorGroups.some((g) => g.includes(p.id));
+      if (isAnchored) continue;
+
+      const invalidSportyType =
+        FORMAL_TYPES.has(p.type) ||
+        ["jeans", "skirt", "dress", "jumpsuit", "traditional_set", "traditional_top", "blouse", "cardigan", "boots", "flats", "sandals", "slides", "belt", "scarf"].includes(p.type) ||
+        (p.type === "jorts" && !p.athletic) ||
+        (p.type === "generic_trousers" && !p.athletic) ||
+        (p.type === "shirt" && !p.athletic) ||
+        (p.type === "generic_shoes" && !p.athletic) ||
+        (dc === "athletic" && ["cargo_pants", "capri_pants"].includes(p.type) && !p.athletic);
+
+      if (invalidSportyType) {
         hardViolations.push(
           hard(
             "ATHLETIC_DRESS_CODE_VIOLATION",
