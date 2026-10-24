@@ -274,3 +274,31 @@ export async function rateOutfitAction(input: unknown): Promise<ActionResult> {
   return { ok: true };
 }
 
+const feedbackOutfitSchema = z.object({
+  outfitId: z.string().uuid(),
+  action: z.enum(["LIKED", "REJECTED"]),
+});
+
+export async function recordOutfitFeedbackAction(input: unknown): Promise<ActionResult> {
+  const user = await requireUser();
+  const parsed = feedbackOutfitSchema.safeParse(input);
+  if (!parsed.success) return fail("Invalid feedback.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("outfit_feedback").insert({
+    user_id: user.id,
+    outfit_id: parsed.data.outfitId,
+    action: parsed.data.action,
+    rating: null,
+  });
+
+  if (error) {
+    logger.error("outfit.feedback_failed", { userId: user.id, error });
+    return fail("Could not save feedback.");
+  }
+
+  revalidatePath("/stylist");
+  return { ok: true };
+}
+
+

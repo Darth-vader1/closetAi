@@ -13,6 +13,9 @@ const requestSchema = z.object({
   prompt: z.string().trim().min(1, "Please provide styling instructions or a vibe.").max(1000),
   occasion: z.string().trim().max(120).optional(),
   weather: z.string().trim().max(500).optional(),
+  bodyBuild: z.enum(["tailored", "athletic", "curvy", "tall_slender"]).optional(),
+  anchorItemIds: z.array(z.string().uuid()).max(6).optional(),
+  excludeItemIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
 const json = (body: Record<string, unknown>, status = 200) =>
@@ -134,32 +137,46 @@ export async function POST(request: NextRequest) {
       warmthLevel: item.warmthLevel,
     }));
 
-    const stylePreferences = Array.isArray(profile?.preferred_style)
+    const baseStylePreferences = Array.isArray(profile?.preferred_style)
       ? [...profile.preferred_style]
       : typeof profile?.preferred_style === "string"
       ? [profile.preferred_style]
       : [];
+    const stylePreferences = [...baseStylePreferences];
 
-    // Continuous learning: inject aesthetics from outfits user rated 4 or 5 stars in outfit_feedback
-    const { data: topRatedFeedback } = await supabase
+    // Continuous learning: gather liked/top-rated and rejected outfits from outfit_feedback
+    const { data: recentFeedback } = await supabase
       .from("outfit_feedback")
-      .select("rating, outfits ( name, style_description )")
+      .select("action, rating, outfit_id, outfits ( name, style_description, outfit_items ( item_id ) )")
       .eq("user_id", user.id)
-      .eq("action", "RATED")
-      .gte("rating", 4)
-      .order("rating", { ascending: false })
-      .limit(3);
+      .order("created_at", { ascending: false })
+      .limit(20);
 
-    if (topRatedFeedback && topRatedFeedback.length > 0) {
-      const likedStyles = topRatedFeedback
-        .map((row) => {
-          const o = row.outfits as unknown as { name?: string; style_description?: string | null } | null;
-          return o?.name ? `${o.name} (${o.style_description || "favorite silhouette"})` : null;
-        })
-        .filter(Boolean)
-        .join("; ");
-      if (likedStyles) {
-        stylePreferences.push(`Favorite looks user previously rated 5-stars: ${likedStyles}`);
+    const likedItemIds = new Set<string>();
+    const dislikedItemIds = new Set<string>();
+    const rejectedComboKeys = new Set<string>();
+
+    if (recentFeedback && recentFeedback.length > 0) {
+      const topRatedLabels: string[] = [];
+      for (const row of recentFeedback) {
+        const o = row.outfits as unknown as {
+          name?: string;
+          style_description?: string | null;
+          outfit_items?: Array<{ item_id: string }>;
+        } | null;
+        const itemIds = (o?.outfit_items ?? []).map((x) => x.item_id);
+        if (row.action === "LIKED" || (row.action === "RATED" && (row.rating ?? 0) >= 4)) {
+          for (const id of itemIds) likedItemIds.add(id);
+          if (o?.name && topRatedLabels.length < 3) {
+            topRatedLabels.push(`${o.name} (${o.style_description || "favorite silhouette"})`);
+          }
+        } else if (row.action === "REJECTED" || (row.action === "RATED" && (row.rating ?? 5) <= 2)) {
+          for (const id of itemIds) dislikedItemIds.add(id);
+          if (itemIds.length > 0) rejectedComboKeys.add([...itemIds].sort().join("|"));
+        }
+      }
+      if (topRatedLabels.length > 0) {
+        stylePreferences.push(`Favorite looks user previously rated highly: ${topRatedLabels.join("; ")}`);
       }
     }
 
@@ -168,7 +185,19 @@ export async function POST(request: NextRequest) {
         userPrompt: parsed.data.prompt,
         occasion: parsed.data.occasion,
         weather: parsed.data.weather,
+        bodyBuild: parsed.data.bodyBuild,
         stylePreferences,
+        allowRewearWorn: allowRewear,
+        anchorItemIds: parsed.data.anchorItemIds,
+        excludeItemIds: parsed.data.excludeItemIds,
+        wardrobeItems: allItems,
+        feedback: {
+          likedItemIds,
+          dislikedItemIds,
+          rejectedComboKeys,
+          userPreferredStyles: baseStylePreferences,
+          bodyBuild: parsed.data.bodyBuild,
+        },
         inventory,
       },
       { provider: availability.provider, signal: request.signal },

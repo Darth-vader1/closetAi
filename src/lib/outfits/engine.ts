@@ -1,6 +1,11 @@
 import { categoryGroup } from "@/lib/wardrobe/categories";
 import { isEligibleStatus } from "@/lib/wardrobe/status";
 import type { WardrobeItem } from "@/lib/wardrobe/queries";
+import { emptyConstraints, parseConstraints } from "@/lib/styling/constraints";
+import { scoreOutfit } from "@/lib/styling/scorer";
+import { profileGarment } from "@/lib/styling/taxonomy";
+import { validateOutfit } from "@/lib/styling/validator";
+import type { GarmentProfile, ValidationContext } from "@/lib/styling/types";
 
 export interface OutfitSuggestion {
   name: string;
@@ -481,13 +486,39 @@ export function generateOutfits(
     });
   }
 
-  // Sort by highest score first, deduplicate by item combination
+  // Sort by highest score first, validate through the hard-compatibility validator, and deduplicate
+  const ownedMap = new Map<string, WardrobeItem>(allItems.map((i) => [i.id, i]));
+  const profilesById = new Map<string, GarmentProfile>(allItems.map((i) => [i.id, profileGarment(i)]));
+  const constraints = targetOccasion || targetStyle
+    ? parseConstraints(targetStyle ?? "", [...profilesById.values()], { occasion: targetOccasion, allowRewearWorn })
+    : emptyConstraints();
+  const valCtx: ValidationContext = {
+    owned: ownedMap,
+    allowRewearWorn,
+    constraints,
+    weather: null,
+    allowPartial: false,
+  };
+
+  const validatedCandidates: OutfitSuggestion[] = [];
+  for (const c of candidates) {
+    const itemIds = c.items.map((i) => i.id);
+    const v = validateOutfit(itemIds, valCtx, profilesById);
+    if (!v.ok) continue;
+    const profiles = itemIds.map((id) => profilesById.get(id)!).filter(Boolean);
+    const scored = scoreOutfit(profiles, v.archetype, v.warnings, { constraints, weather: null });
+    validatedCandidates.push({
+      ...c,
+      score: scored.score,
+    });
+  }
+
   const seenCombos = new Set<string>();
   const uniqueOutfits: OutfitSuggestion[] = [];
 
-  candidates.sort((a, b) => b.score - a.score);
+  validatedCandidates.sort((a, b) => b.score - a.score);
 
-  for (const c of candidates) {
+  for (const c of validatedCandidates) {
     const key = c.items.map((i) => i.id).sort().join("|");
     if (seenCombos.has(key)) continue;
     seenCombos.add(key);
@@ -498,7 +529,7 @@ export function generateOutfits(
   return uniqueOutfits;
 }
 
-/** Generate outfit around a specific focal item (works for any item including shoes, bags) */
+/** Generate outfit around a specific focal item (works for any item including shoes, bags, tops, bottoms) */
 export function styleAroundItem(
   focalItem: WardrobeItem,
   allItems: WardrobeItem[],
@@ -510,9 +541,13 @@ export function styleAroundItem(
 ): OutfitSuggestion[] {
   const { allowRewearWorn = false, targetOccasion = null, limit = 3 } = options;
 
+  if (!isEligibleStatus(focalItem.status, allowRewearWorn)) {
+    return [];
+  }
+
   // Filter eligible items (excluding the focal item)
-  const eligible = allItems.filter((item) => 
-    item.id !== focalItem.id && isEligibleStatus(item.status, allowRewearWorn)
+  const eligible = allItems.filter((item) =>
+    item.id !== focalItem.id && isEligibleStatus(item.status, allowRewearWorn),
   );
 
   const focalGroup = categoryGroup(focalItem.category);
@@ -526,28 +561,19 @@ export function styleAroundItem(
 
   const candidates: OutfitSuggestion[] = [];
 
-  // Build outfits that complement the focal item
   if (focalGroup === "footwear") {
-    // Styling around shoes: build top + bottom + these shoes
-    for (const top of tops.slice(0, 5)) {
-      for (const bottom of bottoms.slice(0, 5)) {
+    for (const top of tops.slice(0, 8)) {
+      for (const bottom of bottoms.slice(0, 8)) {
         const items = [top, bottom, focalItem];
-        
-        // Add matching accessories
-        const belt = accessories.find(a => 
-          a.category === "belts" && a.primaryColour === focalItem.primaryColour
+        const belt = accessories.find(
+          (a) => a.category === "belts" && a.primaryColour === focalItem.primaryColour,
         );
-        if (belt) items.push(belt);
+        if (belt && !["shorts", "jorts"].includes(bottom.category)) items.push(belt);
 
-        let score = 15;
-        score += calculateColorHarmony(items);
-        score += calculateOccasionScore(items, targetOccasion);
-
-        // Bonus for color coordination with shoes
+        let score = 15 + calculateColorHarmony(items) + calculateOccasionScore(items, targetOccasion);
         if (focalColor && (top.primaryColour === focalColor || bottom.primaryColour === focalColor)) {
           score += 10;
         }
-
         candidates.push({
           name: `Outfit with ${focalItem.name}`,
           items,
@@ -559,18 +585,13 @@ export function styleAroundItem(
       }
     }
   } else if (focalGroup === "accessory") {
-    // Styling around accessory (bag, watch, belt): build complete outfit featuring this accessory
-    for (const top of tops.slice(0, 5)) {
-      for (const bottom of bottoms.slice(0, 5)) {
+    for (const top of tops.slice(0, 8)) {
+      for (const bottom of bottoms.slice(0, 8)) {
         const items = [top, bottom, focalItem];
-        
         const shoe = shoes[0];
         if (shoe) items.push(shoe);
 
-        let score = 15;
-        score += calculateColorHarmony(items);
-        score += calculateOccasionScore(items, targetOccasion);
-
+        const score = 15 + calculateColorHarmony(items) + calculateOccasionScore(items, targetOccasion);
         candidates.push({
           name: `Outfit with ${focalItem.name}`,
           items,
@@ -582,10 +603,27 @@ export function styleAroundItem(
       }
     }
   } else {
-    // Original logic for clothing items
-    return generateOutfits(allItems, { ...options, limit });
+    // Anchor top, bottom, or fullbody item and guarantee it is preserved in every returned outfit
+    const generated = generateOutfits([focalItem, ...eligible], { ...options, limit: limit * 4 });
+    return generated.filter((o) => o.items.some((i) => i.id === focalItem.id)).slice(0, limit);
   }
 
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates.slice(0, limit);
+  const ownedMap = new Map<string, WardrobeItem>([focalItem, ...allItems].map((i) => [i.id, i]));
+  const profilesById = new Map<string, GarmentProfile>([...ownedMap.values()].map((i) => [i.id, profileGarment(i)]));
+  const constraints = parseConstraints("", [...profilesById.values()], {
+    occasion: targetOccasion,
+    allowRewearWorn,
+    anchorItemIds: [focalItem.id],
+  });
+  const valCtx: ValidationContext = {
+    owned: ownedMap,
+    allowRewearWorn,
+    constraints,
+    weather: null,
+    allowPartial: false,
+  };
+
+  const valid = candidates.filter((c) => validateOutfit(c.items.map((i) => i.id), valCtx, profilesById).ok);
+  valid.sort((a, b) => b.score - a.score);
+  return valid.slice(0, limit);
 }

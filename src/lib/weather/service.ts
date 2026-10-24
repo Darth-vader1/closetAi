@@ -61,9 +61,50 @@ async function geocodeCity(city: string): Promise<{ lat: number; lon: number } |
  * Fetch current live weather for a city or location string.
  */
 export async function getLiveWeather(city?: string | null): Promise<WeatherForecast | null> {
-  const targetCity = city?.trim() || "Lagos";
-  const coords = await geocodeCity(targetCity);
+  // No hardcoded fallback city: without a location we return null so the UI can ask for one.
+  const targetCity = city?.trim();
+  if (!targetCity) return null;
+  const coords = (await geocodeCity(targetCity)) ?? (await geocodePlace(targetCity));
   if (!coords) return null;
+  return getLiveWeatherByCoords(coords.lat, coords.lon, targetCity);
+}
+
+/**
+ * Reverse geocode coordinates into a readable place name (e.g. "Ilorin, Kwara").
+ * Falls back to null if the lookup fails.
+ */
+export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10&accept-language=en`,
+      {
+        headers: { "User-Agent": "ClosetAI/1.0 (stylist weather; https://closet-ai-official.vercel.app)" },
+        next: { revalidate: 86400 },
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      address?: { city?: string; town?: string; village?: string; county?: string; state?: string };
+    };
+    const a = data.address;
+    if (!a) return null;
+    const place = a.city ?? a.town ?? a.village ?? a.county;
+    return [place, a.state].filter(Boolean).join(", ") || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch current live weather for explicit coordinates (e.g. from the browser's geolocation).
+ */
+export async function getLiveWeatherByCoords(
+  lat: number,
+  lon: number,
+  label?: string | null,
+): Promise<WeatherForecast | null> {
+  const targetCity = label?.trim() || (await reverseGeocode(lat, lon)) || "Your location";
+  const coords = { lat, lon };
 
   try {
     const res = await fetch(

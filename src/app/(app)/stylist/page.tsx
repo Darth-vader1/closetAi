@@ -17,7 +17,8 @@ export default async function StylistPage() {
   const profile = await getProfile();
   const supabase = await createClient();
 
-  // Fetch live weather based on user location (defaults gracefully to Lagos if unspecified)
+  // Fetch live weather from the profile location. No default city: when it's unset (or can't be
+  // resolved) the client offers a "Use my location" button instead of showing the wrong place.
   const weather = await getLiveWeather(profile?.location);
 
   // Count clean items available for styling
