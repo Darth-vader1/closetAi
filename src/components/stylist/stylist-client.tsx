@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -117,8 +117,6 @@ export function StylistClient({
 }: StylistClientProps) {
   void userStylePreferences;
   const [liveWeather, setLiveWeather] = useState<WeatherForecast | null>(initialWeather ?? null);
-  const [locating, setLocating] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [selectedWeather, setSelectedWeather] = useState(initialWeather?.summary || "");
   const [selectedGender, setSelectedGender] = useState<"male" | "female" | "unisex">(initialGender);
@@ -187,38 +185,53 @@ export function StylistClient({
     }
   };
 
-  const handleUseMyLocation = () => {
-    if (!navigator.geolocation) {
-      setLocationError("Your browser doesn't support location.");
-      return;
+  // Automatically detect the user's live location & weather in the background on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    const applyWeather = (w: WeatherForecast) => {
+      if (cancelled) return;
+      setLiveWeather((prev) => {
+        setSelectedWeather((curr) => (!curr || curr === prev?.summary ? w.summary : curr));
+        return w;
+      });
+    };
+
+    const fallbackToIpWeather = async () => {
+      try {
+        const res = await fetch("/api/weather");
+        const data = await res.json();
+        if (res.ok && data.weather) applyWeather(data.weather);
+      } catch {
+        // silent background fallback
+      }
+    };
+
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const res = await fetch(`/api/weather?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`);
+            const data = await res.json();
+            if (res.ok && data.weather) applyWeather(data.weather);
+            else await fallbackToIpWeather();
+          } catch {
+            await fallbackToIpWeather();
+          }
+        },
+        () => {
+          void fallbackToIpWeather();
+        },
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 600000 },
+      );
+    } else {
+      void fallbackToIpWeather();
     }
-    setLocating(true);
-    setLocationError(null);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const res = await fetch(`/api/weather?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`);
-          const data = await res.json();
-          if (!res.ok || !data.weather) throw new Error(data.error || "Couldn't load weather for your location.");
-          setLiveWeather(data.weather);
-          setSelectedWeather(data.weather.summary);
-        } catch (err) {
-          setLocationError(err instanceof Error ? err.message : "Couldn't load weather for your location.");
-        } finally {
-          setLocating(false);
-        }
-      },
-      (err) => {
-        setLocating(false);
-        setLocationError(
-          err.code === err.PERMISSION_DENIED
-            ? "Location permission denied. Allow it in your browser, or set your city in Settings."
-            : "Couldn't detect your location.",
-        );
-      },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
-    );
-  };
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleAskStylist = async (userQuery?: string) => {
     const q = (userQuery || prompt).trim();
@@ -586,16 +599,6 @@ export function StylistClient({
                       <span>{liveWeather.city} Live ({liveWeather.temperatureC}°C, {liveWeather.condition})</span>
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={handleUseMyLocation}
-                    disabled={locating}
-                    className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors border border-sky-500/30 hover:bg-sky-500/10 text-sky-700 dark:text-sky-400 disabled:opacity-60"
-                  >
-                    {locating ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="text-xs">🎯</span>}
-                    <span>{liveWeather ? "Update my location" : "Use my location"}</span>
-                  </button>
-                  {locationError && <span className="text-xs text-destructive">{locationError}</span>}
                   {WEATHER_PRESETS.map((preset) => {
                     const Icon = preset.icon;
                     const active = selectedWeather === preset.value;

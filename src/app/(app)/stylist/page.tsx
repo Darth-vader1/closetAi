@@ -5,7 +5,8 @@ import { StylistClient } from "@/components/stylist/stylist-client";
 import { getProfile, requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
-import { getLiveWeather } from "@/lib/weather/service";
+import { headers } from "next/headers";
+import { getLiveWeather, getLiveWeatherByCoords } from "@/lib/weather/service";
 
 export const metadata: Metadata = {
   title: "AI Stylist · ClosetAI",
@@ -17,9 +18,19 @@ export default async function StylistPage() {
   const profile = await getProfile();
   const supabase = await createClient();
 
-  // Fetch live weather from the profile location. No default city: when it's unset (or can't be
-  // resolved) the client offers a "Use my location" button instead of showing the wrong place.
-  const weather = await getLiveWeather(profile?.location);
+  // Detect live weather from request geo headers first, falling back to profile.location.
+  const reqHeaders = await headers();
+  const edgeLat = Number(reqHeaders.get("x-vercel-ip-latitude"));
+  const edgeLon = Number(reqHeaders.get("x-vercel-ip-longitude"));
+  const edgeCity = reqHeaders.get("x-vercel-ip-city") || reqHeaders.get("cf-ipcity");
+  let weather = null;
+  if (Number.isFinite(edgeLat) && Number.isFinite(edgeLon) && (edgeLat !== 0 || edgeLon !== 0)) {
+    weather = await getLiveWeatherByCoords(edgeLat, edgeLon, edgeCity ? decodeURIComponent(edgeCity) : null);
+  } else if (edgeCity) {
+    weather = await getLiveWeather(decodeURIComponent(edgeCity));
+  } else if (profile?.location) {
+    weather = await getLiveWeather(profile.location);
+  }
 
   // Count clean items available for styling
   const { count: cleanCount } = await supabase
