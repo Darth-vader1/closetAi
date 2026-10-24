@@ -133,7 +133,7 @@ describe("Garment Image Transformations — Rotate & Crop", () => {
     let croppedSourceW = 0;
     let croppedSourceH = 0;
     const fakeCtx = {
-      drawImage: vi.fn((img, sx, sy, sw, sh, dx, dy, dw, dh) => {
+      drawImage: vi.fn((_img, _sx, _sy, sw, sh) => {
         croppedSourceW = sw;
         croppedSourceH = sh;
       }),

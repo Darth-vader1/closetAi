@@ -97,7 +97,7 @@ export function sanitiseExplanation(
     .map((p) => `${p.item.material ?? ""} ${p.item.name}`.toLowerCase())
     .join(" ");
 
-  let cleaned = aiExplanation.trim();
+  const cleaned = aiExplanation.trim();
   const matches = cleaned.match(FABRIC_CLAIMS) ?? [];
   for (const m of matches) {
     if (!knownMaterials.includes(m.toLowerCase())) {

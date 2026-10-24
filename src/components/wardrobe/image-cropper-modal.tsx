@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useRef, useState } from "react";
 import {
   RotateCcw,
   RotateCw,
@@ -39,6 +39,7 @@ export function ImageCropperModal({
   const [workingUrl, setWorkingUrl] = useState<string>(imageUrl);
   const [aspectMode, setAspectMode] = useState<AspectRatioMode>("free");
   const [isTransforming, setIsTransforming] = useState<boolean>(false);
+  const [prevResetKey, setPrevResetKey] = useState<string>(`${imageUrl}|${isOpen}`);
 
   // Normalized crop rectangle: 0 to 1
   const [crop, setCrop] = useState<CropRect>({
@@ -47,6 +48,13 @@ export function ImageCropperModal({
     width: 0.9,
     height: 0.9,
   });
+
+  const resetKey = `${imageUrl}|${isOpen}`;
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
+    setWorkingUrl(imageUrl);
+    setCrop({ x: 0.05, y: 0.05, width: 0.9, height: 0.9 });
+  }
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -69,11 +77,6 @@ export function ImageCropperModal({
     pointerY: number;
     startCrop: CropRect;
   } | null>(null);
-
-  useEffect(() => {
-    setWorkingUrl(imageUrl);
-    setCrop({ x: 0.05, y: 0.05, width: 0.9, height: 0.9 });
-  }, [imageUrl, isOpen]);
 
   // Handle Rotation 90° Clockwise
   const handleRotateCw = async () => {
