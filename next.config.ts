@@ -7,6 +7,9 @@ import type { NextConfig } from "next";
  * prerender. Revisit if public marketing pages need component-level caching.
  */
 const nextConfig: NextConfig = {
+  experimental: {
+    agentUpgrade: "security",
+  },
   poweredByHeader: false,
   logging: {
     serverFunctions: false,
