@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { MessageSquare } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { StylistClient } from "@/components/stylist/stylist-client";
@@ -51,6 +53,15 @@ export default async function StylistPage() {
       <PageHeader
         title="AI Stylist"
         description="Describe any occasion, vibe, or weather. The stylist curates complete looks from clothes that are ready to wear."
+        action={
+          <Link
+            href="/connect/stylist"
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-accent/40 bg-accent-soft/40 px-3.5 py-2 text-xs font-semibold text-foreground transition-colors hover:border-accent hover:bg-accent-soft"
+          >
+            <MessageSquare className="size-4 text-accent" aria-hidden />
+            <span>Chat with @ClosetAI Stylist</span>
+          </Link>
+        }
       />
       <ContextualGuide section="stylist" />
       <StylistClient

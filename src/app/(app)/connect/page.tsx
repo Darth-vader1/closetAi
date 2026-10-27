@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/card";
 import { ConversationList } from "@/components/connect/conversation-list";
 import { NewConversationButton } from "@/components/connect/new-conversation-button";
 import { ClosetIdCard } from "@/components/connect/closet-id-card";
+import { PinnedStylistCard } from "@/components/connect/pinned-stylist-card";
 import { ConnectPushPrompt } from "@/components/connect/connect-notification-provider";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -13,6 +14,7 @@ import {
   listConversations,
   listWardrobeGrantsForUser,
 } from "@/lib/connect/queries";
+import { getStylistInboxSummary } from "@/lib/connect/stylist-chat-queries";
 import { userTag } from "@/lib/connect/user-tag";
 
 export const metadata: Metadata = { title: "Connect · ClosetAI" };
@@ -21,7 +23,7 @@ export default async function ConnectPage() {
   const user = await requireUser();
   const supabase = await createClient();
 
-  const [conversations, profileRow, grants] = await Promise.all([
+  const [conversations, profileRow, grants, stylistSummary] = await Promise.all([
     listConversations(supabase, user.id).catch(() => []),
     supabase
       .from("profiles")
@@ -32,6 +34,7 @@ export default async function ConnectPage() {
       grantedByMe: [],
       grantedToMe: [],
     })),
+    getStylistInboxSummary(supabase, user.id),
   ]);
 
   const closetId =
@@ -70,10 +73,16 @@ export default async function ConnectPage() {
       {/* Closet ID card — always visible so users can share their ID with friends */}
       <ClosetIdCard closetId={closetId} />
 
+      {/* Pinned @ClosetAI Stylist AI Fashion Chatbot */}
+      <PinnedStylistCard
+        currentUserId={user.id}
+        initialSummary={stylistSummary}
+      />
+
       {conversations.length === 0 ? (
         <EmptyState
           icon={Users}
-          title="No conversations yet"
+          title="No friend conversations yet"
           action={<NewConversationButton label="Start your first conversation" />}
         >
           Share your Closet ID with a friend so they can find the right you.

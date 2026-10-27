@@ -7,6 +7,7 @@ export type AiTask =
   | "clothing_analysis"
   | "multi_clothing_analysis"
   | "stylist_recommendation"
+  | "stylist_chat"
   | "travel_packing_capsule"
   | "packing_plan"
   | "garment_enhancement";

@@ -24,6 +24,19 @@ export function createMockProvider(): AiProvider {
     name: "mock",
     isMock: true,
     async generateJson(req: AiJsonRequest): Promise<unknown> {
+      if (req.task === "stylist_chat") {
+        return {
+          reply:
+            "I'd love to help you style that! Try pairing your cleanest versatile top with structured trousers and clean sneakers or loafers for an effortless, balanced silhouette.",
+          referenced_item_ids: [],
+          proposed_outfits: [],
+          quick_replies: [
+            "What should I wear today?",
+            "Build me a smart casual look",
+            "How can I dress this up for dinner?",
+          ],
+        };
+      }
       if (req.task === "stylist_recommendation") {
         return {
           outfits: [
