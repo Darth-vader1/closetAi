@@ -419,7 +419,7 @@ export async function GET(request: NextRequest) {
                 style_description: styleDescription,
                 explanation,
                 styling_tip: stylingTip,
-                source: "ai",
+                source: "AI",
               })
               .select("id")
               .maybeSingle();
@@ -430,6 +430,7 @@ export async function GET(request: NextRequest) {
                 chosenItems.map((item, idx) => ({
                   outfit_id: newOutfit.id,
                   item_id: item.id,
+                  user_id: userId,
                   position: idx,
                 }))
               );

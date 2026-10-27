@@ -18,7 +18,11 @@ export async function saveFlatlayAction(
   const user = await requireUser();
   const parsed = saveFlatlaySchema.safeParse(input);
   if (!parsed.success) {
-    return fail("Please fix the highlighted fields.", zodFieldErrors(parsed.error));
+    const firstIssue = parsed.error.issues[0]?.message;
+    return fail(
+      firstIssue || "Please check your flatlay board details and try again.",
+      zodFieldErrors(parsed.error),
+    );
   }
 
   const {
@@ -60,7 +64,7 @@ export async function saveFlatlayAction(
   let linkedOutfitId = parsed.data.outfitId ?? null;
 
   // Optionally create a ClosetAI outfit record alongside the flatlay board
-  if (saveAsOutfit && !linkedOutfitId && wardrobeItemIds.length >= 2) {
+  if (saveAsOutfit && !linkedOutfitId && wardrobeItemIds.length >= 1) {
     const outfitRow = {
       user_id: user.id,
       name,

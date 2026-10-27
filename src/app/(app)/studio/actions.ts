@@ -16,7 +16,10 @@ const GENERIC_ERROR = "Something went wrong. Please try again.";
 export async function saveOutfitAction(input: unknown): Promise<ActionResult<{ id: string }>> {
   const user = await requireUser();
   const parsed = createOutfitSchema.safeParse(input);
-  if (!parsed.success) return fail("Please fix the highlighted fields.", zodFieldErrors(parsed.error));
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0]?.message;
+    return fail(firstIssue || "Please fix the highlighted fields.", zodFieldErrors(parsed.error));
+  }
 
   const { name, itemIds, occasion, styleDescription, explanation, stylingTip, photoPath, isFavourite } = parsed.data;
 

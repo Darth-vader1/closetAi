@@ -57,8 +57,8 @@ export function FlatlayStudioEditor({
   const stageRef = useRef<Konva.Stage | null>(null);
 
   // Core board state
-  const [boardId, setBoardId] = useState<string | null>(initialComposition?.id ?? null);
-  const [name, setName] = useState<string>(initialComposition?.name ?? "Untitled Flatlay");
+  const [boardId, setBoardId] = useState<string | null>(initialComposition?.id || null);
+  const [name, setName] = useState<string>(initialComposition?.name || "Untitled Flatlay");
   const [preset, setPreset] = useState<FlatlayPreset>(initialComposition?.preset ?? "collage");
   const [aspectRatio, setAspectRatio] = useState<FlatlayAspectRatio>(
     initialComposition?.aspectRatio ?? "4:5",
@@ -363,7 +363,7 @@ export function FlatlayStudioEditor({
   // Import all items from a saved outfit
   const handleImportOutfit = (outfit: OutfitWithItems) => {
     recordHistory(items);
-    setName(`${outfit.name} Flatlay`);
+    setName(`${outfit.name.slice(0, 110)} Flatlay`);
 
     const arranged = generateFlatlayPlacement(outfit.items, {
       preset,
@@ -382,7 +382,7 @@ export function FlatlayStudioEditor({
 
     try {
       const res = await saveFlatlayAction({
-        id: boardId ?? undefined,
+        id: boardId || undefined,
         name: boardName,
         preset,
         aspectRatio,
@@ -392,6 +392,7 @@ export function FlatlayStudioEditor({
         backgroundStyle,
         items,
         saveAsOutfit,
+        outfitId: initialComposition?.outfitId || undefined,
       });
 
       if (!res.ok) {
@@ -511,6 +512,7 @@ export function FlatlayStudioEditor({
 
       {/* Save Modal */}
       <FlatlaySaveModal
+        key={`${name}-${isSaveModalOpen ? "open" : "closed"}`}
         isOpen={isSaveModalOpen}
         onClose={() => setIsSaveModalOpen(false)}
         defaultName={name}

@@ -212,7 +212,7 @@ export function OutfitStudio({
     setEditingFlatlay({
       id: "",
       userId: "",
-      name: `${outfit.name} Flatlay`,
+      name: `${outfit.name.slice(0, 110)} Flatlay`,
       preset: "collage",
       aspectRatio: "4:5",
       canvasWidth: 1200,
