@@ -14,8 +14,8 @@ import {
   claimEmailLogSlot,
   finalizeEmailLogSlot,
 } from "@/lib/cron/auth";
-import { generateOutfits } from "@/lib/outfits/engine";
-import { listAllWardrobeItems } from "@/lib/wardrobe/queries";
+import { runStylingPipeline } from "@/lib/styling/pipeline";
+import { listAllWardrobeItems, type WardrobeItem } from "@/lib/wardrobe/queries";
 
 export const maxDuration = 60; // 60s max execution for cron
 
@@ -31,6 +31,70 @@ interface DailyPrefRow {
 }
 
 const CONCURRENCY_LIMIT = 5;
+
+const OCCASION_LABELS: Record<string, string> = {
+  everyday: "Casual & Everyday",
+  work: "Work & Office",
+  school: "Campus & Class",
+  date: "Date Night",
+  party: "Party & Night Out",
+  sport: "Sport & Athleisure",
+  formal_event: "Formal Event",
+  worship: "Sunday Best & Worship",
+  traditional_event: "Traditional & Owambe",
+  travel: "Travel & On-the-Go",
+};
+
+function normalizeStringArray(val: unknown): string[] {
+  if (Array.isArray(val)) {
+    return val.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+  }
+  if (typeof val === "string" && val.trim().length > 0) {
+    return [val.trim()];
+  }
+  return [];
+}
+
+function selectDailyOccasionAndStyle(
+  localDate: string,
+  preferredStyles: string[],
+  commonOccasions: string[],
+): { targetStyle: string | null; targetOccasion: string; dayIndex: number } {
+  const [y, m, d] = localDate.split("-").map(Number);
+  const utcDate = new Date(Date.UTC(y || 2026, (m || 1) - 1, d || 1));
+  const dayOfWeek = utcDate.getUTCDay(); // 0 = Sun .. 6 = Sat
+  const startOfYear = Date.UTC(y || 2026, 0, 0);
+  const dayIndex = Math.max(0, Math.floor((utcDate.getTime() - startOfYear) / 86_400_000));
+
+  const targetStyle =
+    preferredStyles.length > 0 ? preferredStyles[dayIndex % preferredStyles.length] : null;
+
+  if (commonOccasions.length === 0) {
+    return { targetStyle, targetOccasion: "everyday", dayIndex };
+  }
+
+  let pool: string[] = [];
+  if (dayOfWeek === 0) {
+    if (commonOccasions.includes("worship")) {
+      return { targetStyle, targetOccasion: "worship", dayIndex };
+    }
+    pool = commonOccasions.filter((o) =>
+      ["everyday", "date", "party", "sport", "traditional_event"].includes(o),
+    );
+  } else if (dayOfWeek === 6) {
+    pool = commonOccasions.filter((o) =>
+      ["everyday", "sport", "party", "date", "traditional_event", "travel"].includes(o),
+    );
+  } else {
+    pool = commonOccasions.filter((o) =>
+      ["work", "school", "everyday", "sport"].includes(o),
+    );
+  }
+
+  if (pool.length === 0) pool = commonOccasions;
+  const targetOccasion = pool[dayIndex % pool.length] || "everyday";
+  return { targetStyle, targetOccasion, dayIndex };
+}
 
 /**
  * Daily Morning Stylist Cron Handler
@@ -89,25 +153,27 @@ export async function GET(request: NextRequest) {
     const processUser = async (pref: DailyPrefRow) => {
       const userId = pref.user_id;
 
-      // Fetch user profile for timezone, location, display_name, and styling preferences
+      // Fetch user profile for timezone, location, display_name, and all styling preferences (from Onboarding / Settings)
       let profile: {
         display_name?: string | null;
         location?: string | null;
         timezone?: string | null;
         preferred_style?: string | string[] | null;
+        common_occasions?: string[] | null;
+        favourite_colours?: string[] | null;
         rewear_worn_items?: boolean | null;
       } | null = null;
 
       const profileRes = await adminClient
         .from("profiles")
-        .select("display_name, location, timezone, preferred_style, rewear_worn_items")
+        .select("display_name, location, timezone, preferred_style, common_occasions, favourite_colours, rewear_worn_items")
         .eq("id", userId)
         .maybeSingle();
 
       if (profileRes.error) {
         const fallbackProfile = await adminClient
           .from("profiles")
-          .select("display_name, location, timezone")
+          .select("display_name, location, timezone, preferred_style, rewear_worn_items")
           .eq("id", userId)
           .maybeSingle();
         profile = fallbackProfile.data;
@@ -126,8 +192,8 @@ export async function GET(request: NextRequest) {
 
       const wantEmail = pref.daily_enabled && hasResend;
       const wantWhatsApp = Boolean(
-        pref.whatsapp_daily_enabled && 
-        pref.whatsapp_phone && 
+        pref.whatsapp_daily_enabled &&
+        pref.whatsapp_phone &&
         pref.whatsapp_phone_verified
       ) && hasWhatsApp;
 
@@ -145,6 +211,11 @@ export async function GET(request: NextRequest) {
       try {
         const { data: authUser } = await adminClient.auth.admin.getUserById(userId);
         const recipientEmail = authUser?.user?.email;
+        const displayName = profile?.display_name || recipientEmail?.split("@")[0] || "Friend";
+
+        // Fetch live weather BEFORE selecting the outfit so temperature/rain guide candidate selection
+        const weather = await getLiveWeather(profile?.location || "Ilorin");
+        const weatherSummary = weather ? `${weather.city}: ${weather.temperatureC}°C · ${weather.condition}` : null;
 
         // Check if user has an outfit planned for their local date in outfit_plans
         const { data: plannedRow } = await adminClient
@@ -189,7 +260,7 @@ export async function GET(request: NextRequest) {
             }>;
           };
           outfitName = o.name || outfitName;
-          occasion = o.occasion || occasion;
+          occasion = (o.occasion && OCCASION_LABELS[o.occasion]) || o.occasion || occasion;
           styleDescription = o.style_description || styleDescription;
           explanation = o.explanation || explanation;
           stylingTip = o.styling_tip || stylingTip;
@@ -203,7 +274,7 @@ export async function GET(request: NextRequest) {
               image_path: i.wardrobe_items?.image_path,
             }));
         } else {
-          // Fallback: Use the intelligent outfit engine to generate a coordinated look (Top + Bottom + Shoes/Accessories)
+          // Use the full fashion intelligence pipeline with the user's saved styles, occasions, colours, weather, and recent history
           const allUserItems = await listAllWardrobeItems(adminClient, userId, 200).catch((err) => {
             logger.warn("cron.daily_outfit_load_items_failed", { userId, error: err });
             return null;
@@ -217,44 +288,120 @@ export async function GET(request: NextRequest) {
             return;
           }
 
-          const userStyle = Array.isArray(profile?.preferred_style)
-            ? profile.preferred_style[0]
-            : (typeof profile?.preferred_style === "string" ? profile.preferred_style : null);
+          const preferredStyles = normalizeStringArray(profile?.preferred_style);
+          const commonOccasions = normalizeStringArray(profile?.common_occasions);
+          const favouriteColours = normalizeStringArray(profile?.favourite_colours);
           const allowRewear = profile?.rewear_worn_items ?? false;
 
-          // 1. Generate outfits using eligible garments
-          let suggestions = generateOutfits(allUserItems, {
-            allowRewearWorn: allowRewear,
-            targetStyle: userStyle,
-            limit: 3,
-          });
+          const { targetStyle, targetOccasion } = selectDailyOccasionAndStyle(
+            clock.localDate,
+            preferredStyles,
+            commonOccasions,
+          );
 
-          // 2. If no outfits found with current rewear setting, attempt with allowRewearWorn: true as fallback
-          if (suggestions.length === 0 && !allowRewear) {
-            suggestions = generateOutfits(allUserItems, {
-              allowRewearWorn: true,
-              targetStyle: userStyle,
-              limit: 3,
-            });
+          // Load recently planned outfits (last 7 days) and user feedback to avoid repeating combos
+          const recentComboKeys = new Set<string>();
+          const rejectedComboKeys = new Set<string>();
+          const likedItemIds = new Set<string>();
+          const dislikedItemIds = new Set<string>();
+
+          const [recentPlansRes, recentFeedbackRes] = await Promise.all([
+            adminClient
+              .from("outfit_plans")
+              .select("outfits ( outfit_items ( item_id ) )")
+              .eq("user_id", userId)
+              .order("planned_for", { ascending: false })
+              .limit(10),
+            adminClient
+              .from("outfit_feedback")
+              .select("action, rating, outfits ( outfit_items ( item_id ) )")
+              .eq("user_id", userId)
+              .order("created_at", { ascending: false })
+              .limit(20),
+          ]);
+
+          for (const row of recentPlansRes.data ?? []) {
+            const o = row.outfits as unknown as { outfit_items?: Array<{ item_id: string }> } | null;
+            const ids = (o?.outfit_items ?? []).map((x) => x.item_id);
+            if (ids.length > 0) recentComboKeys.add([...ids].sort().join("|"));
           }
 
-          if (suggestions.length === 0) {
+          for (const row of recentFeedbackRes.data ?? []) {
+            const o = row.outfits as unknown as { outfit_items?: Array<{ item_id: string }> } | null;
+            const ids = (o?.outfit_items ?? []).map((x) => x.item_id);
+            if (row.action === "LIKED" || (row.action === "RATED" && (row.rating ?? 0) >= 4)) {
+              for (const id of ids) likedItemIds.add(id);
+            } else if (row.action === "REJECTED" || (row.action === "RATED" && (row.rating ?? 5) <= 2)) {
+              for (const id of ids) dislikedItemIds.add(id);
+              if (ids.length > 0) rejectedComboKeys.add([...ids].sort().join("|"));
+            }
+          }
+
+          const promptParts = [
+            targetStyle ? `${targetStyle.replace(/_/g, " ")} outfit` : "Everyday outfit",
+            targetOccasion ? `for ${targetOccasion.replace(/_/g, " ")}` : null,
+            favouriteColours.length > 0 ? `preferring ${favouriteColours.slice(0, 3).join(", ")}` : null,
+            "do not repeat recent outfits",
+          ].filter(Boolean);
+          const dailyPrompt = promptParts.join(" ");
+
+          const byId = new Map<string, WardrobeItem>(allUserItems.map((i) => [i.id, i]));
+
+          const runDaily = (rewear: boolean, allowRepeatFallback = false) =>
+            runStylingPipeline({
+              allItems: allUserItems,
+              prompt: allowRepeatFallback ? dailyPrompt.replace("do not repeat recent outfits", "") : dailyPrompt,
+              occasion: targetOccasion,
+              weatherSummary,
+              allowRewearWorn: rewear,
+              feedback: {
+                recentComboKeys: allowRepeatFallback ? undefined : recentComboKeys,
+                rejectedComboKeys,
+                likedItemIds,
+                dislikedItemIds,
+                userPreferredStyles: preferredStyles,
+              },
+              limit: 3,
+            });
+
+          // 1. Run with user's rewear preference and non-repetition constraint
+          let result = runDaily(allowRewear, false);
+
+          // 2. If all clean combinations were recently sent, relax repetition before relaxing laundry status
+          if (result.outfits.length === 0 && recentComboKeys.size > 0) {
+            result = runDaily(allowRewear, true);
+          }
+
+          // 3. If still no outfits and rewear was off, try with allowRewearWorn: true
+          if (result.outfits.length === 0 && !allowRewear) {
+            result = runDaily(true, false);
+            if (result.outfits.length === 0 && recentComboKeys.size > 0) {
+              result = runDaily(true, true);
+            }
+          }
+
+          if (result.outfits.length === 0) {
             await finalizeEmailLogSlot(adminClient, slot.logId, {
               status: "SKIPPED",
-              reason: "Insufficient wardrobe items to assemble a complete outfit (requires top + bottom, or a dress).",
+              reason:
+                result.fallback?.message ||
+                "Insufficient wardrobe items to assemble a complete outfit (requires top + bottom, or a dress).",
             });
             return;
           }
 
-          const best = suggestions[0];
+          const best = result.outfits[0];
+          const chosenItems = best.itemIds
+            .map((id) => byId.get(id))
+            .filter((i): i is WardrobeItem => Boolean(i));
+
+          const resolvedOccasion = best.occasion || targetOccasion || "everyday";
           outfitName = best.name;
-          occasion = best.occasion || occasion;
-          styleDescription = best.styleDescription;
-          explanation = best.items.length >= 3
-            ? "Balanced proportions, color harmony, and a complete silhouette ensure effortless confidence."
-            : "A clean, coordinated ensemble styled from your ready-to-wear pieces.";
-          stylingTip = best.stylingTip;
-          items = best.items.map((i) => ({
+          occasion = OCCASION_LABELS[resolvedOccasion] || resolvedOccasion;
+          styleDescription = best.styleDescription || (targetStyle ? `${targetStyle.replace(/_/g, " ")} ensemble` : styleDescription);
+          explanation = best.explanation || best.factExplanation || explanation;
+          stylingTip = best.stylingTip || stylingTip;
+          items = chosenItems.map((i) => ({
             name: i.name,
             category: i.category,
             colour: i.primaryColour,
@@ -267,11 +414,11 @@ export async function GET(request: NextRequest) {
               .from("outfits")
               .insert({
                 user_id: userId,
-                name: best.name,
-                occasion: best.occasion || "casual",
-                style_description: best.styleDescription,
+                name: outfitName,
+                occasion: resolvedOccasion,
+                style_description: styleDescription,
                 explanation,
-                styling_tip: best.stylingTip,
+                styling_tip: stylingTip,
                 source: "ai",
               })
               .select("id")
@@ -280,7 +427,7 @@ export async function GET(request: NextRequest) {
             if (newOutfit?.id) {
               outfitId = newOutfit.id;
               await adminClient.from("outfit_items").insert(
-                best.items.map((item, idx) => ({
+                chosenItems.map((item, idx) => ({
                   outfit_id: newOutfit.id,
                   item_id: item.id,
                   position: idx,
@@ -297,12 +444,6 @@ export async function GET(request: NextRequest) {
             logger.warn("cron.daily_outfit_persist_failed", { userId, error: err });
           }
         }
-
-        const displayName = profile?.display_name || recipientEmail?.split("@")[0] || "Friend";
-
-        // Fetch live weather for the user's city
-        const weather = await getLiveWeather(profile?.location || "Lagos");
-        const weatherSummary = weather ? `${weather.city}: ${weather.temperatureC}°C · ${weather.condition}` : null;
 
         // Pre-sign image URLs for Email thumbnails and WhatsApp (7 days expiry for email clients)
         const emailItems: Array<{
@@ -371,7 +512,6 @@ export async function GET(request: NextRequest) {
 
         // 2. Dispatch WhatsApp (if enabled, phone exists, and WhatsApp provider is configured)
         if (wantWhatsApp && pref.whatsapp_phone) {
-
           const waMessage = formatDailyOutfitWhatsApp({
             displayName,
             outfitName,
@@ -385,9 +525,9 @@ export async function GET(request: NextRequest) {
 
           // Check if within 24-hour window
           const within24h = isWithin24HourWindow(pref.whatsapp_last_inbound_at || null);
-          
+
           let waRes: { success: boolean; id?: string; error?: string };
-          
+
           if (within24h) {
             // Within 24h window - can send regular message with images
             waRes = await sendWhatsAppMessage({
@@ -403,7 +543,7 @@ export async function GET(request: NextRequest) {
               WHATSAPP_TEMPLATES.DAILY_OUTFIT,
               {
                 userName: displayName,
-                weatherDescription: weatherSummary || 'perfect weather for dressing up',
+                weatherDescription: weatherSummary || "perfect weather for dressing up",
               }
             );
           }
