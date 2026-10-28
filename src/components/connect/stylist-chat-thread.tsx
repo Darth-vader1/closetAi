@@ -60,6 +60,22 @@ const STARTER_PROMPTS = [
   },
 ];
 
+// ─── Inline Markdown Formatter (**bold**) ────────────────────────────────────
+
+function renderFormattedText(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      return (
+        <strong key={idx} className="font-semibold">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return <span key={idx}>{part}</span>;
+  });
+}
+
 // ─── Shared Item & Outfit Cards inside Chat ──────────────────────────────────
 
 function ChatSharedItemCard({ item }: { item: SharedItemCardData }) {
@@ -315,6 +331,10 @@ interface StylistChatThreadProps {
   timeZone: string;
 }
 
+function makeOptimisticUserId(): string {
+  return `optimistic-user-${Date.now()}`;
+}
+
 export function StylistChatThread({
   currentUserId,
   initialMessages,
@@ -366,7 +386,9 @@ export function StylistChatThread({
       if (cached) {
         const parsed = JSON.parse(cached) as StylistChatMessage[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed);
+          queueMicrotask(() => {
+            setMessages(parsed);
+          });
         }
       }
     } catch {
@@ -494,7 +516,7 @@ export function StylistChatThread({
             : "How can I style these pieces from my closet together or into outfits?");
 
     const optimisticUserMsg: StylistChatMessage = {
-      id: `optimistic-user-${Date.now()}`,
+      id: makeOptimisticUserId(),
       role: "user",
       body: effectiveBody,
       createdAt: new Date().toISOString(),
@@ -775,7 +797,9 @@ export function StylistChatThread({
                             isOptimistic && "opacity-75",
                           )}
                         >
-                          <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+                          <p className="whitespace-pre-wrap break-words">
+                            {renderFormattedText(msg.body)}
+                          </p>
                         </div>
 
                         {/* User-shared Clothing Items */}

@@ -45,7 +45,7 @@ export default async function ConnectStylistChatPage() {
     weather = await getLiveWeather(profile.location).catch(() => null);
   }
 
-  const [cleanCountRes, initialMessages] = await Promise.all([
+  const [cleanCountRes, chatData] = await Promise.all([
     supabase
       .from("wardrobe_items")
       .select("id", { count: "exact", head: true })
@@ -59,12 +59,12 @@ export default async function ConnectStylistChatPage() {
   return (
     <StylistChatThread
       currentUserId={user.id}
-      initialMessages={initialMessages}
+      initialMessages={chatData.messages}
       shareableItems={shareable.items}
       shareableOutfits={shareable.outfits}
       weatherSummary={weather?.summary ?? null}
       cleanCount={cleanCountRes.count ?? shareable.items.length}
-      referenceNowMs={Date.now()}
+      referenceNowMs={chatData.referenceNowMs}
       timeZone={timeZone}
     />
   );

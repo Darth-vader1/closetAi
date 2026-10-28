@@ -102,7 +102,8 @@ export async function listStylistChatMessages(
   userId: string,
   shareable: { items: SharedItemCardData[]; outfits: SharedOutfitCardData[] },
   limit = 50,
-): Promise<StylistChatMessage[]> {
+): Promise<{ messages: StylistChatMessage[]; referenceNowMs: number }> {
+  const referenceNowMs = Date.now();
   try {
     const { data, error } = await supabase
       .from("stylist_chat_messages")
@@ -113,7 +114,7 @@ export async function listStylistChatMessages(
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    if (error || !data) return [];
+    if (error || !data) return { messages: [], referenceNowMs };
 
     const itemMap = new Map<string, SharedItemCardData>(
       shareable.items.map((it) => [it.id, it]),
@@ -124,7 +125,7 @@ export async function listStylistChatMessages(
 
     const rows = [...(data as unknown as RawChatRow[])].reverse();
 
-    return rows.map((row) => {
+    const messages: StylistChatMessage[] = rows.map((row) => {
       const attachedItems = (row.attached_item_ids ?? [])
         .map((id) => itemMap.get(id))
         .filter((x): x is SharedItemCardData => Boolean(x));
@@ -156,7 +157,7 @@ export async function listStylistChatMessages(
 
       return {
         id: row.id,
-        role: row.role === "assistant" ? "assistant" : "user",
+        role: row.role === "assistant" ? ("assistant" as const) : ("user" as const),
         body: row.body,
         createdAt: row.created_at,
         attachedItems,
@@ -166,7 +167,9 @@ export async function listStylistChatMessages(
         quickReplies: Array.isArray(row.quick_replies) ? row.quick_replies : [],
       };
     });
+
+    return { messages, referenceNowMs };
   } catch {
-    return [];
+    return { messages: [], referenceNowMs };
   }
 }

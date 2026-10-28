@@ -235,17 +235,21 @@ export async function generateStylistChatReply(
       };
     }
 
-    // Filter out any hallucinated item IDs so every card renders a real garment
-    const sanitizedReferencedIds = (parsed.data.referenced_item_ids ?? []).filter((id) =>
-      validItemIds.has(id),
-    );
-
     const sanitizedOutfits = (parsed.data.proposed_outfits ?? [])
       .map((outfit) => ({
         ...outfit,
-        item_ids: outfit.item_ids.filter((id) => validItemIds.has(id)),
+        item_ids: [...new Set(outfit.item_ids.filter((id) => validItemIds.has(id)))],
       }))
-      .filter((outfit) => outfit.item_ids.length > 0);
+      .filter((outfit) => outfit.item_ids.length >= 2);
+
+    const outfitItemIdsSet = new Set(
+      sanitizedOutfits.flatMap((outfit) => outfit.item_ids),
+    );
+
+    // Filter out any hallucinated item IDs and avoid duplicating items already shown in proposed_outfits cards
+    const sanitizedReferencedIds = (parsed.data.referenced_item_ids ?? []).filter(
+      (id) => validItemIds.has(id) && !outfitItemIdsSet.has(id),
+    );
 
     const sanitizedQuickReplies =
       parsed.data.quick_replies && parsed.data.quick_replies.length > 0

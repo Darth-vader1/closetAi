@@ -28,11 +28,13 @@ export function PinnedStylistCard({
       const parsed = JSON.parse(cached) as StylistChatMessage[];
       if (Array.isArray(parsed) && parsed.length > 0) {
         const last = parsed[parsed.length - 1];
-        setSummary({
-          lastMessageBody: last.body,
-          lastMessageRole: last.role,
-          lastMessageAt: last.createdAt,
-          lastMessageAtLabel: "Recent",
+        queueMicrotask(() => {
+          setSummary({
+            lastMessageBody: last.body,
+            lastMessageRole: last.role,
+            lastMessageAt: last.createdAt,
+            lastMessageAtLabel: "Recent",
+          });
         });
       }
     } catch {
