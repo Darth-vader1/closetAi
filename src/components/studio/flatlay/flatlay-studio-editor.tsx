@@ -43,7 +43,7 @@ interface FlatlayStudioEditorProps {
   wardrobeItems: WardrobeItem[];
   itemImageUrls: Record<string, string>;
   savedOutfits: OutfitWithItems[];
-  onSavedSuccess?: (savedId: string) => void;
+  onSavedSuccess?: (composition: FlatlayComposition) => void;
 }
 
 export function FlatlayStudioEditor({
@@ -402,7 +402,24 @@ export function FlatlayStudioEditor({
       setBoardId(res.id);
       setName(boardName);
       setSaveBanner("Flatlay board saved successfully!");
-      onSavedSuccess?.(res.id);
+
+      const savedComp: FlatlayComposition = {
+        id: res.id,
+        userId: initialComposition?.userId ?? "",
+        name: boardName,
+        preset,
+        aspectRatio,
+        canvasWidth,
+        canvasHeight,
+        backgroundColor,
+        backgroundStyle,
+        items,
+        thumbnailPath: initialComposition?.thumbnailPath ?? null,
+        outfitId: res.outfitId ?? initialComposition?.outfitId ?? null,
+        createdAt: initialComposition?.createdAt ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      onSavedSuccess?.(savedComp);
       setTimeout(() => setSaveBanner(null), 4000);
     } finally {
       setIsSaving(false);

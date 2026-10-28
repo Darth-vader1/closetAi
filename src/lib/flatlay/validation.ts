@@ -23,16 +23,10 @@ const optionalUuidSchema = z.preprocess(
   z.string().uuid().optional(),
 );
 
-const clampedNameSchema = (fallbackMessage: string) =>
-  z.preprocess(
-    (val) => (typeof val === "string" ? val.trim().slice(0, 120) : val),
-    z.string().min(1, fallbackMessage).max(120),
-  );
-
 export const flatlayItemSchema = z.object({
   id: z.string().min(1).max(120),
   wardrobeItemId: z.string().uuid("Invalid wardrobe item ID"),
-  name: clampedNameSchema("Garment name is required."),
+  name: z.string().trim().min(1, "Garment name is required.").max(120),
   category: z.string().min(1).max(80),
   imagePath: z.string().min(1).max(500),
   x: z.number().finite(),
@@ -56,7 +50,7 @@ export const flatlayItemSchema = z.object({
 
 export const saveFlatlaySchema = z.object({
   id: optionalUuidSchema, // if updating existing composition
-  name: clampedNameSchema("Please give this flatlay board a name."),
+  name: z.string().trim().min(1, "Please give this flatlay board a name.").max(120),
   preset: flatlayPresetSchema.default("collage"),
   aspectRatio: flatlayAspectRatioSchema.default("4:5"),
   canvasWidth: z.number().int().min(200).max(6000).default(1200),

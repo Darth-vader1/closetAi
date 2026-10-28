@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { Camera, Check, Heart, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { deleteOutfitAction, saveOutfitAction, toggleOutfitFavouriteAction } from "@/app/(app)/studio/actions";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ export function OutfitStudio({
   initialSuggestions,
   initialFlatlays = [],
 }: OutfitStudioProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("flatlay");
   const [outfits, setOutfits] = useState<OutfitWithItems[]>(initialOutfits);
   const [suggestions, setSuggestions] = useState<OutfitSuggestion[]>(initialSuggestions);
@@ -47,6 +49,19 @@ export function OutfitStudio({
   const [flatlays, setFlatlays] = useState<FlatlayComposition[]>(initialFlatlays);
   const [editingFlatlay, setEditingFlatlay] = useState<FlatlayComposition | null>(null);
   const [flatlayView, setFlatlayView] = useState<"editor" | "saved">("editor");
+
+  // Keep client state in sync when server props revalidate
+  const [prevInitialFlatlays, setPrevInitialFlatlays] = useState(initialFlatlays);
+  if (initialFlatlays !== prevInitialFlatlays) {
+    setPrevInitialFlatlays(initialFlatlays);
+    setFlatlays(initialFlatlays);
+  }
+
+  const [prevInitialOutfits, setPrevInitialOutfits] = useState(initialOutfits);
+  if (initialOutfits !== prevInitialOutfits) {
+    setPrevInitialOutfits(initialOutfits);
+    setOutfits(initialOutfits);
+  }
 
   // Manual Builder state
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -327,12 +342,20 @@ export function OutfitStudio({
               wardrobeItems={wardrobeItems}
               itemImageUrls={itemImageUrls}
               savedOutfits={outfits}
-              onSavedSuccess={(savedId) => {
-                // Refresh list
-                const existing = flatlays.find((f) => f.id === savedId);
-                if (!existing) {
-                  // will re-fetch or keep in state
-                }
+              onSavedSuccess={(comp) => {
+                setFlatlays((prev) => {
+                  const existingIdx = prev.findIndex((f) => f.id === comp.id);
+                  if (existingIdx !== -1) {
+                    const next = [...prev];
+                    next[existingIdx] = comp;
+                    return next;
+                  }
+                  return [comp, ...prev];
+                });
+                setEditingFlatlay(comp);
+                startTransition(() => {
+                  router.refresh();
+                });
               }}
             />
           ) : (
@@ -349,6 +372,12 @@ export function OutfitStudio({
               }}
               onCompositionDeleted={(id) => {
                 setFlatlays((prev) => prev.filter((f) => f.id !== id));
+                if (editingFlatlay?.id === id) {
+                  setEditingFlatlay(null);
+                }
+                startTransition(() => {
+                  router.refresh();
+                });
               }}
             />
           )}
