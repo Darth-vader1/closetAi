@@ -19,6 +19,7 @@ import { Card } from "@/components/ui/card";
 import { wearOutfitTodayAction, planOutfitAction } from "@/app/(app)/stylist/actions";
 import type { OutfitWithItems, PlannedOutfitRow } from "@/lib/outfits/queries";
 import { humanise } from "@/lib/wardrobe/categories";
+import { formatLocalDate } from "@/lib/utils/format";
 
 interface CalendarClientProps {
   initialPlans: PlannedOutfitRow[];
@@ -32,17 +33,15 @@ export function CalendarClient({ initialPlans, savedOutfits, imageUrls, initialD
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     return initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)
       ? initialDate
-      : new Date().toISOString().split("T")[0];
+      : formatLocalDate(new Date());
   });
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
     const d = initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)
-      ? new Date(`${initialDate}T00:00:00`)
+      ? new Date(`${initialDate}T12:00:00`)
       : new Date();
     const day = d.getDay();
     const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
-    const monday = new Date(d.setDate(diff));
-    monday.setHours(0, 0, 0, 0);
-    return monday;
+    return new Date(d.getFullYear(), d.getMonth(), diff, 12, 0, 0);
   });
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
@@ -57,12 +56,20 @@ export function CalendarClient({ initialPlans, savedOutfits, imageUrls, initialD
   });
   const [isWearing, setIsWearing] = useState(false);
 
-  // Generate 7 days of the week starting from currentWeekStart
+  const todayStr = formatLocalDate(new Date());
+
+  // Generate 7 days of the week starting from currentWeekStart (noon-anchored to prevent timezone shifts)
   const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(currentWeekStart);
-    day.setDate(day.getDate() + i);
-    const dateStr = day.toISOString().split("T")[0];
-    const isToday = dateStr === new Date().toISOString().split("T")[0];
+    const day = new Date(
+      currentWeekStart.getFullYear(),
+      currentWeekStart.getMonth(),
+      currentWeekStart.getDate() + i,
+      12,
+      0,
+      0,
+    );
+    const dateStr = formatLocalDate(day);
+    const isToday = dateStr === todayStr;
     const isSelected = dateStr === selectedDate;
     const plan = plans.find((p) => p.plannedFor === dateStr);
     return { date: day, dateStr, isToday, isSelected, plan };
@@ -70,17 +77,13 @@ export function CalendarClient({ initialPlans, savedOutfits, imageUrls, initialD
 
   const nextWeek = () => {
     setCurrentWeekStart((prev) => {
-      const next = new Date(prev);
-      next.setDate(next.getDate() + 7);
-      return next;
+      return new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 7, 12, 0, 0);
     });
   };
 
   const prevWeek = () => {
     setCurrentWeekStart((prev) => {
-      const p = new Date(prev);
-      p.setDate(p.getDate() - 7);
-      return p;
+      return new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 7, 12, 0, 0);
     });
   };
 
@@ -174,10 +177,9 @@ export function CalendarClient({ initialPlans, savedOutfits, imageUrls, initialD
                 const today = new Date();
                 const day = today.getDay();
                 const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-                const monday = new Date(today.setDate(diff));
-                monday.setHours(0, 0, 0, 0);
+                const monday = new Date(today.getFullYear(), today.getMonth(), diff, 12, 0, 0);
                 setCurrentWeekStart(monday);
-                setSelectedDate(new Date().toISOString().split("T")[0]);
+                setSelectedDate(formatLocalDate(today));
               }}
               className="px-3 py-1 text-xs font-medium text-foreground hover:bg-surface-muted rounded-md transition-colors"
             >

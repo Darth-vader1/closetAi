@@ -36,6 +36,7 @@ import {
 import type { WardrobeItem } from "@/lib/wardrobe/queries";
 import { humanise } from "@/lib/wardrobe/categories";
 import type { WeatherForecast } from "@/lib/weather/service";
+import { formatLocalDate } from "@/lib/utils/format";
 
 function PinterestIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -372,7 +373,7 @@ export function StylistClient({
 
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const dateStr = tomorrow.toISOString().split("T")[0];
+    const dateStr = formatLocalDate(tomorrow);
 
     const planRes = await planOutfitAction({
       outfitId,

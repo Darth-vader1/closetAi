@@ -7,6 +7,8 @@ import { logger } from "@/lib/logger";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
+import { formatLocalDate } from "@/lib/utils/format";
+
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 const saveStylistOutfitSchema = z.object({
@@ -121,7 +123,7 @@ export async function wearOutfitTodayAction(input: unknown): Promise<ActionResul
   if (!parsed.success) return fail("Invalid outfit.");
 
   const supabase = await createClient();
-  const todayStr = parsed.data.date || new Date().toISOString().split("T")[0];
+  const todayStr = parsed.data.date || formatLocalDate(new Date());
   const nowIso = new Date().toISOString();
 
   // Prefer atomic database RPC if migration has been applied
