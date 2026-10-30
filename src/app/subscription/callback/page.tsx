@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { activateUserSubscription } from "@/app/subscription/actions";
-import { requireUser } from "@/lib/auth/session";
+import { getSessionUser } from "@/lib/auth/session";
 import { verifyPaystackTransaction } from "@/lib/billing/paystack";
 import { stripe } from "@/lib/billing/stripe";
 import { logger } from "@/lib/logger";
@@ -21,7 +21,7 @@ export default async function SubscriptionCallbackPage({
     session_id?: string;
   }>;
 }) {
-  const user = await requireUser();
+  const sessionUser = await getSessionUser();
   const params = await searchParams;
   const provider = params.provider;
 
@@ -29,7 +29,7 @@ export default async function SubscriptionCallbackPage({
   if (provider === "paystack") {
     const reference = params.reference || params.trxref;
     if (!reference) {
-      redirect("/subscription?canceled=true");
+      redirect(sessionUser ? "/subscription?canceled=true" : "/login");
     }
 
     try {
@@ -40,26 +40,33 @@ export default async function SubscriptionCallbackPage({
         const planId = rawPlan === "annual" ? "annual" : "monthly";
         const customerCode = verifyRes.data.customer?.customer_code;
         const amount = verifyRes.data.amount;
+        const targetUserId = verifyRes.data.metadata?.userId || sessionUser?.id;
 
-        await activateUserSubscription(user.id, {
-          planId,
-          provider: "paystack",
-          customerId: customerCode,
-          subscriptionId: reference,
-          reference,
-          amount,
-          currency: "NGN",
-        });
+        if (targetUserId) {
+          await activateUserSubscription(targetUserId, {
+            planId,
+            provider: "paystack",
+            customerId: customerCode,
+            subscriptionId: reference,
+            reference,
+            amount,
+            currency: "NGN",
+          });
+        }
 
-        redirect("/dashboard?upgraded=true");
+        if (sessionUser) {
+          redirect("/dashboard?upgraded=true");
+        } else {
+          redirect("/login?next=/dashboard%3Fupgraded%3Dtrue");
+        }
       } else {
         logger.warn("billing.paystack_verification_unsuccessful", { reference, verifyRes });
-        redirect("/subscription?canceled=true&reason=verification_failed");
+        redirect(sessionUser ? "/subscription?canceled=true&reason=verification_failed" : "/login");
       }
     } catch (err: unknown) {
       if ((err as { digest?: string })?.digest?.startsWith("NEXT_REDIRECT")) throw err;
-      logger.error("billing.paystack_verification_error", { userId: user.id, error: err });
-      redirect("/subscription?canceled=true&reason=error");
+      logger.error("billing.paystack_verification_error", { userId: sessionUser?.id, error: err });
+      redirect(sessionUser ? "/subscription?canceled=true&reason=error" : "/login");
     }
   }
 
@@ -67,7 +74,7 @@ export default async function SubscriptionCallbackPage({
   if (provider === "stripe") {
     const sessionId = params.session_id;
     if (!sessionId || !stripe) {
-      redirect("/subscription?canceled=true");
+      redirect(sessionUser ? "/subscription?canceled=true" : "/login");
     }
 
     try {
@@ -79,27 +86,34 @@ export default async function SubscriptionCallbackPage({
         const customerId = typeof session.customer === "string" ? session.customer : undefined;
         const subscriptionId = typeof session.subscription === "string" ? session.subscription : undefined;
         const amount = session.amount_total || (planId === "annual" ? 4999 : 499);
+        const targetUserId = session.metadata?.userId || sessionUser?.id;
 
-        await activateUserSubscription(user.id, {
-          planId,
-          provider: "stripe",
-          customerId,
-          subscriptionId,
-          reference: session.id,
-          amount,
-          currency: "USD",
-        });
+        if (targetUserId) {
+          await activateUserSubscription(targetUserId, {
+            planId,
+            provider: "stripe",
+            customerId,
+            subscriptionId,
+            reference: session.id,
+            amount,
+            currency: "USD",
+          });
+        }
 
-        redirect("/dashboard?upgraded=true");
+        if (sessionUser) {
+          redirect("/dashboard?upgraded=true");
+        } else {
+          redirect("/login?next=/dashboard%3Fupgraded%3Dtrue");
+        }
       } else {
-        redirect("/subscription?canceled=true&reason=unpaid");
+        redirect(sessionUser ? "/subscription?canceled=true&reason=unpaid" : "/login");
       }
     } catch (err: unknown) {
       if ((err as { digest?: string })?.digest?.startsWith("NEXT_REDIRECT")) throw err;
-      logger.error("billing.stripe_verification_error", { userId: user.id, error: err });
-      redirect("/subscription?canceled=true&reason=error");
+      logger.error("billing.stripe_verification_error", { userId: sessionUser?.id, error: err });
+      redirect(sessionUser ? "/subscription?canceled=true&reason=error" : "/login");
     }
   }
 
-  redirect("/subscription");
+  redirect(sessionUser ? "/subscription" : "/login");
 }

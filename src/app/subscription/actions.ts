@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { requireUser } from "@/lib/auth/session";
 import { initializePaystackTransaction } from "@/lib/billing/paystack";
 import { PRICING_PLANS } from "@/lib/billing/plans";
@@ -51,13 +52,29 @@ export async function continueWithFreePlanAction() {
   redirect("/dashboard");
 }
 
+async function getRequestOrigin(): Promise<string> {
+  try {
+    const headerList = await headers();
+    const host = headerList.get("x-forwarded-host") || headerList.get("host");
+    const proto =
+      headerList.get("x-forwarded-proto") ||
+      (host?.includes("localhost") || host?.includes("127.0.0.1") ? "http" : "https");
+    if (host) {
+      return `${proto}://${host}`.replace(/\/$/, "");
+    }
+  } catch {
+    // fallback if headers are unavailable
+  }
+  return getAppUrl();
+}
+
 export async function createSubscriptionCheckoutAction(
   planId: "monthly" | "annual",
   provider: "paystack" | "stripe"
 ) {
   const user = await requireUser();
   const plan = PRICING_PLANS[planId] || PRICING_PLANS.monthly;
-  const appUrl = getAppUrl();
+  const appUrl = await getRequestOrigin();
 
   if (provider === "paystack") {
     const callbackUrl = `${appUrl}/subscription/callback?provider=paystack`;
