@@ -17,12 +17,13 @@ export const dynamic = "force-dynamic";
 export default async function SubscriptionPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ canceled?: string }>;
+  searchParams?: Promise<{ canceled?: string; upgraded?: string }>;
 }) {
   const user = await requireUser();
   const planInfo = await getUserPlan(user.id);
   const resolvedParams = searchParams ? await searchParams : {};
   const isCanceled = Boolean(resolvedParams?.canceled);
+  const isUpgraded = resolvedParams?.upgraded === "true";
 
   return (
     <div className="min-h-dvh bg-background text-foreground flex flex-col justify-between p-4 sm:p-8">
@@ -51,6 +52,7 @@ export default async function SubscriptionPage({
           currentPlanId={planInfo.planId}
           userEmail={user.email || ""}
           isCanceled={isCanceled}
+          isUpgraded={isUpgraded}
         />
       </main>
 

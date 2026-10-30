@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import {
   Check,
   ShieldCheck,
@@ -17,22 +17,32 @@ import {
   continueWithFreePlanAction,
   createSubscriptionCheckoutAction,
 } from "@/app/subscription/actions";
+import { PremiumCelebrationModal } from "./premium-celebration-modal";
 
 interface SubscriptionClientProps {
   currentPlanId?: PlanId;
   userEmail?: string;
   isCanceled?: boolean;
+  isUpgraded?: boolean;
 }
 
 export function SubscriptionClient({
   isCanceled,
+  isUpgraded = false,
 }: SubscriptionClientProps) {
   const [selectedTier, setSelectedTier] = useState<"free" | "premium">("premium");
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
   const [currency, setCurrency] = useState<"NGN" | "USD">("NGN");
   const [loadingAction, setLoadingAction] = useState<"free" | "paystack" | "stripe" | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showCelebration, setShowCelebration] = useState(isUpgraded);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (isUpgraded) {
+      setShowCelebration(true);
+    }
+  }, [isUpgraded]);
 
   const freePlan = PRICING_PLANS.free;
   const premiumPlan = billingPeriod === "annual" ? PRICING_PLANS.annual : PRICING_PLANS.monthly;
@@ -97,6 +107,12 @@ export function SubscriptionClient({
           </div>
         )}
       </div>
+
+      {/* Post-Payment Celebration Pop-Out with Confetti & Floating Obsidian */}
+      <PremiumCelebrationModal
+        isOpen={showCelebration}
+        onClose={() => setShowCelebration(false)}
+      />
 
       {/* Plan Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-10 items-stretch max-w-4xl mx-auto pt-3">
@@ -324,9 +340,21 @@ export function SubscriptionClient({
               <span>Get Premium ({currency === "NGN" ? premiumPlan.formattedNGN : premiumPlan.formattedUSD})</span>
               <ArrowRight className="size-4 ml-1.5" />
             </Button>
-            <p className="text-center text-[11px] text-muted mt-2">
-              Safe 256-bit checkout via {currency === "NGN" ? "Paystack" : "Stripe"}. Cancel anytime.
-            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5 mt-2">
+              <p className="text-center text-[11px] text-muted">
+                Safe 256-bit checkout via {currency === "NGN" ? "Paystack" : "Stripe"}. Cancel anytime.
+              </p>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCelebration(true);
+                }}
+                className="text-[11px] text-accent hover:text-accent/80 font-medium underline underline-offset-2 transition cursor-pointer"
+              >
+                Preview celebration
+              </button>
+            </div>
           </div>
         </Card>
       </div>

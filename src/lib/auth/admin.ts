@@ -9,8 +9,9 @@ const DEFAULT_ADMIN_EMAILS = [
 ];
 
 export function getAdminEmails(): string[] {
-  const envAdmins = process.env.ADMIN_EMAILS
-    ? process.env.ADMIN_EMAILS.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
+  const envAdminsRaw = process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "";
+  const envAdmins = envAdminsRaw
+    ? envAdminsRaw.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
     : [];
   return Array.from(new Set([...DEFAULT_ADMIN_EMAILS, ...envAdmins]));
 }

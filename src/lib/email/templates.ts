@@ -627,3 +627,107 @@ export function renderFeatureAnnouncementHtml({
 </html>`;
 }
 
+
+export interface AdminNewUserAlertProps {
+  email: string;
+  displayName?: string | null;
+  userId?: string | null;
+  createdAt?: string | null;
+}
+
+export function renderAdminNewUserAlertHtml({
+  email,
+  displayName,
+  userId,
+  createdAt,
+}: AdminNewUserAlertProps): string {
+  const appUrl = getAppUrl();
+  const adminUrl = `${appUrl}/admin/users`;
+  const formattedDate = createdAt
+    ? new Date(createdAt).toUTCString()
+    : new Date().toUTCString();
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New User Registration: ${escapeHtml(displayName || email)}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1c1917; line-height: 1.5;">
+  <div style="max-width: 580px; margin: 40px auto; background-color: #ffffff; border: 1px solid #e7e5e4; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+    
+    <!-- Header -->
+    <div style="background-color: #1c1917; padding: 32px 36px; text-align: left;">
+      <span style="display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #d6d3d1; margin-bottom: 8px;">CLOSET·AI ADMIN NOTIFICATION</span>
+      <h1 style="margin: 0; font-family: Georgia, serif; font-size: 26px; font-weight: normal; color: #f5f5f4;">New User Signed Up</h1>
+      <p style="margin: 8px 0 0 0; font-size: 13px; color: #a8a29e;">A new member has joined ClosetAI.</p>
+    </div>
+
+    <!-- Body -->
+    <div style="padding: 36px;">
+      <p style="margin: 0 0 24px 0; font-size: 15px; color: #44403c; line-height: 1.6;">
+        Here are the registration details for the new user:
+      </p>
+
+      <!-- User Details Card -->
+      <table style="width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #e7e5e4; border-radius: 12px; background-color: #fafaf9; margin-bottom: 28px; overflow: hidden;">
+        <tbody>
+          <tr style="border-bottom: 1px solid #e7e5e4;">
+            <td style="padding: 14px 18px; font-size: 13px; font-weight: 600; color: #78716c; width: 120px; border-bottom: 1px solid #e7e5e4;">Name</td>
+            <td style="padding: 14px 18px; font-size: 14px; font-weight: 500; color: #1c1917; border-bottom: 1px solid #e7e5e4;">
+              ${escapeHtml(displayName || "Not specified")}
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e7e5e4;">
+            <td style="padding: 14px 18px; font-size: 13px; font-weight: 600; color: #78716c; border-bottom: 1px solid #e7e5e4;">Email</td>
+            <td style="padding: 14px 18px; font-size: 14px; font-weight: 500; color: #1c1917; border-bottom: 1px solid #e7e5e4;">
+              <a href="mailto:${escapeHtml(email)}" style="color: #92400e; text-decoration: none;">${escapeHtml(email)}</a>
+            </td>
+          </tr>
+          ${userId ? `
+          <tr style="border-bottom: 1px solid #e7e5e4;">
+            <td style="padding: 14px 18px; font-size: 13px; font-weight: 600; color: #78716c; border-bottom: 1px solid #e7e5e4;">User ID</td>
+            <td style="padding: 14px 18px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; color: #57534e; border-bottom: 1px solid #e7e5e4;">
+              ${escapeHtml(userId)}
+            </td>
+          </tr>
+          ` : ""}
+          <tr style="border-bottom: 1px solid #e7e5e4;">
+            <td style="padding: 14px 18px; font-size: 13px; font-weight: 600; color: #78716c; border-bottom: 1px solid #e7e5e4;">Plan</td>
+            <td style="padding: 14px 18px; font-size: 13px; font-weight: 600; color: #047857; border-bottom: 1px solid #e7e5e4;">
+              Free Tier (Freemium)
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 14px 18px; font-size: 13px; font-weight: 600; color: #78716c;">Timestamp</td>
+            <td style="padding: 14px 18px; font-size: 13px; color: #57534e;">
+              ${escapeHtml(formattedDate)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- CTA -->
+      <div style="text-align: center; margin: 32px 0 16px 0;">
+        <a href="${escapeHtml(adminUrl)}" style="display: inline-block; background-color: #1c1917; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 30px; font-size: 14px; font-weight: 500; letter-spacing: 0.3px;">
+          View Users in Admin Dashboard →
+        </a>
+      </div>
+      <p style="text-align: center; font-size: 12px; color: #78716c; margin: 0;">
+        Manage roles, monitor feature usage, and view subscriber records.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background-color: #f5f5f4; border-top: 1px solid #e7e5e4; padding: 20px 36px; text-align: center; font-size: 12px; color: #78716c;">
+      <p style="margin: 0;">
+        You received this email because you are configured as an administrator for ClosetAI.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}

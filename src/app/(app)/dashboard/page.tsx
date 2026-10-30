@@ -20,6 +20,7 @@ import { createClient } from "@/lib/supabase/server";
 import { countByStatus, isLaundryStatus, STATUS_LABELS, type LaundryStatus } from "@/lib/wardrobe/status";
 import { humanise } from "@/lib/wardrobe/categories";
 import { signImageUrls } from "@/lib/wardrobe/queries";
+import { DashboardCelebration } from "@/components/billing/dashboard-celebration";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -35,7 +36,14 @@ function filterUntouchedItems<T extends { wear_count?: number | null; last_worn_
     .slice(0, 3);
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ upgraded?: string }>;
+}) {
+  const resolvedParams = searchParams ? await searchParams : {};
+  const isUpgraded = resolvedParams?.upgraded === "true";
+
   const user = await requireUser();
   const profile = await getProfile();
   const supabase = await createClient();
@@ -85,6 +93,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <DashboardCelebration initialUpgraded={isUpgraded} />
       <PageHeader
         title={firstName ? `Hello, ${firstName}` : "Dashboard"}
         description="A quick look at your wardrobe utilization and what's ready to wear."

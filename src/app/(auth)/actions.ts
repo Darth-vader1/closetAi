@@ -105,6 +105,15 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
           logger.error("auth.signup_email_send_failed", { error: sent.error });
           return { ok: false, error: "Could not send verification email. Please try again in a moment." };
         }
+
+        const { notifyAdminsOfNewSignup } = await import("@/lib/admin/notifications");
+        void notifyAdminsOfNewSignup({
+          userId: linkData?.user?.id ?? null,
+          email: parsed.data.email,
+          displayName: parsed.data.displayName,
+          createdAt: linkData?.user?.created_at ?? new Date().toISOString(),
+        });
+
         return {
           ok: true,
           message: "Check your email for a verification link (please check your Spam or Promotions folder if you don't see it). Once confirmed, you can finish setting up your wardrobe.",
@@ -125,6 +134,15 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
       logger.warn("auth.signup_failed", { code: error.code, status: error.status });
       return { ok: false, error: friendlyAuthError(error) };
     }
+
+    const { notifyAdminsOfNewSignup } = await import("@/lib/admin/notifications");
+    void notifyAdminsOfNewSignup({
+      userId: data.user?.id ?? null,
+      email: parsed.data.email,
+      displayName: parsed.data.displayName,
+      createdAt: data.user?.created_at ?? new Date().toISOString(),
+    });
+
     // When email confirmation is disabled in Supabase, a session is returned immediately.
     if (data.session) redirect("/onboarding");
     return {
