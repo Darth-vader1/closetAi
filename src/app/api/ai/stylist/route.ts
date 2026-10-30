@@ -4,6 +4,7 @@ import { takeAiQuota } from "@/lib/ai/rate-limit";
 import { getAiProvider } from "@/lib/ai/service";
 import { generateStylistRecommendations } from "@/lib/ai/stylist";
 import { getProfile, getSessionUser } from "@/lib/auth/session";
+import { checkUsageLimit, consumeUsage } from "@/lib/billing/entitlements";
 import { isSameOrigin } from "@/lib/security/origin";
 import { createClient } from "@/lib/supabase/server";
 import { signImageUrls, type WardrobeItem } from "@/lib/wardrobe/queries";
@@ -39,6 +40,23 @@ export async function POST(request: NextRequest) {
     const availability = getAiProvider();
     if (!availability.available) {
       return json({ status: "unavailable", reason: availability.reason });
+    }
+
+    // Check freemium / premium recommendation limits
+    const usage = await checkUsageLimit(user.id, "outfit_recommendations");
+    if (!usage.allowed) {
+      return json(
+        {
+          error:
+            usage.message ||
+            "You have reached your outfit recommendation limit. Upgrade to Premium for 100 recommendations per month.",
+          upgradeRequired: true,
+          remaining: 0,
+          limit: usage.limit,
+          resetsAt: usage.resetsAt,
+        },
+        403
+      );
     }
 
     const supabase = await createClient();
@@ -206,6 +224,9 @@ export async function POST(request: NextRequest) {
     if (result.status !== "ok") {
       return json(result);
     }
+
+    // Only consume recommendation usage upon verified successful completion
+    await consumeUsage(user.id, "outfit_recommendations");
 
     // Map item IDs back to full wardrobe items with signed image URLs
     const itemMap = new Map<string, WardrobeItem>(cleanItems.map((i) => [i.id, i]));

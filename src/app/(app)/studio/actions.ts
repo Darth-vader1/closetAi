@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/actions/result";
 import { getProfile, requireUser } from "@/lib/auth/session";
+import { checkUsageLimit } from "@/lib/billing/entitlements";
 import { logger } from "@/lib/logger";
 import { generateOutfits, type OutfitSuggestion } from "@/lib/outfits/engine";
 import { isOwnStoragePath } from "@/lib/security/origin";
@@ -15,6 +16,15 @@ const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 export async function saveOutfitAction(input: unknown): Promise<ActionResult<{ id: string }>> {
   const user = await requireUser();
+
+  const usage = await checkUsageLimit(user.id, "saved_outfits");
+  if (!usage.allowed) {
+    return fail(
+      usage.message ||
+        "You have reached the Free plan limit of 10 saved outfits. Upgrade to Premium to save unlimited outfits."
+    );
+  }
+
   const parsed = createOutfitSchema.safeParse(input);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0]?.message;

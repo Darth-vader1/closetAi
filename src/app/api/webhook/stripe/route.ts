@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/billing/stripe";
 import { STRIPE_WEBHOOK_SECRET } from "@/lib/billing/plans";
-import { activateUserSubscription } from "@/app/paywall/actions";
+import { activateUserSubscription } from "@/app/subscription/actions";
 import { logger } from "@/lib/logger";
 
 export async function POST(req: Request) {
@@ -28,7 +28,8 @@ export async function POST(req: Request) {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       const userId = session.metadata?.userId || session.client_reference_id;
-      const planId = (session.metadata?.planId as "monthly" | "annual") || "monthly";
+      const rawPlan = session.metadata?.planId;
+      const planId = rawPlan === "annual" ? "annual" : "monthly";
 
       if (userId) {
         await activateUserSubscription(userId, {
@@ -36,10 +37,11 @@ export async function POST(req: Request) {
           provider: "stripe",
           customerId: typeof session.customer === "string" ? session.customer : undefined,
           subscriptionId: typeof session.subscription === "string" ? session.subscription : undefined,
+          reference: session.id,
           amount: session.amount_total || (planId === "annual" ? 4999 : 499),
           currency: "USD",
         });
-        logger.info("webhook.stripe.session_completed_activated", { userId, planId });
+        logger.info("webhook.stripe.session_completed_activated", { userId, planId, ref: session.id });
       }
     }
 

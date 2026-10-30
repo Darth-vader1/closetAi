@@ -6,7 +6,6 @@ import { OnboardingForm } from "@/components/onboarding/onboarding-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { getProfile, requireUser } from "@/lib/auth/session";
-import { getUserSubscription } from "@/lib/billing/subscription";
 import { isSupabaseConfigured } from "@/lib/env";
 
 export const metadata = { title: "Set up your profile" };
@@ -22,11 +21,7 @@ export default async function OnboardingPage() {
   const user = await requireUser();
   const profile = await getProfile();
   if (profile?.onboarding_completed_at) {
-    const sub = await getUserSubscription(user.id);
-    if (sub.isSubscribed) {
-      redirect("/dashboard");
-    }
-    redirect("/paywall");
+    redirect("/dashboard");
   }
 
   return (

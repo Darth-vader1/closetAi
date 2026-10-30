@@ -26,23 +26,35 @@ export async function completeOnboardingAction(input: unknown): Promise<AuthActi
   const d = parsed.data;
   const supabase = await createClient();
 
-  const prefs = await supabase
+  const prefsPayload = {
+    daily_enabled: d.dailyEnabled,
+    daily_time: d.dailyTime,
+    weekly_enabled: d.weeklyEnabled,
+    weekly_day: d.weeklyDay,
+    weekly_time: d.weeklyTime,
+  };
+
+  // 1. Try updating email preferences first if the row already exists
+  const prefsUpdate = await supabase
     .from("email_preferences")
-    .upsert({
-      user_id: user.id,
-      daily_enabled: d.dailyEnabled,
-      daily_time: d.dailyTime,
-      weekly_enabled: d.weeklyEnabled,
-      weekly_day: d.weeklyDay,
-      weekly_time: d.weeklyTime,
-    });
-  if (prefs.error) {
-    logger.error("onboarding.prefs_failed", { userId: user.id, code: prefs.error.code });
-    return { ok: false, error: "We couldn't save your email preferences. Please try again." };
+    .update(prefsPayload)
+    .eq("user_id", user.id)
+    .select("user_id");
+
+  if (prefsUpdate.error || !prefsUpdate.data || prefsUpdate.data.length === 0) {
+    const prefsUpsert = await supabase
+      .from("email_preferences")
+      .upsert({
+        user_id: user.id,
+        ...prefsPayload,
+      });
+    if (prefsUpsert.error && prefsUpdate.error) {
+      logger.error("onboarding.prefs_failed", { userId: user.id, code: prefsUpsert.error.code });
+      return { ok: false, error: "We couldn't save your email preferences. Please try again." };
+    }
   }
 
-  const profileFields = {
-    id: user.id,
+  const profilePayload = {
     display_name: d.displayName,
     favourite_colours: d.favouriteColours,
     common_occasions: d.commonOccasions,
@@ -52,37 +64,81 @@ export async function completeOnboardingAction(input: unknown): Promise<AuthActi
     onboarding_completed_at: new Date().toISOString(),
   };
 
-  // Try upserting with preferred_style as array first (for text[] column)
-  let profile = await supabase
+  // 2. Try updating the profile first (most common flow since signup trigger creates the row)
+  let profileUpdate = await supabase
     .from("profiles")
-    .upsert({ ...profileFields, preferred_style: d.preferredStyles });
+    .update({ ...profilePayload, preferred_style: d.preferredStyles })
+    .eq("id", user.id)
+    .select("id");
 
-  // If the database column is still a single text column, save the first style
-  // so the user is never blocked even if the database migration hasn't been applied yet
-  if (profile.error) {
-    profile = await supabase
+  // Fallback: If column is still single text (older migration), save the first style
+  if (profileUpdate.error) {
+    profileUpdate = await supabase
       .from("profiles")
-      .upsert({ ...profileFields, preferred_style: d.preferredStyles[0] ?? null });
+      .update({ ...profilePayload, preferred_style: d.preferredStyles[0] ?? null })
+      .eq("id", user.id)
+      .select("id");
   }
 
-  if (profile.error) {
-    logger.error("onboarding.profile_failed", { userId: user.id, code: profile.error.code });
-    return { ok: false, error: "We couldn't save your profile. Please try again." };
+  // 3. If update returned 0 rows or failed (e.g. signup trigger didn't run), try upserting
+  if (profileUpdate.error || !profileUpdate.data || profileUpdate.data.length === 0) {
+    let profileUpsert = await supabase
+      .from("profiles")
+      .upsert({
+        id: user.id,
+        ...profilePayload,
+        preferred_style: d.preferredStyles,
+      });
+
+    if (profileUpsert.error) {
+      profileUpsert = await supabase
+        .from("profiles")
+        .upsert({
+          id: user.id,
+          ...profilePayload,
+          preferred_style: d.preferredStyles[0] ?? null,
+        });
+    }
+
+    if (profileUpsert.error && profileUpdate.error) {
+      logger.error("onboarding.profile_failed", {
+        userId: user.id,
+        code: profileUpsert.error.code ?? profileUpdate.error.code,
+        message: profileUpsert.error.message,
+      });
+      return { ok: false, error: "We couldn't save your profile. Please try again." };
+    }
   }
 
-  redirect("/paywall");
+  redirect("/subscription");
 }
 
 /** Lets users skip everything nonessential. Emails stay off; the timezone stays UTC until they set one. */
 export async function skipOnboardingAction(): Promise<AuthActionResult> {
   const user = await requireUser();
   const supabase = await createClient();
-  const { error } = await supabase
+
+  const skipPayload = {
+    discoverable: true,
+    onboarding_completed_at: new Date().toISOString(),
+  };
+
+  const updateRes = await supabase
     .from("profiles")
-    .upsert({ id: user.id, discoverable: true, onboarding_completed_at: new Date().toISOString() });
-  if (error) {
-    logger.error("onboarding.skip_failed", { userId: user.id, code: error.code });
-    return { ok: false, error: "Something went wrong. Please try again." };
+    .update(skipPayload)
+    .eq("id", user.id)
+    .select("id");
+
+  if (updateRes.error || !updateRes.data || updateRes.data.length === 0) {
+    const { error: upsertError } = await supabase
+      .from("profiles")
+      .upsert({ id: user.id, ...skipPayload });
+
+    if (upsertError && updateRes.error) {
+      logger.error("onboarding.skip_failed", { userId: user.id, code: upsertError.code });
+      return { ok: false, error: "Something went wrong. Please try again." };
+    }
   }
-  redirect("/paywall");
+
+  redirect("/subscription");
 }

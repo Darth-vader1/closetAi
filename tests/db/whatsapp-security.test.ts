@@ -78,7 +78,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.close();
+  if (db) await db.close();
 });
 
 describe("email_preferences verification columns are server-only", () => {

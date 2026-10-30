@@ -6,7 +6,6 @@ import { ProductTour } from "@/components/onboarding/product-tour";
 import { ConnectNotificationProvider } from "@/components/connect/connect-notification-provider";
 import { getProfile, requireUser } from "@/lib/auth/session";
 import { isAdminUser } from "@/lib/auth/admin";
-import { getUserSubscription } from "@/lib/billing/subscription";
 import { isSupabaseConfigured } from "@/lib/env";
 
 // Every page in this group is per-user and reads the session, so it must never be prerendered
@@ -23,14 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // First sign-in after registration goes through onboarding exactly once.
   if (!profile || !profile.onboarding_completed_at) redirect("/onboarding");
 
-  // Hard Paywall: Check subscription status before rendering main app (Admins bypass paywall)
   const isAdmin = await isAdminUser(user);
-  if (!isAdmin) {
-    const sub = await getUserSubscription(user.id);
-    if (!sub.isSubscribed) {
-      redirect("/paywall");
-    }
-  }
 
   const displayName = profile?.display_name ?? user.email ?? "You";
 

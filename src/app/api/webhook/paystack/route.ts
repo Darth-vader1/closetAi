@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { PAYSTACK_SECRET_KEY } from "@/lib/billing/plans";
-import { activateUserSubscription } from "@/app/paywall/actions";
+import { activateUserSubscription } from "@/app/subscription/actions";
 import { logger } from "@/lib/logger";
 
 export async function POST(req: Request) {
@@ -23,7 +23,8 @@ export async function POST(req: Request) {
     if (event.event === "charge.success") {
       const data = event.data;
       const userId = data.metadata?.userId;
-      const planId = data.metadata?.planId || "monthly";
+      const rawPlan = data.metadata?.planId;
+      const planId = rawPlan === "annual" ? "annual" : "monthly";
 
       if (userId) {
         await activateUserSubscription(userId, {
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
           provider: "paystack",
           customerId: data.customer?.customer_code,
           subscriptionId: data.reference,
+          reference: data.reference,
           amount: data.amount,
           currency: data.currency || "NGN",
         });

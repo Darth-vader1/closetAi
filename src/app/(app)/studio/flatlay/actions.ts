@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/actions/result";
 import { requireUser } from "@/lib/auth/session";
+import { checkUsageLimit } from "@/lib/billing/entitlements";
 import { logger } from "@/lib/logger";
 import { isOwnStoragePath } from "@/lib/security/origin";
 import { createClient } from "@/lib/supabase/server";
@@ -38,6 +39,17 @@ export async function saveFlatlayAction(
     thumbnailPath,
     saveAsOutfit,
   } = parsed.data;
+
+  // Enforce usage limit when creating a new flatlay board
+  if (!id) {
+    const usage = await checkUsageLimit(user.id, "flatlay_designs");
+    if (!usage.allowed) {
+      return fail(
+        usage.message ||
+          "You have reached the Free plan limit of 3 saved Flatlay designs. Upgrade to Premium for unlimited designs."
+      );
+    }
+  }
 
   // Validate thumbnail path if provided
   if (thumbnailPath && !isOwnStoragePath(thumbnailPath, user.id)) {

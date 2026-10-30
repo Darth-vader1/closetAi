@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/actions/result";
 import { requireUser } from "@/lib/auth/session";
+import { checkUsageLimit } from "@/lib/billing/entitlements";
 import { findDuplicateImportedItem } from "@/lib/import/duplicate-check";
 import { normalizeProductUrl } from "@/lib/import/url-utils";
 import { logger } from "@/lib/logger";
@@ -92,6 +93,15 @@ export async function saveItemAction(
   input: unknown,
 ): Promise<ActionResult<{ id: string }>> {
   const user = await requireUser();
+
+  const usage = await checkUsageLimit(user.id, "wardrobe_items");
+  if (!usage.allowed) {
+    return fail(
+      usage.message ||
+        "Your wardrobe has reached the Free plan limit of 30 items. Upgrade to Premium for unlimited wardrobe items."
+    );
+  }
+
   const parsed = createItemSchema.safeParse(input);
   if (!parsed.success) {
     return fail(

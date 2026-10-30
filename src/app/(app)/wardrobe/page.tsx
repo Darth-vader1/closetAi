@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/card";
 import { FilterBar } from "@/components/wardrobe/filter-bar";
 import { WardrobeBrowser } from "@/components/wardrobe/wardrobe-browser";
+import { UsageIndicator } from "@/components/billing/usage-indicator";
 import { requireUser } from "@/lib/auth/session";
+import { checkUsageLimit } from "@/lib/billing/entitlements";
 import { createClient } from "@/lib/supabase/server";
 import { PAGE_SIZE, parseWardrobeQuery, type WardrobeQuery } from "@/lib/validation/wardrobe";
 import { countItemsByCategory, listWardrobeItems, signImageUrls } from "@/lib/wardrobe/queries";
@@ -34,9 +36,10 @@ export default async function WardrobePage({ searchParams }: { searchParams: Sea
   const query = parseWardrobeQuery(await searchParams);
   const supabase = await createClient();
 
-  const [{ items, total }, categoryCounts] = await Promise.all([
+  const [{ items, total }, categoryCounts, wardrobeUsage] = await Promise.all([
     listWardrobeItems(supabase, user.id, query),
     countItemsByCategory(supabase, user.id),
+    checkUsageLimit(user.id, "wardrobe_items"),
   ]);
   const urls = await signImageUrls(supabase, items.map((i) => i.imagePath), "thumbnail");
   const imageUrls = Object.fromEntries(urls.entries());
@@ -57,6 +60,8 @@ export default async function WardrobePage({ searchParams }: { searchParams: Sea
           </Button>
         }
       />
+
+      <UsageIndicator usage={wardrobeUsage} label="Wardrobe capacity" className="mb-4" />
 
       <ContextualGuide section="wardrobe" forceShowWhenEmpty={total === 0 && !filtered} />
 

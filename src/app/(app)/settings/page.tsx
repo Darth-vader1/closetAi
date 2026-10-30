@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { CreditCard } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { SettingsClient } from "@/components/settings/settings-client";
+import { Button } from "@/components/ui/button";
 import { requireUser, getProfile } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { userTag } from "@/lib/connect/user-tag";
@@ -72,6 +75,14 @@ export default async function SettingsPage() {
       <PageHeader
         title="Settings & Preferences"
         description="Fine-tune your personal style persona, gender presentation, and automated morning email schedules."
+        action={
+          <Button variant="outline" asChild>
+            <Link href="/settings/subscription" className="flex items-center gap-1.5 text-xs">
+              <CreditCard className="size-3.5 text-accent" />
+              <span>Subscription & Usage</span>
+            </Link>
+          </Button>
+        }
       />
       <ContextualGuide section="settings" />
       <SettingsClient

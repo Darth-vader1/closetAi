@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/page-header";
 import { ContextualGuide } from "@/components/onboarding/contextual-guide";
+import { UsageIndicator } from "@/components/billing/usage-indicator";
 import { OutfitStudio } from "@/components/studio/outfit-studio";
 import { getProfile, requireUser } from "@/lib/auth/session";
+import { checkUsageLimit } from "@/lib/billing/entitlements";
 import { generateOutfits } from "@/lib/outfits/engine";
 import { listFlatlayCompositions } from "@/lib/flatlay/queries";
 import { listUserOutfits, signAllOutfitImages } from "@/lib/outfits/queries";
@@ -16,11 +18,12 @@ export default async function StudioPage() {
   const profile = await getProfile();
   const supabase = await createClient();
 
-  // 1. Fetch user outfits, wardrobe items, and saved flatlays in parallel
-  const [outfits, wardrobeItems, flatlays] = await Promise.all([
+  // 1. Fetch user outfits, wardrobe items, saved flatlays, and usage in parallel
+  const [outfits, wardrobeItems, flatlays, savedOutfitsUsage] = await Promise.all([
     listUserOutfits(supabase, user.id).catch(() => []),
     listAllWardrobeItems(supabase, user.id, 300).catch(() => []),
     listFlatlayCompositions(supabase, user.id).catch(() => []),
+    checkUsageLimit(user.id, "saved_outfits"),
   ]);
 
   // 2. Batch-sign image URLs for wardrobe garments (thumbnail for grid) and
@@ -55,6 +58,7 @@ export default async function StudioPage() {
         title="Outfit Studio"
         description="Pair tops, bottoms, and shoes into complete looks, or let the engine suggest combinations from clean clothes."
       />
+      <UsageIndicator usage={savedOutfitsUsage} label="Saved outfits allowance" className="mb-4" />
       <ContextualGuide section="studio" />
       <OutfitStudio
         initialOutfits={outfits}

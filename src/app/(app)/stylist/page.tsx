@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MessageSquare } from "lucide-react";
+import { UsageIndicator } from "@/components/billing/usage-indicator";
 import { PageHeader } from "@/components/layout/page-header";
 import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { StylistClient } from "@/components/stylist/stylist-client";
 import { getProfile, requireUser } from "@/lib/auth/session";
+import { checkUsageLimit } from "@/lib/billing/entitlements";
 import { createClient } from "@/lib/supabase/server";
 
 import { headers } from "next/headers";
@@ -34,12 +36,15 @@ export default async function StylistPage() {
     weather = await getLiveWeather(profile.location);
   }
 
-  // Count clean items available for styling
-  const { count: cleanCount } = await supabase
-    .from("wardrobe_items")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .in("status", profile?.rewear_worn_items ? ["CLEAN", "WORN"] : ["CLEAN"]);
+  // Count clean items available for styling and check recommendation allowance
+  const [{ count: cleanCount }, recommendationsUsage] = await Promise.all([
+    supabase
+      .from("wardrobe_items")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .in("status", profile?.rewear_worn_items ? ["CLEAN", "WORN"] : ["CLEAN"]),
+    checkUsageLimit(user.id, "outfit_recommendations"),
+  ]);
 
   const userGender =
     profile?.gender === "womenswear"
@@ -63,6 +68,8 @@ export default async function StylistPage() {
           </Link>
         }
       />
+
+      <UsageIndicator usage={recommendationsUsage} label="AI styling recommendations" className="mb-4" />
       <ContextualGuide section="stylist" />
       <StylistClient
         initialCleanCount={cleanCount ?? 0}

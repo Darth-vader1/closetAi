@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  CreditCard,
   LayoutDashboard,
   MessageCircle,
   Settings,
@@ -28,5 +29,6 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/packing",    label: "Trip Packing",  icon: Luggage,         primary: false },
   { href: "/calendar",   label: "Outfit Calendar", icon: CalendarDays,  primary: false },
   { href: "/laundry",    label: "Laundry",       icon: WashingMachine,  primary: false },
+  { href: "/settings/subscription", label: "Subscription", icon: CreditCard, primary: false },
   { href: "/settings",   label: "Settings",      icon: Settings,        primary: false },
 ];

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { takeAiQuota } from "@/lib/ai/rate-limit";
 import { getSessionUser } from "@/lib/auth/session";
+import { checkUsageLimit, consumeUsage } from "@/lib/billing/entitlements";
 import { ConfigError } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { MAX_UPLOAD_BYTES, sniffImage } from "@/lib/security/image-sniff";
@@ -65,6 +66,23 @@ export async function POST(request: NextRequest) {
     }
 
     const { path, imageDataUrl, mode, skipSegmentation } = parsed.data;
+
+    // Check freemium / premium beautify limits
+    const usage = await checkUsageLimit(user.id, "beautify_processing");
+    if (!usage.allowed) {
+      return json(
+        {
+          error:
+            usage.message ||
+            "You have reached your Beautify operations allowance for this month. Upgrade to Premium for 30 operations per month.",
+          upgradeRequired: true,
+          remaining: 0,
+          limit: usage.limit,
+          resetsAt: usage.resetsAt,
+        },
+        403
+      );
+    }
 
     const supabase = await createClient();
     const quota = await takeAiQuota(supabase, user.id, "ANALYSE_IMAGE");
@@ -145,6 +163,10 @@ export async function POST(request: NextRequest) {
       skipSegmentation,
       signal: request.signal,
     });
+
+    if (serviceResult.status === "ok") {
+      await consumeUsage(user.id, "beautify_processing");
+    }
 
     return json({
       status: serviceResult.status,
