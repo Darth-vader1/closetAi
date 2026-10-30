@@ -210,6 +210,49 @@ export async function activateUserSubscription(
     logger.warn("subscription.payment_transactions_insert_failed", { userId, reference: data.reference, error: err });
   }
 
+  // 4. Send Branded Premium VIP Welcome & Receipt Email
+  try {
+    const { data: userProfile } = await adminClient
+      .from("profiles")
+      .select("display_name")
+      .eq("id", userId)
+      .maybeSingle();
+
+    let userEmail: string | null = null;
+    try {
+      const { data: authUser } = await adminClient.auth.admin.getUserById(userId);
+      userEmail = authUser?.user?.email || null;
+    } catch {
+      // ignore if admin auth lookup fails
+    }
+
+    if (userEmail) {
+      const { renderPremiumWelcomeHtml } = await import("@/lib/email/templates");
+      const { sendEmail } = await import("@/lib/email/service");
+
+      const formattedAmount =
+        data.currency.toUpperCase() === "NGN"
+          ? `₦${(data.amount / 100).toLocaleString()}`
+          : `$${(data.amount / 100).toFixed(2)}`;
+
+      await sendEmail({
+        to: userEmail,
+        subject: "✨ Welcome to ClosetAI Premium — VIP Styling Atelier Unlocked",
+        html: renderPremiumWelcomeHtml({
+          displayName: userProfile?.display_name,
+          planId: data.planId,
+          amountFormatted: formattedAmount,
+          reference: data.reference,
+          provider: data.provider,
+          expiresAt,
+        }),
+      });
+      logger.info("subscription.welcome_email_sent", { userId, email: userEmail, planId: data.planId });
+    }
+  } catch (emailErr) {
+    logger.warn("subscription.welcome_email_failed", { userId, error: emailErr });
+  }
+
   logger.info("subscription.activated", {
     userId,
     planId: data.planId,

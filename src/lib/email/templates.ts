@@ -628,6 +628,262 @@ export function renderFeatureAnnouncementHtml({
 }
 
 
+export interface PremiumWelcomeEmailProps {
+  displayName?: string | null;
+  planId: "monthly" | "annual";
+  amountFormatted: string;
+  reference: string;
+  provider: "paystack" | "stripe" | "manual";
+  expiresAt?: string | null;
+}
+
+export function renderPremiumWelcomeHtml({
+  displayName,
+  planId,
+  amountFormatted,
+  reference,
+  provider,
+  expiresAt,
+}: PremiumWelcomeEmailProps): string {
+  const appUrl = getAppUrl();
+  const dashboardUrl = `${appUrl}/dashboard?upgraded=true`;
+  const subscriptionSettingsUrl = `${appUrl}/settings/subscription`;
+  const renewalDate = expiresAt
+    ? new Date(expiresAt).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "Active (Auto-renewing)";
+
+  const greetingName = displayName ? `, ${escapeHtml(displayName)}` : "";
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to ClosetAI Premium</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1c1917; line-height: 1.5;">
+  <div style="max-width: 580px; margin: 40px auto; background-color: #ffffff; border: 1px solid #e7e5e4; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+    
+    <!-- Luxury Obsidian Header -->
+    <div style="background-color: #1c1917; padding: 36px 36px 32px 36px; text-align: left; border-bottom: 2px solid #d4af37;">
+      <span style="display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 2.5px; color: #d4af37; margin-bottom: 8px; font-weight: 600;">✦ CLOSET·AI VIP ATELIER ACTIVATED ✦</span>
+      <h1 style="margin: 0; font-family: Georgia, serif; font-size: 26px; font-weight: normal; color: #f5f5f4;">Welcome to Premium${greetingName}</h1>
+      <p style="margin: 8px 0 0 0; font-size: 14px; color: #d6d3d1; line-height: 1.5;">Your payment was confirmed. Your haute couture AI stylist and high-capacity digital atelier are officially active.</p>
+    </div>
+
+    <!-- Main Content -->
+    <div style="padding: 36px;">
+      
+      <!-- Receipt Card -->
+      <table style="width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #e7e5e4; border-radius: 12px; background-color: #fafaf9; margin-bottom: 28px; overflow: hidden;">
+        <thead>
+          <tr>
+            <th colspan="2" style="background-color: #f5f5f4; padding: 12px 18px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #78716c; border-bottom: 1px solid #e7e5e4;">
+              Payment & Subscription Receipt
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid #e7e5e4;">
+            <td style="padding: 12px 18px; font-size: 13px; color: #78716c; width: 130px; border-bottom: 1px solid #e7e5e4;">Plan</td>
+            <td style="padding: 12px 18px; font-size: 14px; font-weight: 600; color: #1c1917; border-bottom: 1px solid #e7e5e4;">
+              ClosetAI Premium (${planId === "annual" ? "Annual · 17% Saved" : "Monthly"})
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e7e5e4;">
+            <td style="padding: 12px 18px; font-size: 13px; color: #78716c; border-bottom: 1px solid #e7e5e4;">Amount Paid</td>
+            <td style="padding: 12px 18px; font-size: 14px; font-weight: 600; color: #9a4a2f; border-bottom: 1px solid #e7e5e4;">
+              ${escapeHtml(amountFormatted)}
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e7e5e4;">
+            <td style="padding: 12px 18px; font-size: 13px; color: #78716c; border-bottom: 1px solid #e7e5e4;">Payment Method</td>
+            <td style="padding: 12px 18px; font-size: 13px; font-weight: 500; color: #44403c; border-bottom: 1px solid #e7e5e4; text-transform: uppercase;">
+              ${escapeHtml(provider.toUpperCase())}
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e7e5e4;">
+            <td style="padding: 12px 18px; font-size: 13px; color: #78716c; border-bottom: 1px solid #e7e5e4;">Reference</td>
+            <td style="padding: 12px 18px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; color: #57534e; border-bottom: 1px solid #e7e5e4;">
+              ${escapeHtml(reference)}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 18px; font-size: 13px; color: #78716c;">Next Renewal</td>
+            <td style="padding: 12px 18px; font-size: 13px; color: #44403c;">
+              ${escapeHtml(renewalDate)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- VIP Unlocked Features -->
+      <h3 style="font-family: Georgia, serif; font-size: 17px; font-weight: normal; color: #1c1917; margin: 0 0 14px 0;">
+        What&apos;s Now Unlocked in Your Studio
+      </h3>
+
+      <div style="margin-bottom: 28px;">
+        <div style="padding: 10px 0; border-bottom: 1px solid #f5f5f4;">
+          <strong style="color: #1c1917; font-size: 14px;">👗 Unlimited Wardrobe Cataloguing</strong>
+          <div style="color: #78716c; font-size: 12px; margin-top: 2px;">Add every shirt, pant, shoe, and accessory without item capacity limits.</div>
+        </div>
+        <div style="padding: 10px 0; border-bottom: 1px solid #f5f5f4;">
+          <strong style="color: #1c1917; font-size: 14px;">✨ 100 AI Outfits per Month</strong>
+          <div style="color: #78716c; font-size: 12px; margin-top: 2px;">Daily tailored recommendations powered by high-context Gemini styling.</div>
+        </div>
+        <div style="padding: 10px 0; border-bottom: 1px solid #f5f5f4;">
+          <strong style="color: #1c1917; font-size: 14px;">📸 30 Studio Beautifications / Month</strong>
+          <div style="color: #78716c; font-size: 12px; margin-top: 2px;">Automatic neural crease removal, shadow flattening, and catalog-quality polish.</div>
+        </div>
+        <div style="padding: 10px 0;">
+          <strong style="color: #1c1917; font-size: 14px;">💬 Priority AI Stylist Chat & Smart Packing</strong>
+          <div style="color: #78716c; font-size: 12px; margin-top: 2px;">Interactive multi-turn styling consultations and trip luggage packing builders.</div>
+        </div>
+      </div>
+
+      <!-- Main Action Button -->
+      <div style="text-align: center; margin: 32px 0 12px 0;">
+        <a href="${escapeHtml(dashboardUrl)}" style="display: inline-block; background-color: #9a4a2f; color: #ffffff; text-decoration: none; padding: 15px 36px; border-radius: 30px; font-size: 14px; font-weight: 600; letter-spacing: 0.3px; box-shadow: 0 4px 10px rgba(154, 74, 47, 0.25);">
+          Step Into Your Atelier →
+        </a>
+      </div>
+      <p style="text-align: center; font-size: 12px; color: #78716c; margin: 0;">
+        Your elevated daily wardrobe journey starts right now.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background-color: #f5f5f4; border-top: 1px solid #e7e5e4; padding: 22px 36px; text-align: center; font-size: 12px; color: #78716c;">
+      <p style="margin: 0 0 6px 0;">
+        Manage your subscription, change payment methods, or cancel anytime in
+        <a href="${escapeHtml(subscriptionSettingsUrl)}" style="color: #9a4a2f; text-decoration: underline;">Settings → Subscription</a>.
+      </p>
+      <p style="margin: 0; color: #a8a29e;">
+        © ${new Date().getFullYear()} ClosetAI. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+
+export interface OnboardingWelcomeEmailProps {
+  displayName?: string | null;
+  preferredStyles?: string[] | null;
+}
+
+export function renderOnboardingWelcomeHtml({
+  displayName,
+  preferredStyles,
+}: OnboardingWelcomeEmailProps): string {
+  const appUrl = getAppUrl();
+  const wardrobeNewUr = `${appUrl}/wardrobe/new`;
+  const stylistUrl = `${appUrl}/stylist`;
+  const settingsUrl = `${appUrl}/settings`;
+
+  const greetingName = displayName ? `, ${escapeHtml(displayName)}` : "";
+  const stylesText = preferredStyles && preferredStyles.length > 0
+    ? ` tailored to your <strong>${escapeHtml(preferredStyles.slice(0, 3).join(", "))}</strong> aesthetic`
+    : "";
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to ClosetAI — Your Wardrobe Quickstart</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1c1917; line-height: 1.5;">
+  <div style="max-width: 580px; margin: 40px auto; background-color: #ffffff; border: 1px solid #e7e5e4; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+    
+    <!-- Warm Editorial Header -->
+    <div style="background-color: #1c1917; padding: 36px 36px 32px 36px; text-align: left;">
+      <span style="display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #d6d3d1; margin-bottom: 8px;">CLOSET·AI DIGITAL WARDROBE</span>
+      <h1 style="margin: 0; font-family: Georgia, serif; font-size: 26px; font-weight: normal; color: #f5f5f4;">Your Closet is Ready${greetingName}</h1>
+      <p style="margin: 8px 0 0 0; font-size: 14px; color: #d6d3d1; line-height: 1.5;">You&apos;ve completed onboarding${stylesText}. Here is your 3-step quickstart to effortless everyday styling.</p>
+    </div>
+
+    <!-- Body -->
+    <div style="padding: 36px;">
+      
+      <!-- 3 Steps -->
+      <table style="width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 28px;">
+        <tbody>
+          <tr>
+            <td style="padding: 12px 14px 12px 0; vertical-align: top; width: 32px;">
+              <div style="width: 28px; height: 28px; border-radius: 50%; background-color: #1c1917; color: #ffffff; text-align: center; line-height: 28px; font-size: 12px; font-weight: bold;">1</div>
+            </td>
+            <td style="padding: 12px 0; vertical-align: top;">
+              <strong style="color: #1c1917; font-size: 15px; display: block;">Snap your first 5 essential garments</strong>
+              <p style="margin: 4px 0 0 0; font-size: 13px; color: #57534e; line-height: 1.5;">
+                Take quick photos of a favorite shirt, trousers, and shoes against a plain background or on a hanger. 5 items is all ClosetAI needs to start suggesting complete looks.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 14px 12px 0; vertical-align: top;">
+              <div style="width: 28px; height: 28px; border-radius: 50%; background-color: #1c1917; color: #ffffff; text-align: center; line-height: 28px; font-size: 12px; font-weight: bold;">2</div>
+            </td>
+            <td style="padding: 12px 0; vertical-align: top;">
+              <strong style="color: #1c1917; font-size: 15px; display: block;">Let AI organize and beautify</strong>
+              <p style="margin: 4px 0 0 0; font-size: 13px; color: #57534e; line-height: 1.5;">
+                Our Product Studio neural engine automatically crops, straightens, removes background shadows, and tags your clothes by category, color, and season.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 14px 12px 0; vertical-align: top;">
+              <div style="width: 28px; height: 28px; border-radius: 50%; background-color: #1c1917; color: #ffffff; text-align: center; line-height: 28px; font-size: 12px; font-weight: bold;">3</div>
+            </td>
+            <td style="padding: 12px 0; vertical-align: top;">
+              <strong style="color: #1c1917; font-size: 15px; display: block;">Ask your Stylist for tomorrow&apos;s look</strong>
+              <p style="margin: 4px 0 0 0; font-size: 13px; color: #57534e; line-height: 1.5;">
+                Tap &ldquo;Ask Stylist&rdquo; or check your Outfit Calendar to receive tailored recommendations based on local weather and your preferred aesthetic.
+              </p>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Main CTA -->
+      <div style="text-align: center; margin: 32px 0 16px 0;">
+        <a href="${escapeHtml(wardrobeNewUr)}" style="display: inline-block; background-color: #1c1917; color: #ffffff; text-decoration: none; padding: 14px 34px; border-radius: 30px; font-size: 14px; font-weight: 500; letter-spacing: 0.3px;">
+          Add Your First Clothes →
+        </a>
+      </div>
+
+      <div style="text-align: center;">
+        <a href="${escapeHtml(stylistUrl)}" style="font-size: 13px; color: #9a4a2f; text-decoration: none; font-weight: 500;">
+          Or chat with your AI Stylist &rarr;
+        </a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="background-color: #f5f5f4; border-top: 1px solid #e7e5e4; padding: 22px 36px; text-align: center; font-size: 12px; color: #78716c;">
+      <p style="margin: 0 0 6px 0;">
+        You can configure your daily outfit email time and laundry reminders anytime in
+        <a href="${escapeHtml(settingsUrl)}" style="color: #57534e; text-decoration: underline;">Settings</a>.
+      </p>
+      <p style="margin: 0; color: #a8a29e;">
+        © ${new Date().getFullYear()} ClosetAI. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+
 export interface AdminNewUserAlertProps {
   email: string;
   displayName?: string | null;
