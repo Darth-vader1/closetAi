@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { takeAiQuota } from "@/lib/ai/rate-limit";
 import { generateOutfitEditorialImage } from "@/lib/ai/outfit-image-generator";
 import { getSessionUser } from "@/lib/auth/session";
+import { assertActiveSubscription } from "@/lib/billing/entitlements";
 import { isSameOrigin } from "@/lib/security/origin";
 import { createClient } from "@/lib/supabase/server";
 import { WARDROBE_BUCKET } from "@/lib/wardrobe/queries";
@@ -60,6 +61,11 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getSessionUser();
     if (!user) return json({ error: "Please sign in again." }, 401);
+
+    const subCheck = await assertActiveSubscription(user.id);
+    if (!subCheck.active) {
+      return json({ error: subCheck.error, subscriptionRequired: true }, 403);
+    }
 
     const body = await request.json().catch(() => null);
     const parsed = requestSchema.safeParse(body);

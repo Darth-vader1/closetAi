@@ -36,6 +36,30 @@ export interface UsageCheckResult {
 }
 
 /**
+ * Verifies that the user has an active subscription status.
+ * Rejects if subscription status is past_due, unpaid, canceled, or expired.
+ */
+export async function assertActiveSubscription(userId: string): Promise<{ active: boolean; error?: string }> {
+  try {
+    const plan = await getUserPlan(userId);
+    if (plan.isAdmin) return { active: true };
+
+    const inactiveStatuses = ["past_due", "unpaid", "canceled", "expired"];
+    if (inactiveStatuses.includes(plan.status)) {
+      return {
+        active: false,
+        error: `Your subscription is currently ${plan.status.replace("_", " ")}. Please renew your subscription to access AI styling features.`,
+      };
+    }
+
+    return { active: true };
+  } catch (err) {
+    logger.warn("billing.assert_active_subscription_fallback", { userId, error: err });
+    return { active: true };
+  }
+}
+
+/**
  * Returns UTC boundaries for the current weekly cycle (Monday 00:00 UTC to next Monday 00:00 UTC).
  */
 export function getWeeklyWindow(now = new Date()): { start: Date; end: Date } {

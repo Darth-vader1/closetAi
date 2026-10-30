@@ -4,6 +4,7 @@ import { takeAiQuota } from "@/lib/ai/rate-limit";
 import { getAiProvider } from "@/lib/ai/service";
 import { generateStylistChatReply } from "@/lib/ai/stylist-chat";
 import { getProfile, getSessionUser } from "@/lib/auth/session";
+import { assertActiveSubscription } from "@/lib/billing/entitlements";
 import {
   listShareableWardrobeAndOutfits,
   type SharedItemCardData,
@@ -43,6 +44,11 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getSessionUser();
     if (!user) return json({ error: "Please sign in again." }, 401);
+
+    const subCheck = await assertActiveSubscription(user.id);
+    if (!subCheck.active) {
+      return json({ error: subCheck.error, subscriptionRequired: true }, 403);
+    }
 
     const rawBody = await request.json().catch(() => null);
     const parsed = chatRequestSchema.safeParse(rawBody);
@@ -332,6 +338,11 @@ export async function DELETE(request: NextRequest) {
   try {
     const user = await getSessionUser();
     if (!user) return json({ error: "Please sign in again." }, 401);
+
+    const subCheck = await assertActiveSubscription(user.id);
+    if (!subCheck.active) {
+      return json({ error: subCheck.error, subscriptionRequired: true }, 403);
+    }
 
     const supabase = await createClient();
     await supabase

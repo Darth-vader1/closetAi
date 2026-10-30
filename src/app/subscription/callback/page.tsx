@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { activateUserSubscription } from "@/app/subscription/actions";
+import { activateUserSubscription } from "@/lib/billing/activate";
 import { getSessionUser } from "@/lib/auth/session";
 import { verifyPaystackTransaction } from "@/lib/billing/paystack";
 import { stripe } from "@/lib/billing/stripe";

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { takeAiQuota } from "@/lib/ai/rate-limit";
 import { getAiProvider } from "@/lib/ai/service";
 import { getProfile, getSessionUser } from "@/lib/auth/session";
+import { assertActiveSubscription } from "@/lib/billing/entitlements";
 import { logger } from "@/lib/logger";
 import {
   buildDeterministicPlan,
@@ -124,6 +125,11 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getSessionUser();
     if (!user) return json({ error: "Please sign in again." }, 401);
+
+    const subCheck = await assertActiveSubscription(user.id);
+    if (!subCheck.active) {
+      return json({ error: subCheck.error, subscriptionRequired: true }, 403);
+    }
 
     const text = await request.text().catch(() => "");
     if (text.length > MAX_BODY_BYTES) return json({ error: "Request is too large." }, 413);

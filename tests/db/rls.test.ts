@@ -353,4 +353,58 @@ describe("wear_outfit atomic RPC & profile deletion", () => {
     const remaining = await db.query(`select 1 from public.wardrobe_items where user_id = $1`, [tempUser]);
     expect(remaining.rows).toHaveLength(0);
   });
+
+  it("prevents a user from self-granting role or subscription columns on their own profile", async () => {
+    const db = getDb();
+    await asUser(db, alice, async () => {
+      await db.query(
+        `update public.profiles
+         set role = 'superadmin',
+             subscription_status = 'active',
+             subscription_plan = 'annual',
+             subscription_provider = 'stripe',
+             subscription_expires_at = '2099-01-01T00:00:00Z',
+             customer_id = 'hacked_customer'
+         where id = $1`,
+        [alice]
+      );
+    });
+
+    const prof = (
+      await db.query<{
+        role: string;
+        subscription_status: string;
+        subscription_plan: string | null;
+        subscription_provider: string | null;
+        subscription_expires_at: string | null;
+        customer_id: string | null;
+      }>(
+        `select role, subscription_status, subscription_plan, subscription_provider, subscription_expires_at, customer_id
+         from public.profiles where id = $1`,
+        [alice]
+      )
+    ).rows[0];
+
+    expect(prof.role).toBe("user");
+    expect(prof.subscription_status).not.toBe("active");
+    expect(prof.subscription_plan).toBeNull();
+    expect(prof.subscription_provider).toBeNull();
+    expect(prof.subscription_expires_at).toBeNull();
+    expect(prof.customer_id).toBeNull();
+
+    await asUser(db, alice, async () => {
+      await db.query(
+        `update public.profiles set display_name = 'Alice Renamed', location = 'Lagos' where id = $1`,
+        [alice]
+      );
+    });
+    const updated = (
+      await db.query<{ display_name: string; location: string }>(
+        `select display_name, location from public.profiles where id = $1`,
+        [alice]
+      )
+    ).rows[0];
+    expect(updated.display_name).toBe("Alice Renamed");
+    expect(updated.location).toBe("Lagos");
+  });
 });

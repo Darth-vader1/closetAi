@@ -1,8 +1,26 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/billing/stripe";
 import { STRIPE_WEBHOOK_SECRET } from "@/lib/billing/plans";
-import { activateUserSubscription } from "@/app/subscription/actions";
+import {
+  activateUserSubscription,
+  extendUserSubscriptionExpiry,
+  revokeUserSubscription,
+  recordPaymentRefund,
+  findUserIdByCustomerCode,
+} from "@/lib/billing/activate";
 import { logger } from "@/lib/logger";
+
+interface StripeInvoicePayload {
+  customer?: string | { id?: string };
+  metadata?: Record<string, string>;
+  subscription_details?: { metadata?: Record<string, string> };
+  lines?: { data?: Array<{ period?: { end?: number } }> };
+}
+
+interface StripeSubscriptionPayload {
+  customer?: string | { id?: string };
+  metadata?: Record<string, string>;
+}
 
 export async function POST(req: Request) {
   if (!stripe || !STRIPE_WEBHOOK_SECRET) {
@@ -25,24 +43,98 @@ export async function POST(req: Request) {
   }
 
   try {
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      const userId = session.metadata?.userId || session.client_reference_id;
-      const rawPlan = session.metadata?.planId;
-      const planId = rawPlan === "annual" ? "annual" : "monthly";
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object;
+        const userId = session.metadata?.userId || session.client_reference_id;
+        const rawPlan = session.metadata?.planId;
+        const planId = rawPlan === "annual" ? "annual" : "monthly";
 
-      if (userId) {
-        await activateUserSubscription(userId, {
-          planId,
-          provider: "stripe",
-          customerId: typeof session.customer === "string" ? session.customer : undefined,
-          subscriptionId: typeof session.subscription === "string" ? session.subscription : undefined,
-          reference: session.id,
-          amount: session.amount_total || (planId === "annual" ? 4999 : 499),
-          currency: "USD",
-        });
-        logger.info("webhook.stripe.session_completed_activated", { userId, planId, ref: session.id });
+        if (userId) {
+          await activateUserSubscription(userId, {
+            planId,
+            provider: "stripe",
+            customerId: typeof session.customer === "string" ? session.customer : undefined,
+            subscriptionId: typeof session.subscription === "string" ? session.subscription : undefined,
+            reference: session.id,
+            amount: session.amount_total || (planId === "annual" ? 4999 : 499),
+            currency: "USD",
+          });
+          logger.info("webhook.stripe.session_completed_activated", { userId, planId, ref: session.id });
+        }
+        break;
       }
+
+      case "invoice.paid": {
+        const invoice = event.data.object as StripeInvoicePayload;
+        const customer = invoice.customer;
+        const customerId = typeof customer === "string" ? customer : customer?.id;
+        let userId = invoice.subscription_details?.metadata?.userId || invoice.metadata?.userId;
+
+        if (!userId && customerId) {
+          userId = await findUserIdByCustomerCode("stripe", customerId);
+        }
+
+        if (userId) {
+          const lines = invoice.lines?.data;
+          const periodEndSec = lines?.[0]?.period?.end;
+          const newPeriodEnd = periodEndSec
+            ? new Date(periodEndSec * 1000).toISOString()
+            : new Date(Date.now() + 32 * 24 * 60 * 60 * 1000).toISOString();
+
+          await extendUserSubscriptionExpiry(userId, newPeriodEnd);
+          logger.info("webhook.stripe.invoice_paid_extended", { userId, newPeriodEnd });
+        }
+        break;
+      }
+
+      case "customer.subscription.deleted": {
+        const sub = event.data.object as StripeSubscriptionPayload;
+        const customer = sub.customer;
+        const customerId = typeof customer === "string" ? customer : customer?.id;
+        let userId = sub.metadata?.userId;
+
+        if (!userId && customerId) {
+          userId = await findUserIdByCustomerCode("stripe", customerId);
+        }
+
+        if (userId) {
+          await revokeUserSubscription(userId, "canceled");
+          logger.info("webhook.stripe.subscription_deleted_revoked", { userId });
+        }
+        break;
+      }
+
+      case "invoice.payment_failed": {
+        const invoice = event.data.object as StripeInvoicePayload;
+        const customer = invoice.customer;
+        const customerId = typeof customer === "string" ? customer : customer?.id;
+        let userId = invoice.subscription_details?.metadata?.userId || invoice.metadata?.userId;
+
+        if (!userId && customerId) {
+          userId = await findUserIdByCustomerCode("stripe", customerId);
+        }
+
+        if (userId) {
+          await revokeUserSubscription(userId, "past_due");
+          logger.info("webhook.stripe.payment_failed_revoked", { userId });
+        }
+        break;
+      }
+
+      case "charge.refunded": {
+        const charge = event.data.object;
+        const reference = charge.payment_intent || charge.id;
+        if (typeof reference === "string") {
+          await recordPaymentRefund(reference, "stripe");
+          logger.info("webhook.stripe.charge_refunded", { reference });
+        }
+        break;
+      }
+
+      default:
+        logger.info("webhook.stripe.unhandled_event", { type: event.type });
+        break;
     }
 
     return NextResponse.json({ received: true });

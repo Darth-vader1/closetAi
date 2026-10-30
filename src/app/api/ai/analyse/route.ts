@@ -3,6 +3,7 @@ import { z } from "zod";
 import { takeAiQuota } from "@/lib/ai/rate-limit";
 import { analyseClothingImage, getAiProvider } from "@/lib/ai/service";
 import { getSessionUser } from "@/lib/auth/session";
+import { assertActiveSubscription } from "@/lib/billing/entitlements";
 import { ConfigError } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { sniffImage } from "@/lib/security/image-sniff";
@@ -26,6 +27,11 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getSessionUser();
     if (!user) return json({ error: "Please sign in again." }, 401);
+
+    const subCheck = await assertActiveSubscription(user.id);
+    if (!subCheck.active) {
+      return json({ error: subCheck.error, subscriptionRequired: true }, 403);
+    }
 
     const parsed = bodySchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success || !isOwnStoragePath(parsed.data.path, user.id)) return json({ error: "Invalid photo reference." }, 400);

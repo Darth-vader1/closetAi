@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { requireUser } from "@/lib/auth/session";
 import { initializePaystackTransaction } from "@/lib/billing/paystack";
-import { PRICING_PLANS } from "@/lib/billing/plans";
+import { PRICING_PLANS, isAllowedPlanId } from "@/lib/billing/plans";
 import { createStripeCheckoutSession } from "@/lib/billing/stripe";
 import { getAppUrl } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -73,7 +73,10 @@ export async function createSubscriptionCheckoutAction(
   provider: "paystack" | "stripe"
 ) {
   const user = await requireUser();
-  const plan = PRICING_PLANS[planId] || PRICING_PLANS.monthly;
+  if (!isAllowedPlanId(planId)) {
+    return { ok: false, error: "Invalid subscription plan." };
+  }
+  const plan = PRICING_PLANS[planId];
   const appUrl = await getRequestOrigin();
 
   if (provider === "paystack") {
@@ -129,134 +132,6 @@ export async function createSubscriptionCheckoutAction(
 }
 
 /**
- * Server-side activation of user premium subscription.
- * Updates user_subscriptions, profiles, and logs to payment_transactions.
+ * Authoritative activation is in src/lib/billing/activate.ts with server-only guard.
  */
-export async function activateUserSubscription(
-  userId: string,
-  data: {
-    planId: "monthly" | "annual";
-    provider: "paystack" | "stripe" | "manual";
-    customerId?: string;
-    subscriptionId?: string;
-    reference: string;
-    amount: number;
-    currency: string;
-    periodEnd?: string;
-  }
-) {
-  let adminClient;
-  try {
-    adminClient = createAdminClient();
-  } catch {
-    adminClient = await createClient();
-  }
-
-  const periodDays = data.planId === "annual" ? 366 : 32;
-  const expiresAt = data.periodEnd || new Date(Date.now() + periodDays * 24 * 60 * 60 * 1000).toISOString();
-
-  // 1. Update profiles table
-  await adminClient
-    .from("profiles")
-    .update({
-      subscription_status: "active",
-      subscription_plan: data.planId,
-      subscription_provider: data.provider,
-      subscription_expires_at: expiresAt,
-      customer_id: data.customerId || null,
-      onboarding_completed_at: new Date().toISOString(),
-    })
-    .eq("id", userId);
-
-  // 2. Upsert user_subscriptions table
-  try {
-    await adminClient
-      .from("user_subscriptions")
-      .upsert({
-        user_id: userId,
-        plan_id: data.planId,
-        status: "active",
-        provider: data.provider,
-        provider_subscription_id: data.subscriptionId || null,
-        provider_customer_id: data.customerId || null,
-        current_period_start: new Date().toISOString(),
-        current_period_end: expiresAt,
-        cancel_at_period_end: false,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
-  } catch (err) {
-    logger.warn("subscription.user_subscriptions_upsert_failed", { userId, error: err });
-  }
-
-  // 3. Insert payment_transactions record
-  try {
-    await adminClient
-      .from("payment_transactions")
-      .insert({
-        user_id: userId,
-        provider: data.provider,
-        reference: data.reference,
-        amount: data.amount,
-        currency: data.currency,
-        status: "success",
-        plan_id: data.planId,
-        metadata: {
-          subscriptionId: data.subscriptionId,
-          customerId: data.customerId,
-          activatedAt: new Date().toISOString(),
-        },
-      });
-  } catch (err) {
-    logger.warn("subscription.payment_transactions_insert_failed", { userId, reference: data.reference, error: err });
-  }
-
-  // 4. Send Branded Premium VIP Welcome & Receipt Email
-  try {
-    const { data: userProfile } = await adminClient
-      .from("profiles")
-      .select("display_name")
-      .eq("id", userId)
-      .maybeSingle();
-
-    let userEmail: string | null = null;
-    try {
-      const { data: authUser } = await adminClient.auth.admin.getUserById(userId);
-      userEmail = authUser?.user?.email || null;
-    } catch {
-      // ignore if admin auth lookup fails
-    }
-
-    if (userEmail) {
-      const { renderPremiumWelcomeHtml } = await import("@/lib/email/templates");
-      const { sendEmail } = await import("@/lib/email/service");
-
-      const formattedAmount =
-        data.currency.toUpperCase() === "NGN"
-          ? `₦${(data.amount / 100).toLocaleString()}`
-          : `$${(data.amount / 100).toFixed(2)}`;
-
-      await sendEmail({
-        to: userEmail,
-        subject: "✨ Welcome to ClosetAI Premium — VIP Styling Atelier Unlocked",
-        html: renderPremiumWelcomeHtml({
-          displayName: userProfile?.display_name,
-          planId: data.planId,
-          amountFormatted: formattedAmount,
-          reference: data.reference,
-          provider: data.provider,
-          expiresAt,
-        }),
-      });
-      logger.info("subscription.welcome_email_sent", { userId, email: userEmail, planId: data.planId });
-    }
-  } catch (emailErr) {
-    logger.warn("subscription.welcome_email_failed", { userId, error: emailErr });
-  }
-
-  logger.info("subscription.activated", {
-    userId,
-    planId: data.planId,
-    provider: data.provider,
-    expiresAt,
-  });
-}
+export { activateUserSubscription } from "@/lib/billing/activate";

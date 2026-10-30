@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { takeAiQuota } from "@/lib/ai/rate-limit";
 import { getSessionUser } from "@/lib/auth/session";
-import { checkUsageLimit, consumeUsage } from "@/lib/billing/entitlements";
+import { assertActiveSubscription, checkUsageLimit, consumeUsage } from "@/lib/billing/entitlements";
 import { ConfigError } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { MAX_UPLOAD_BYTES, sniffImage } from "@/lib/security/image-sniff";
@@ -53,6 +53,11 @@ export async function POST(request: NextRequest) {
     const user = await getSessionUser();
     if (!user) {
       return json({ error: "Please sign in again." }, 401);
+    }
+
+    const subCheck = await assertActiveSubscription(user.id);
+    if (!subCheck.active) {
+      return json({ error: subCheck.error, subscriptionRequired: true }, 403);
     }
 
     const parsed = requestSchema.safeParse(

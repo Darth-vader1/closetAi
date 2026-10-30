@@ -39,6 +39,7 @@ export interface Profile {
   timezone: string;
   rewear_worn_items: boolean;
   onboarding_completed_at: string | null;
+  role?: string | null;
   subscription_status?: string | null;
   subscription_plan?: string | null;
   subscription_provider?: string | null;
@@ -54,7 +55,7 @@ export const getProfile = cache(async (): Promise<Profile | null> => {
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, display_name, gender, preferred_style, favourite_colours, common_occasions, location, timezone, rewear_worn_items, onboarding_completed_at, subscription_status, subscription_plan, subscription_provider, subscription_expires_at",
+      "id, display_name, gender, preferred_style, favourite_colours, common_occasions, location, timezone, rewear_worn_items, onboarding_completed_at, role, subscription_status, subscription_plan, subscription_provider, subscription_expires_at",
     )
     .eq("id", user.id)
     .maybeSingle();
@@ -63,7 +64,7 @@ export const getProfile = cache(async (): Promise<Profile | null> => {
       const { data: fallbackData, error: fallbackError } = await supabase
         .from("profiles")
         .select(
-          "id, display_name, preferred_style, favourite_colours, common_occasions, location, timezone, rewear_worn_items, onboarding_completed_at, subscription_status, subscription_plan, subscription_provider, subscription_expires_at",
+          "id, display_name, preferred_style, favourite_colours, common_occasions, location, timezone, rewear_worn_items, onboarding_completed_at, role, subscription_status, subscription_plan, subscription_provider, subscription_expires_at",
         )
         .eq("id", user.id)
         .maybeSingle();

@@ -12,6 +12,7 @@ import { countItemsByStatus, listItemsNeedingAttention, WARDROBE_BUCKET } from "
 import { countByStatus } from "@/lib/wardrobe/status";
 import { getWhatsAppConfig, sendWhatsAppMessage, formatDailyOutfitWhatsApp } from "@/lib/whatsapp/service";
 import { takeAiQuota } from "@/lib/ai/rate-limit";
+import { assertActiveSubscription } from "@/lib/billing/entitlements";
 import { getAppUrl } from "@/lib/env";
 import { normaliseWhatsAppPhone } from "@/lib/whatsapp/phone";
 
@@ -227,6 +228,10 @@ export async function sendTestEmailAction(type: "daily" | "laundry"): Promise<Ac
  */
 export async function sendTestWhatsAppAction(phoneNumber: string): Promise<ActionResult> {
   const user = await requireUser();
+  const subCheck = await assertActiveSubscription(user.id);
+  if (!subCheck.active) {
+    return fail(subCheck.error || "Active subscription required.");
+  }
   const phone = phoneNumber.trim();
   if (!/^\+?[1-9]\d{6,14}$/.test(phone.replace(/[\s()-]/g, ""))) {
     return fail("Please enter a valid WhatsApp phone number in international format (e.g. +2348012345678).");

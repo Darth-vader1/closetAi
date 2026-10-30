@@ -12,6 +12,13 @@ export const STRIPE_PUBLIC_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY 
 export const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 
+export const ALLOWED_PAID_PLAN_IDS = ["monthly", "annual"] as const;
+export type AllowedPaidPlanId = (typeof ALLOWED_PAID_PLAN_IDS)[number];
+
+export function isAllowedPlanId(planId: unknown): planId is AllowedPaidPlanId {
+  return typeof planId === "string" && (planId === "monthly" || planId === "annual");
+}
+
 export type PlanId = "free" | "monthly" | "annual";
 
 export type UsageFeatureKey =

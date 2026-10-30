@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/admin";
 import { sendEmail } from "@/lib/email/service";
 import { renderFeatureAnnouncementHtml } from "@/lib/email/templates";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: Request) {
-  await requireAdmin();
+  const admin = await requireAdmin();
+  const adminClient = createAdminClient();
 
   const body = await req.json();
   const { mode, testEmail, subject } = body;
@@ -27,6 +29,20 @@ export async function POST(req: Request) {
       html,
     });
 
+    // Write audit log for test email dispatch
+    const { error: auditError } = await adminClient
+      .from("admin_audit_logs")
+      .insert({
+        admin_id: admin.id,
+        action: "TEST_BROADCAST",
+        details: { testEmail, subject: defaultSubject, success: res.success },
+      });
+
+    if (auditError) {
+      logger.error("admin.broadcast.audit_failed", { adminId: admin.id, error: auditError });
+      return NextResponse.json({ error: "Failed to record audit log." }, { status: 500 });
+    }
+
     if (res.success) {
       return NextResponse.json({ ok: true, id: res.id });
     } else {
@@ -35,10 +51,8 @@ export async function POST(req: Request) {
   }
 
   if (mode === "broadcast") {
-    const supabase = await createClient();
-
-    // 1. Fetch registered users from profiles
-    const { data: profiles, error } = await supabase
+    // 1. Fetch registered users from profiles using service-role client
+    const { data: profiles, error } = await adminClient
       .from("profiles")
       .select("id, display_name");
 
@@ -46,14 +60,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to list profiles." }, { status: 500 });
     }
 
-    // 2. Fetch email preferences for unsubscribe tokens
-    const { data: prefs } = await supabase
+    // 2. Fetch email preferences for unsubscribe tokens using service-role client
+    const { data: prefs } = await adminClient
       .from("email_preferences")
       .select("user_id, unsubscribe_token");
     const tokenMap = new Map((prefs || []).map((p) => [p.user_id, p.unsubscribe_token]));
 
-    // 3. For security, fetch auth users via admin client
-    // Broadcast in background or synchronous batch
     let sentCount = 0;
     for (const p of profiles) {
       const unsubscribeToken = tokenMap.get(p.id);
@@ -64,6 +76,20 @@ export async function POST(req: Request) {
 
       void html;
       sentCount++;
+    }
+
+    // 3. Write audit log entry in the same action without swallowing errors
+    const { error: auditError } = await adminClient
+      .from("admin_audit_logs")
+      .insert({
+        admin_id: admin.id,
+        action: "BROADCAST_EMAIL",
+        details: { subject: defaultSubject, sentCount },
+      });
+
+    if (auditError) {
+      logger.error("admin.broadcast.audit_failed", { adminId: admin.id, error: auditError });
+      return NextResponse.json({ error: "Failed to record broadcast audit log." }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true, sentCount });

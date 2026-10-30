@@ -4,7 +4,6 @@
 export {
   continueWithFreePlanAction,
   createSubscriptionCheckoutAction,
-  activateUserSubscription,
 } from "@/app/subscription/actions";
 
 import { createSubscriptionCheckoutAction } from "@/app/subscription/actions";

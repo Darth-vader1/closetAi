@@ -4,7 +4,7 @@ import { takeAiQuota } from "@/lib/ai/rate-limit";
 import { getAiProvider } from "@/lib/ai/service";
 import { generateStylistRecommendations } from "@/lib/ai/stylist";
 import { getProfile, getSessionUser } from "@/lib/auth/session";
-import { checkUsageLimit, consumeUsage } from "@/lib/billing/entitlements";
+import { assertActiveSubscription, checkUsageLimit, consumeUsage } from "@/lib/billing/entitlements";
 import { isSameOrigin } from "@/lib/security/origin";
 import { createClient } from "@/lib/supabase/server";
 import { signImageUrls, type WardrobeItem } from "@/lib/wardrobe/queries";
@@ -30,6 +30,11 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getSessionUser();
     if (!user) return json({ error: "Please sign in again." }, 401);
+
+    const subCheck = await assertActiveSubscription(user.id);
+    if (!subCheck.active) {
+      return json({ error: subCheck.error, subscriptionRequired: true }, 403);
+    }
 
     const body = await request.json().catch(() => null);
     const parsed = requestSchema.safeParse(body);

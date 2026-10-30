@@ -21,6 +21,7 @@ import { WHATSAPP_TEMPLATES } from '@/lib/whatsapp/templates';
 import { createClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logger';
 import { takeAiQuota } from '@/lib/ai/rate-limit';
+import { assertActiveSubscription } from '@/lib/billing/entitlements';
 
 export interface StartVerificationResult {
   success: boolean;
@@ -190,6 +191,10 @@ export async function sendTestWhatsAppMessage(): Promise<SendTestMessageResult> 
         success: false,
         error: 'Phone number not verified',
       };
+    }
+    const subCheck = await assertActiveSubscription(user.id);
+    if (!subCheck.active) {
+      return { success: false, error: subCheck.error || 'Active subscription required' };
     }
     const quota = await takeAiQuota(supabase, user.id, 'CHAT');
     if (!quota.allowed) {
