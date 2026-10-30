@@ -69,8 +69,10 @@ describe("Admin New User Signup Notifications", () => {
   describe("notifyAdminsOfNewSignup", () => {
     it("sends notification email to all admins when mailer is configured", async () => {
       vi.spyOn(emailService, "getResendClient").mockReturnValue({
-        provider: "resend",
-        apiKey: "re_mock_test",
+        provider: "gmail_smtp",
+        user: "test@gmail.com",
+        appPassword: "secretpassword",
+        from: "ClosetAI <test@gmail.com>",
       });
 
       const sendEmailSpy = vi.spyOn(emailService, "sendEmail").mockResolvedValue({
