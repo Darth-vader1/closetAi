@@ -87,7 +87,7 @@ export function AdminUsersClient({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by display name or location..."
+              placeholder="Search by name, email, or location..."
               className="w-full rounded-xl border border-border bg-background pl-9 pr-4 py-2 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-hidden"
             />
           </div>
@@ -131,12 +131,16 @@ export function AdminUsersClient({
                     {/* User Profile */}
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="size-8 rounded-full bg-accent-soft text-accent grid place-items-center font-serif text-sm font-semibold">
-                          {(u.displayName || "U")[0]?.toUpperCase()}
+                        <div className="size-8 rounded-full bg-accent-soft text-accent grid place-items-center font-serif text-sm font-semibold shrink-0">
+                          {(u.displayName || u.email || "U")[0]?.toUpperCase()}
                         </div>
-                        <div>
-                          <p className="font-medium text-foreground">{u.displayName || "Unnamed Member"}</p>
-                          <p className="text-[10px] text-muted font-mono truncate max-w-[140px]">{u.id.slice(0, 8)}…</p>
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground truncate max-w-[200px]">
+                            {u.displayName || "Unnamed Member"}
+                          </p>
+                          <p className="text-[11px] text-muted truncate max-w-[220px]" title={u.email || u.id}>
+                            {u.email ? u.email : `${u.id.slice(0, 8)}…`}
+                          </p>
                         </div>
                       </div>
                     </td>
