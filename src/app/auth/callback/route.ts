@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const defaultNext = type === "recovery" ? "/reset-password" : "/dashboard";
+  const defaultNext = type === "recovery" ? "/reset-password" : "/onboarding";
   const next = safeRedirectPath(searchParams.get("next"), defaultNext);
   const isRecovery = type === "recovery" || next.startsWith("/reset-password");
   const expiredFallback = isRecovery ? `${origin}/reset-password` : `${origin}/login?error=link_expired`;

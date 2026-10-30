@@ -28,20 +28,21 @@ export async function completeOnboardingAction(input: unknown): Promise<AuthActi
 
   const prefs = await supabase
     .from("email_preferences")
-    .update({
+    .upsert({
+      user_id: user.id,
       daily_enabled: d.dailyEnabled,
       daily_time: d.dailyTime,
       weekly_enabled: d.weeklyEnabled,
       weekly_day: d.weeklyDay,
       weekly_time: d.weeklyTime,
-    })
-    .eq("user_id", user.id);
+    });
   if (prefs.error) {
     logger.error("onboarding.prefs_failed", { userId: user.id, code: prefs.error.code });
     return { ok: false, error: "We couldn't save your email preferences. Please try again." };
   }
 
   const profileFields = {
+    id: user.id,
     display_name: d.displayName,
     favourite_colours: d.favouriteColours,
     common_occasions: d.commonOccasions,
@@ -51,19 +52,17 @@ export async function completeOnboardingAction(input: unknown): Promise<AuthActi
     onboarding_completed_at: new Date().toISOString(),
   };
 
-  // Try updating with preferred_style as array first (for text[] column)
+  // Try upserting with preferred_style as array first (for text[] column)
   let profile = await supabase
     .from("profiles")
-    .update({ ...profileFields, preferred_style: d.preferredStyles })
-    .eq("id", user.id);
+    .upsert({ ...profileFields, preferred_style: d.preferredStyles });
 
   // If the database column is still a single text column, save the first style
   // so the user is never blocked even if the database migration hasn't been applied yet
   if (profile.error) {
     profile = await supabase
       .from("profiles")
-      .update({ ...profileFields, preferred_style: d.preferredStyles[0] ?? null })
-      .eq("id", user.id);
+      .upsert({ ...profileFields, preferred_style: d.preferredStyles[0] ?? null });
   }
 
   if (profile.error) {
@@ -71,7 +70,7 @@ export async function completeOnboardingAction(input: unknown): Promise<AuthActi
     return { ok: false, error: "We couldn't save your profile. Please try again." };
   }
 
-  redirect("/dashboard");
+  redirect("/paywall");
 }
 
 /** Lets users skip everything nonessential. Emails stay off; the timezone stays UTC until they set one. */
@@ -80,11 +79,10 @@ export async function skipOnboardingAction(): Promise<AuthActionResult> {
   const supabase = await createClient();
   const { error } = await supabase
     .from("profiles")
-    .update({ discoverable: true, onboarding_completed_at: new Date().toISOString() })
-    .eq("id", user.id);
+    .upsert({ id: user.id, discoverable: true, onboarding_completed_at: new Date().toISOString() });
   if (error) {
     logger.error("onboarding.skip_failed", { userId: user.id, code: error.code });
     return { ok: false, error: "Something went wrong. Please try again." };
   }
-  redirect("/dashboard");
+  redirect("/paywall");
 }

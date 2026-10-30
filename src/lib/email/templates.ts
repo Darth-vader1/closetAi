@@ -478,54 +478,47 @@ export interface FeatureAnnouncementEmailProps {
 }
 
 export const DEFAULT_ANNOUNCEMENT_FEATURES: FeatureAnnouncementItem[] = [
-  // {
-  //   icon: "💬",
-  //   badge: "Connect",
-  //   title: "Swipe Right to Reply (WhatsApp-Style)",
-  //   description:
-  //     "Chatting with style buddies in Closet Connect just got faster. Swipe right on any message bubble to reply with instant quote previews, subtle haptic vibration, and tap-to-jump navigation.",
-  // },
-  // {
-  //   icon: "🧳",
-  //   badge: "Travel",
-  //   title: "Smart Trip Packing Planner",
-  //   description:
-  //     "Never overpack or forget essentials again. Input your destination, dates, and activities, and ClosetAI builds a tailored multi-day wardrobe rotation with luggage weight recommendations.",
-  // },
-  // {
-  //   icon: "✨",
-  //   badge: "Product Studio",
-  //   title: "AI Garment Beautification",
-  //   description:
-  //     "Transform simple hanger or floor photos into professional catalog images. Our AI studio flattens fabric creases, removes messy backgrounds, and adjusts camera angles automatically.",
-  // },
-  // {
-  //   icon: "🛍️",
-  //   badge: "Wardrobe",
-  //   title: "Universal Store & Clipboard Import",
-  //   description:
-  //     "Add clothes you love online in seconds. Paste product links directly into ClosetAI, or simply copy a garment image from any website and press Ctrl+V to import it.",
-  // },
-  // {
-  //   icon: "💇‍♀️",
-  //   badge: "New Category",
-  //   title: "Wigs & Specialized Care Taxonomy",
-  //   description:
-  //     "We've added native support for wigs, headwear, and delicate accessories, complete with tailored care instructions (No-Wash, Wipe-Clean, Washable) to keep pieces in peak condition.",
-  // },
-  // {
-  //   icon: "🌤️",
-  //   badge: "Daily Stylist",
-  //   title: "Morning Look Recommendations",
-  //   description:
-  //     "Wake up to personalized daily outfit inspiration crafted from your clean clothes and tuned to your local weather, with 1-click links to view or log your look.",
-  // },
   {
-    icon: "✨",
+    icon: "🎨",
     badge: "New",
     title: "AI Outfit Flatlay Studio",
     description:
-      "Compose polished flatlay collages using your actual wardrobe items. Drag, resize, and arrange tops, bottoms, shoes, and accessories on a canvas with one-click layout presets.",
+      "Compose magazine-worthy flatlay collage boards using your actual wardrobe pieces. Drag, rotate, resize, adjust layers, toggle drop shadows, and switch layout presets (Editorial, Minimal, Streetwear). Export high-res PNG lookbooks or save boards directly into your wardrobe outfits.",
+  },
+  {
+    icon: "💬",
+    badge: "Connect",
+    title: "Interactive AI Stylist Chat",
+    description:
+      "Chat 1-on-1 with @ClosetAI Stylist anytime in Connect. Share individual garments or full outfits directly into the conversation, ask for styling advice, and get instant, interactive outfit cards assembled straight from your clean clothes.",
+  },
+  {
+    icon: "🌤️",
+    badge: "Smart Weather",
+    title: "Automatic Background Location & Weather",
+    description:
+      "No more manual location updates. ClosetAI now automatically syncs your local weather in the background, matching fabric warmth, layers, and rain suitability to your current forecast the moment you open the app.",
+  },
+  {
+    icon: "📅",
+    badge: "Planning",
+    title: "Outfit Calendar & Weekly Schedule",
+    description:
+      "Plan your looks for the week ahead with our enhanced calendar view. Track daily outfit rotations, browse scheduled pieces, and confirm worn outfits with a single click to keep your wear history and laundry accurate.",
+  },
+  {
+    icon: "✨",
+    badge: "AI Studio",
+    title: "Garment Beautification & Auto Cutout",
+    description:
+      "Turn casual floor or hanger photos into crisp catalog cutouts. The Product Studio flattens fabric creases, removes cluttered backgrounds, corrects tilt, and isolates garments cleanly for pristine boards and wardrobe grids.",
+  },
+  {
+    icon: "🧳",
+    badge: "Travel",
+    title: "Smart Trip Packing Planner",
+    description:
+      "Heading on a getaway or business trip? Enter your destination, dates, and activities, and ClosetAI will generate an optimized, weather-ready capsule wardrobe with luggage weight estimates so you never overpack.",
   },
 ];
 

@@ -1,13 +1,15 @@
-import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { signOutAction } from "@/app/(auth)/actions";
 import { ConfigNotice } from "@/components/layout/config-notice";
 import { Logo } from "@/components/layout/logo";
 import { OnboardingForm } from "@/components/onboarding/onboarding-form";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { getProfile, requireUser } from "@/lib/auth/session";
+import { getUserSubscription } from "@/lib/billing/subscription";
 import { isSupabaseConfigured } from "@/lib/env";
 
-export const metadata: Metadata = { title: "Set up your profile" };
+export const metadata = { title: "Set up your profile" };
 
 // Every page in this group is per-user and reads the session, so it must never be prerendered
 // at build time (that could bake a "not configured" state into a deployed build).
@@ -19,11 +21,24 @@ export default async function OnboardingPage() {
   }
   const user = await requireUser();
   const profile = await getProfile();
-  if (profile?.onboarding_completed_at) redirect("/dashboard");
+  if (profile?.onboarding_completed_at) {
+    const sub = await getUserSubscription(user.id);
+    if (sub.isSubscribed) {
+      redirect("/dashboard");
+    }
+    redirect("/paywall");
+  }
 
   return (
     <div className="flex min-h-dvh flex-col items-center px-4 py-8 sm:py-14">
-      <Logo href="/onboarding" />
+      <div className="w-full max-w-2xl flex items-center justify-between">
+        <Logo href="/onboarding" />
+        <form action={signOutAction}>
+          <Button variant="ghost" size="sm" type="submit" className="text-xs text-muted hover:text-foreground">
+            Sign out
+          </Button>
+        </form>
+      </div>
       <main id="main" className="mt-8 w-full max-w-2xl">
         <h1 className="text-3xl sm:text-4xl">Let&apos;s set up your closet</h1>
         <p className="mt-2 text-muted">A few quick questions so suggestions fit you. Everything here is optional except your name.</p>

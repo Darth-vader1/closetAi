@@ -5,6 +5,8 @@ import { AppMain } from "@/components/layout/app-main";
 import { ProductTour } from "@/components/onboarding/product-tour";
 import { ConnectNotificationProvider } from "@/components/connect/connect-notification-provider";
 import { getProfile, requireUser } from "@/lib/auth/session";
+import { isAdminUser } from "@/lib/auth/admin";
+import { getUserSubscription } from "@/lib/billing/subscription";
 import { isSupabaseConfigured } from "@/lib/env";
 
 // Every page in this group is per-user and reads the session, so it must never be prerendered
@@ -19,16 +21,25 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await requireUser();
   const profile = await getProfile();
   // First sign-in after registration goes through onboarding exactly once.
-  if (profile && !profile.onboarding_completed_at) redirect("/onboarding");
+  if (!profile || !profile.onboarding_completed_at) redirect("/onboarding");
+
+  // Hard Paywall: Check subscription status before rendering main app (Admins bypass paywall)
+  const isAdmin = await isAdminUser(user);
+  if (!isAdmin) {
+    const sub = await getUserSubscription(user.id);
+    if (!sub.isSubscribed) {
+      redirect("/paywall");
+    }
+  }
 
   const displayName = profile?.display_name ?? user.email ?? "You";
 
   return (
     <ConnectNotificationProvider currentUserId={user.id}>
       <div className="flex min-h-dvh overflow-x-hidden">
-        <Sidebar displayName={displayName} />
+        <Sidebar displayName={displayName} isAdmin={isAdmin} />
         <div className="min-w-0 flex-1 overflow-x-hidden lg:pl-64">
-          <MobileNav displayName={displayName} />
+          <MobileNav displayName={displayName} isAdmin={isAdmin} />
           <AppMain>
             {children}
           </AppMain>

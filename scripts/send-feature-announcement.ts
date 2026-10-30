@@ -4,12 +4,12 @@
  *
  * Broadcast script to send a beautifully styled product announcement email
  * to registered ClosetAI users about all recent features:
- *   - WhatsApp-Style Swipe Right to Reply (Closet Connect)
+ *   - AI Outfit Flatlay Studio (Collages, Lookbooks & High-Res Export)
+ *   - Interactive AI Stylist Chat & Smart Outfit Cards
+ *   - Automatic Background Location & Live Weather Detection
+ *   - Outfit Calendar & Weekly Schedule with Accurate Local Day Tracking
+ *   - AI Product Studio Garment Beautification & Crease Removal
  *   - Smart Trip Packing Planner & Luggage Optimizer
- *   - AI Product Studio Garment Beautification (Crease flattening, background removal)
- *   - Universal Store & Clipboard Image Import (Ctrl+V)
- *   - Wigs & Headwear Taxonomy with Specialized Care Instructions
- *   - Morning Outfit Recommendations & Direct Links
  *
  * USAGE:
  *   # 1. Preview recipient list & render without sending:
@@ -92,7 +92,7 @@ async function main() {
     });
     const res = await sendEmail({
       to: testEmail,
-      subject: "What's new in ClosetAI: Swipe to reply, Trip packing & AI Studio ✨",
+      subject: "What's new in ClosetAI: Flatlay Studio, Live Stylist Chat & Smart Calendar ✨",
       html,
     });
 
@@ -197,7 +197,7 @@ async function main() {
 
     const res = await sendEmail({
       to: user.email,
-      subject: "What's new in ClosetAI: Swipe to reply, Trip packing & AI Studio ✨",
+      subject: "What's new in ClosetAI: Flatlay Studio, Live Stylist Chat & Smart Calendar ✨",
       html,
     });
 

@@ -34,7 +34,7 @@ function SignOutButton({ className }: { className?: string }) {
 }
 
 /** Desktop sidebar (lg and up). */
-export function Sidebar({ displayName }: { displayName: string }) {
+export function Sidebar({ displayName, isAdmin }: { displayName: string; isAdmin?: boolean }) {
   const pathname = usePathname();
   return (
     <aside className="fixed left-0 top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex overflow-hidden">
@@ -61,6 +61,15 @@ export function Sidebar({ displayName }: { displayName: string }) {
       </nav>
       <div className="border-t border-border pt-3 space-y-1.5 shrink-0">
         <InstallPwaBanner />
+        {isAdmin && (
+          <Link
+            href="/admin"
+            className="flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-xs font-semibold text-accent hover:bg-accent-soft transition-colors"
+          >
+            <Compass className="size-[1.125rem] text-accent" aria-hidden />
+            <span>Admin Console</span>
+          </Link>
+        )}
         <button
           type="button"
           onClick={triggerProductTour}
@@ -77,7 +86,7 @@ export function Sidebar({ displayName }: { displayName: string }) {
 }
 
 /** Compact mobile top bar + bottom tab bar (below lg). */
-export function MobileNav({ displayName }: { displayName: string }) {
+export function MobileNav({ displayName, isAdmin }: { displayName: string; isAdmin?: boolean }) {
   const pathname = usePathname();
   const isChat = isChatRoute(pathname);
 
@@ -142,6 +151,16 @@ export function MobileNav({ displayName }: { displayName: string }) {
                   {label}
                 </Link>
               ))}
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  onClick={() => setMoreOpen(false)}
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-base font-semibold text-accent hover:bg-accent-soft"
+                >
+                  <Compass className="size-5 text-accent" aria-hidden />
+                  Admin Console
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={() => {
