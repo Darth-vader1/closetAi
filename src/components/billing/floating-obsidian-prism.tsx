@@ -33,7 +33,7 @@ export function FloatingObsidianPrism({
   height = 280,
 }: FloatingObsidianPrismProps) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const [hasWebGL, setHasWebGL] = useState(true);
+  const [hasWebGL, setHasWebGL] = useState(() => isWebGLAvailable());
   const [isInteracting, setIsInteracting] = useState(false);
 
   const animFrameRef = useRef<number | null>(null);
@@ -42,12 +42,7 @@ export function FloatingObsidianPrism({
 
   useEffect(() => {
     const container = mountRef.current;
-    if (!container) return;
-
-    if (!isWebGLAvailable()) {
-      setHasWebGL(false);
-      return;
-    }
+    if (!container || !hasWebGL) return;
 
     const width = container.clientWidth || 360;
     const canvasHeight = height;
@@ -81,7 +76,7 @@ export function FloatingObsidianPrism({
       rendererRef.current = renderer;
       container.appendChild(renderer.domElement);
     } catch {
-      setHasWebGL(false);
+      setTimeout(() => setHasWebGL(false), 0);
       return;
     }
 
@@ -296,7 +291,7 @@ export function FloatingObsidianPrism({
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     // 8. Animation Loop
-    let clock = new THREE.Clock();
+    const clock = new THREE.Clock();
 
     const animate = () => {
       animFrameRef.current = requestAnimationFrame(animate);
@@ -305,7 +300,6 @@ export function FloatingObsidianPrism({
         return;
       }
 
-      const delta = clock.getDelta();
       const elapsedTime = clock.getElapsedTime();
 
       // Inertia Damping
@@ -398,7 +392,7 @@ export function FloatingObsidianPrism({
         container.removeChild(domElement);
       }
     };
-  }, [height]);
+  }, [height, hasWebGL]);
 
   const handleResetRotation = useCallback(() => {
     resetRotationRef.current?.();

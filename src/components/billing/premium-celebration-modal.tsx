@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Sparkles, Check, ArrowRight, X, Shirt, Palette, Wand2 } from "lucide-react";
+import { Sparkles, ArrowRight, X, Shirt, Palette, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface ConfettiParticle {
@@ -40,11 +40,9 @@ export function PremiumCelebrationModal({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animRef = useRef<number | null>(null);
-  const [showContent, setShowContent] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setShowContent(true);
 
     // Clean up ?upgraded=true from the URL so reload doesn't re-trigger it
     if (typeof window !== "undefined") {
@@ -96,7 +94,7 @@ export function PremiumCelebrationModal({
       });
     }
 
-    let startTime = performance.now();
+    const startTime = performance.now();
 
     const animateConfetti = (time: number) => {
       const elapsed = time - startTime;

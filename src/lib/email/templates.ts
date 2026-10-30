@@ -749,7 +749,7 @@ export function renderPremiumWelcomeHtml({
       <!-- Main Action Button -->
       <div style="text-align: center; margin: 32px 0 12px 0;">
         <a href="${escapeHtml(dashboardUrl)}" style="display: inline-block; background-color: #9a4a2f; color: #ffffff; text-decoration: none; padding: 15px 36px; border-radius: 30px; font-size: 14px; font-weight: 600; letter-spacing: 0.3px; box-shadow: 0 4px 10px rgba(154, 74, 47, 0.25);">
-          Step Into Your Atelier →
+          Open Your Studio &rarr;
         </a>
       </div>
       <p style="text-align: center; font-size: 12px; color: #78716c; margin: 0;">

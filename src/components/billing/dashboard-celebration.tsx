@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PremiumCelebrationModal } from "./premium-celebration-modal";
 
@@ -10,20 +10,17 @@ export function DashboardCelebration({
   initialUpgraded?: boolean;
 }) {
   const searchParams = useSearchParams();
-  const [isOpen, setIsOpen] = useState(initialUpgraded);
+  const [dismissed, setDismissed] = useState(false);
 
-  useEffect(() => {
-    if (searchParams.get("upgraded") === "true") {
-      setIsOpen(true);
-    }
-  }, [searchParams]);
+  const isUpgraded = searchParams.get("upgraded") === "true" || initialUpgraded;
+  const isOpen = !dismissed && isUpgraded;
 
   if (!isOpen) return null;
 
   return (
     <PremiumCelebrationModal
       isOpen={isOpen}
-      onClose={() => setIsOpen(false)}
+      onClose={() => setDismissed(true)}
     />
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
-import { Sparkles, Layers, RotateCcw } from "lucide-react";
+import { Sparkles, RotateCcw } from "lucide-react";
 
 interface Subscription3DStageProps {
   selectedTier: "free" | "premium";
@@ -38,7 +38,7 @@ export function Subscription3DStage({
   className = "",
 }: Subscription3DStageProps) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const [hasWebGL, setHasWebGL] = useState(true);
+  const [hasWebGL, setHasWebGL] = useState(() => isWebGLAvailable());
   const [isInteracting, setIsInteracting] = useState(false);
 
   // Sync tier state without triggering re-renders in the Three.js loop
@@ -53,12 +53,7 @@ export function Subscription3DStage({
 
   useEffect(() => {
     const container = mountRef.current;
-    if (!container) return;
-
-    if (!isWebGLAvailable()) {
-      setHasWebGL(false);
-      return;
-    }
+    if (!container || !hasWebGL) return;
 
     const width = container.clientWidth || 400;
     const height = container.clientHeight || 260;
@@ -84,7 +79,7 @@ export function Subscription3DStage({
         powerPreference: "high-performance",
       });
     } catch {
-      setHasWebGL(false);
+      setTimeout(() => setHasWebGL(false), 0);
       return;
     }
 
@@ -301,7 +296,7 @@ export function Subscription3DStage({
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     // 10. Animation & Metamorphosis Loop
-    let clock = new THREE.Clock();
+    const clock = new THREE.Clock();
     let currentElevateY = 0.2;
     let previousTier = tierRef.current;
     let burstIntensity = 0;
@@ -479,7 +474,7 @@ export function Subscription3DStage({
 
       container.innerHTML = "";
     };
-  }, []);
+  }, [hasWebGL]);
 
   const handleResetRotation = useCallback(() => {
     resetRotationRef.current?.();

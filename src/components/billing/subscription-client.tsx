@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition } from "react";
 import {
   Check,
   ShieldCheck,
@@ -35,14 +35,11 @@ export function SubscriptionClient({
   const [currency, setCurrency] = useState<"NGN" | "USD">("NGN");
   const [loadingAction, setLoadingAction] = useState<"free" | "paystack" | "stripe" | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showCelebration, setShowCelebration] = useState(isUpgraded);
+  const [previewCelebration, setPreviewCelebration] = useState(false);
+  const [dismissedCelebration, setDismissedCelebration] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  useEffect(() => {
-    if (isUpgraded) {
-      setShowCelebration(true);
-    }
-  }, [isUpgraded]);
+  const showCelebration = (isUpgraded && !dismissedCelebration) || previewCelebration;
 
   const freePlan = PRICING_PLANS.free;
   const premiumPlan = billingPeriod === "annual" ? PRICING_PLANS.annual : PRICING_PLANS.monthly;
@@ -111,7 +108,10 @@ export function SubscriptionClient({
       {/* Post-Payment Celebration Pop-Out with Confetti & Floating Obsidian */}
       <PremiumCelebrationModal
         isOpen={showCelebration}
-        onClose={() => setShowCelebration(false)}
+        onClose={() => {
+          setDismissedCelebration(true);
+          setPreviewCelebration(false);
+        }}
       />
 
       {/* Plan Cards Grid */}
@@ -348,7 +348,8 @@ export function SubscriptionClient({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowCelebration(true);
+                  setDismissedCelebration(false);
+                  setPreviewCelebration(true);
                 }}
                 className="text-[11px] text-accent hover:text-accent/80 font-medium underline underline-offset-2 transition cursor-pointer"
               >
