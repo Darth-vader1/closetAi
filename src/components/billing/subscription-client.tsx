@@ -27,6 +27,7 @@ interface SubscriptionClientProps {
 export function SubscriptionClient({
   isCanceled,
 }: SubscriptionClientProps) {
+  const [selectedTier, setSelectedTier] = useState<"free" | "premium">("premium");
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
   const [currency, setCurrency] = useState<"NGN" | "USD">("NGN");
   const [loadingAction, setLoadingAction] = useState<"free" | "paystack" | "stripe" | null>(null);
@@ -98,18 +99,30 @@ export function SubscriptionClient({
       </div>
 
       {/* Plan Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch max-w-4xl mx-auto">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-10 items-stretch max-w-4xl mx-auto pt-3">
         {/* FREE PLAN CARD */}
-        <Card className="p-6 sm:p-8 flex flex-col justify-between border-border/80 bg-card hover:border-border transition-all">
+        <Card
+          onClick={() => setSelectedTier("free")}
+          className={`p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 cursor-pointer rounded-2xl relative ${
+            selectedTier === "free"
+              ? "border-2 border-border-strong ring-2 ring-foreground/10 shadow-md bg-surface"
+              : "border border-border/80 bg-surface/70 hover:border-border hover:bg-surface opacity-90 hover:opacity-100"
+          }`}
+        >
           <div className="space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl sm:text-2xl font-serif font-semibold text-foreground">
-                  {freePlan.name}
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl sm:text-2xl font-serif font-semibold text-foreground">
+                    {freePlan.name}
+                  </h2>
+                  {selectedTier === "free" && (
+                    <span className="inline-flex size-2 rounded-full bg-muted" title="Active selection" />
+                  )}
+                </div>
                 <p className="text-xs text-muted mt-0.5">{freePlan.tagline}</p>
               </div>
-              <span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-medium text-muted">
+              <span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-medium text-muted border border-border/60">
                 Free Forever
               </span>
             </div>
@@ -144,9 +157,16 @@ export function SubscriptionClient({
           <div className="pt-8 mt-6 border-t border-border/60">
             <Button
               type="button"
-              variant="outline"
-              className="w-full text-sm font-medium py-5 border-border hover:bg-surface-muted"
-              onClick={handleContinueFree}
+              variant={selectedTier === "free" ? "dark" : "outline"}
+              className={`w-full text-sm font-medium py-5 transition-all ${
+                selectedTier === "free"
+                  ? "bg-foreground text-background hover:bg-foreground/90 shadow-xs"
+                  : "border-border hover:bg-surface-muted text-foreground"
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleContinueFree();
+              }}
               loading={loadingAction === "free" || isPending}
             >
               Continue with Free
@@ -157,21 +177,34 @@ export function SubscriptionClient({
           </div>
         </Card>
 
-        {/* PREMIUM PLAN CARD */}
-        <Card className="p-6 sm:p-8 flex flex-col justify-between border-2 border-accent/60 bg-accent-soft/10 relative shadow-sm hover:border-accent transition-all">
-          <div className="absolute -top-3 right-6">
-            <span className="inline-flex items-center gap-1 rounded-full bg-accent px-3 py-0.5 text-[11px] font-semibold text-accent-contrast shadow-xs uppercase tracking-wider">
-              <Sparkles className="size-3" />
-              Recommended
-            </span>
+        {/* PREMIUM PLAN CARD — HIGHLIGHTED BY DEFAULT */}
+        <Card
+          onClick={() => setSelectedTier("premium")}
+          className={`p-6 sm:p-8 flex flex-col justify-between relative transition-all duration-300 cursor-pointer rounded-2xl ${
+            selectedTier === "premium"
+              ? "border-2 border-accent ring-4 ring-accent/15 shadow-2xl shadow-accent/15 bg-gradient-to-b from-accent-soft/30 via-surface to-surface md:-translate-y-1.5"
+              : "border-2 border-accent/60 bg-accent-soft/10 hover:border-accent hover:shadow-md"
+          }`}
+        >
+          {/* Professional Centered Recommendation Badge */}
+          <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-20">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-accent via-[#a85338] to-accent px-4 py-1 text-[10.5px] font-bold text-white shadow-md shadow-accent/30 tracking-[0.14em] uppercase ring-1 ring-white/30 backdrop-blur-xs whitespace-nowrap">
+              <Sparkles className="size-3 text-amber-200 fill-amber-200/40" />
+              <span>Recommended &middot; Stylist Choice</span>
+            </div>
           </div>
 
           <div className="space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl sm:text-2xl font-serif font-semibold text-foreground">
-                  {premiumPlan.name}
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl sm:text-2xl font-serif font-semibold text-foreground">
+                    {premiumPlan.name}
+                  </h2>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-accent/15 text-accent text-[10px] font-bold px-2 py-0.5 uppercase tracking-wider">
+                    Full Access
+                  </span>
+                </div>
                 <p className="text-xs text-muted mt-0.5">{premiumPlan.tagline}</p>
               </div>
             </div>
@@ -183,10 +216,13 @@ export function SubscriptionClient({
                 <div className="inline-flex rounded-full border border-border bg-surface-muted/60 p-0.5 text-xs font-medium">
                   <button
                     type="button"
-                    onClick={() => setBillingPeriod("monthly")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBillingPeriod("monthly");
+                    }}
                     className={`px-3 py-1 rounded-full transition-all ${
                       billingPeriod === "monthly"
-                        ? "bg-accent text-accent-contrast shadow-xs"
+                        ? "bg-accent text-accent-contrast shadow-xs font-semibold"
                         : "text-muted hover:text-foreground"
                     }`}
                   >
@@ -194,15 +230,18 @@ export function SubscriptionClient({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setBillingPeriod("annual")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBillingPeriod("annual");
+                    }}
                     className={`px-3 py-1 rounded-full transition-all flex items-center gap-1 ${
                       billingPeriod === "annual"
-                        ? "bg-accent text-accent-contrast shadow-xs"
+                        ? "bg-accent text-accent-contrast shadow-xs font-semibold"
                         : "text-muted hover:text-foreground"
                     }`}
                   >
                     <span>Annual</span>
-                    <span className="text-[10px] opacity-90 font-bold bg-white/20 dark:bg-black/20 rounded px-1">
+                    <span className="text-[10px] font-bold bg-white/20 rounded px-1">
                       Save 17%
                     </span>
                   </button>
@@ -212,10 +251,13 @@ export function SubscriptionClient({
                 <div className="inline-flex rounded-full border border-border bg-surface-muted/60 p-0.5 text-xs font-medium">
                   <button
                     type="button"
-                    onClick={() => setCurrency("NGN")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrency("NGN");
+                    }}
                     className={`px-2.5 py-1 rounded-full transition-all ${
                       currency === "NGN"
-                        ? "bg-foreground text-background shadow-xs"
+                        ? "bg-foreground text-background shadow-xs font-semibold"
                         : "text-muted hover:text-foreground"
                     }`}
                   >
@@ -223,10 +265,13 @@ export function SubscriptionClient({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setCurrency("USD")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrency("USD");
+                    }}
                     className={`px-2.5 py-1 rounded-full transition-all ${
                       currency === "USD"
-                        ? "bg-foreground text-background shadow-xs"
+                        ? "bg-foreground text-background shadow-xs font-semibold"
                         : "text-muted hover:text-foreground"
                     }`}
                   >
@@ -252,14 +297,14 @@ export function SubscriptionClient({
             </div>
 
             <div className="border-t border-border/60 pt-5 space-y-3">
-              <p className="text-xs font-semibold tracking-wider text-muted uppercase">
-                Premium Entitlements:
+              <p className="text-xs font-semibold tracking-wider text-accent uppercase">
+                Included with Premium:
               </p>
               <ul className="space-y-2.5 text-xs sm:text-sm text-foreground/90">
                 {premiumPlan.features.map((feat, idx) => (
                   <li key={idx} className="flex items-start gap-2.5">
-                    <Check className="size-4 text-accent shrink-0 mt-0.5" />
-                    <span>{feat}</span>
+                    <Check className="size-4 text-accent shrink-0 mt-0.5 font-bold" />
+                    <span className="font-medium">{feat}</span>
                   </li>
                 ))}
               </ul>
@@ -269,11 +314,14 @@ export function SubscriptionClient({
           <div className="pt-8 mt-6 border-t border-border/60">
             <Button
               type="button"
-              className="w-full text-sm font-medium py-5 bg-accent hover:bg-accent/90 text-accent-contrast shadow-sm"
-              onClick={handleGetPremium}
+              className="w-full text-sm font-semibold py-5 bg-gradient-to-r from-accent via-[#a85338] to-accent hover:brightness-105 text-accent-contrast shadow-md shadow-accent/25 transition-all"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleGetPremium();
+              }}
               loading={loadingAction === "paystack" || loadingAction === "stripe"}
             >
-              Get Premium ({currency === "NGN" ? premiumPlan.formattedNGN : premiumPlan.formattedUSD})
+              <span>Get Premium ({currency === "NGN" ? premiumPlan.formattedNGN : premiumPlan.formattedUSD})</span>
               <ArrowRight className="size-4 ml-1.5" />
             </Button>
             <p className="text-center text-[11px] text-muted mt-2">
