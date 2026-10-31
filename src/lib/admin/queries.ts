@@ -92,7 +92,10 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     adminClient.from("wardrobe_items").select("id", { count: "exact", head: true }),
     adminClient.from("outfits").select("id", { count: "exact", head: true }),
     adminClient.from("flatlay_compositions").select("id", { count: "exact", head: true }),
-    adminClient.from("user_subscriptions").select("provider, status, plan_id, current_period_end").in("status", ["active", "trialing"]),
+    adminClient.from("user_subscriptions")
+      .select("provider, status, plan_id, current_period_end")
+      .in("status", ["active", "trialing"])
+      .neq("plan_id", "free"),
     adminClient.from("payment_transactions").select("amount, currency, status").eq("status", "success"),
   ]);
 
@@ -102,7 +105,7 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
   const totalOutfits = outfitsRes.count ?? 0;
   const totalFlatlays = (flatlaysRes as { count?: number }).count ?? 0;
 
-  // Calculate subscriptions and MRR from live user_subscriptions table
+  // Calculate subscriptions and MRR from live user_subscriptions table (paid plans only)
   let activeSubscribers = 0;
   let subscribersPaystack = 0;
   let subscribersStripe = 0;
@@ -112,13 +115,17 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
   const subsList = (subsRes.data as Array<{ provider: string; status: string; plan_id: string }>) ?? [];
 
   if (subsList.length > 0) {
-    activeSubscribers = subsList.length;
     for (const sub of subsList) {
+      if (!sub.plan_id || sub.plan_id === "free") continue;
+      activeSubscribers++;
       if (sub.provider === "stripe") {
         subscribersStripe++;
         mrrUSD += sub.plan_id === "annual" ? 4.16 : 4.99;
-      } else {
+      } else if (sub.provider === "paystack") {
         subscribersPaystack++;
+        mrrNGN += sub.plan_id === "annual" ? 832 : 999;
+      } else {
+        // Manual VIP / comped subscription
         mrrNGN += sub.plan_id === "annual" ? 832 : 999;
       }
     }
@@ -127,16 +134,21 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     const { data: profileSubs } = await adminClient
       .from("profiles")
       .select("subscription_status, subscription_provider, subscription_plan")
-      .in("subscription_status", ["active", "trialing"]);
+      .in("subscription_status", ["active", "trialing"])
+      .not("subscription_plan", "is", null)
+      .neq("subscription_plan", "free");
 
     if (profileSubs && profileSubs.length > 0) {
-      activeSubscribers = profileSubs.length;
       for (const p of profileSubs) {
+        if (!p.subscription_plan || p.subscription_plan === "free") continue;
+        activeSubscribers++;
         if (p.subscription_provider === "stripe") {
           subscribersStripe++;
           mrrUSD += p.subscription_plan === "annual" ? 4.16 : 4.99;
-        } else {
+        } else if (p.subscription_provider === "paystack") {
           subscribersPaystack++;
+          mrrNGN += p.subscription_plan === "annual" ? 832 : 999;
+        } else {
           mrrNGN += p.subscription_plan === "annual" ? 832 : 999;
         }
       }
@@ -307,6 +319,8 @@ export async function listAdminSubscribers(): Promise<AdminSubscriptionRow[]> {
   const { data: subs, error } = await adminClient
     .from("user_subscriptions")
     .select("id, user_id, plan_id, provider, status, current_period_end, created_at")
+    .in("status", ["active", "trialing"])
+    .neq("plan_id", "free")
     .order("created_at", { ascending: false });
 
   if (error || !subs) {

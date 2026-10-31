@@ -151,7 +151,11 @@ export default async function AdminSubscriptionsPage() {
 
                       <td className="py-3.5 px-4">
                         <span className="capitalize font-medium text-foreground">
-                          {sub.planId === "annual" ? "Annual (₦9,990/yr)" : "Monthly (₦999/mo)"}
+                          {sub.planId === "annual"
+                            ? "Annual (₦9,990/yr)"
+                            : sub.planId === "free"
+                            ? "Free Tier"
+                            : "Monthly (₦999/mo)"}
                         </span>
                       </td>
 
