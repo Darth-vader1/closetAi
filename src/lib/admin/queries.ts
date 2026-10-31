@@ -193,23 +193,66 @@ export async function listAdminUsers(options: {
     if (options.status === "active") {
       q = q.in("subscription_status", ["active", "trialing"]);
     } else if (options.status === "free") {
-      q = q.or("subscription_status.is.null,subscription_status.eq.incomplete,subscription_status.eq.canceled");
+      q = q.neq("subscription_status", "active").neq("subscription_status", "trialing");
+    } else if (options.status === "admin") {
+      q = q.in("role", ["admin", "superadmin"]);
     }
   }
 
   if (options.query?.trim()) {
-    const term = options.query.trim().toLowerCase();
-    const matchingUserIdsFromEmail: string[] = [];
+    const rawTerm = options.query.trim().toLowerCase();
+    // Strip commas and parens which interfere with PostgREST .or() filter parser
+    const cleanTerm = rawTerm.replace(/[,()]/g, " ").trim();
+
+    const matchingUserIds = new Set<string>();
+
+    // 1. Match from auth emails
     for (const [userId, email] of emailMap.entries()) {
-      if (email.toLowerCase().includes(term)) {
-        matchingUserIdsFromEmail.push(userId);
+      if (email.toLowerCase().includes(rawTerm)) {
+        matchingUserIds.add(userId);
       }
     }
 
-    if (matchingUserIdsFromEmail.length > 0) {
-      q = q.or(`display_name.ilike.%${term}%,location.ilike.%${term}%,id.in.(${matchingUserIdsFromEmail.slice(0, 50).join(",")})`);
+    // 2. Match from wardrobe items (closet search for garment names, categories, styles)
+    try {
+      const { data: matchingGarments } = await adminClient
+        .from("wardrobe_items")
+        .select("user_id")
+        .or(`name.ilike.%${cleanTerm}%,category.ilike.%${cleanTerm}%,subcategory.ilike.%${cleanTerm}%,material.ilike.%${cleanTerm}%,style.ilike.%${cleanTerm}%`)
+        .limit(100);
+
+      for (const item of matchingGarments ?? []) {
+        if (item.user_id) {
+          matchingUserIds.add(item.user_id);
+        }
+      }
+
+      // If the query relates to 'top' or 'tops', also check the top category group items
+      if (cleanTerm === "top" || cleanTerm === "tops") {
+        const { data: topGarments } = await adminClient
+          .from("wardrobe_items")
+          .select("user_id")
+          .in("category", ["t-shirts", "shirts", "sweaters", "hoodies", "blouses", "tank-tops", "polo-shirts", "tops"])
+          .limit(100);
+
+        for (const item of topGarments ?? []) {
+          if (item.user_id) {
+            matchingUserIds.add(item.user_id);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Wardrobe item query for admin user search failed:", err);
+    }
+
+    const idsArray = Array.from(matchingUserIds).slice(0, 100);
+
+    if (idsArray.length > 0) {
+      q = q.or(
+        `display_name.ilike.%${cleanTerm}%,location.ilike.%${cleanTerm}%,role.ilike.%${cleanTerm}%,id.in.(${idsArray.join(",")})`
+      );
     } else {
-      q = q.or(`display_name.ilike.%${term}%,location.ilike.%${term}%`);
+      q = q.or(`display_name.ilike.%${cleanTerm}%,location.ilike.%${cleanTerm}%,role.ilike.%${cleanTerm}%`);
     }
   }
 
@@ -217,6 +260,7 @@ export async function listAdminUsers(options: {
 
   const { data: profiles, count, error } = await q;
   if (error || !profiles) {
+    console.error("Error executing listAdminUsers query:", error);
     return { users: [], totalCount: 0 };
   }
 

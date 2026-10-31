@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Search, Shield, CheckCircle2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, Shield, CheckCircle2, X, ChevronLeft, ChevronRight, Loader2, RotateCcw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { AdminUserRow } from "@/lib/admin/queries";
@@ -14,31 +14,52 @@ interface AdminUsersClientProps {
   initialStatus: string;
   totalCount?: number;
   currentPage?: number;
+  pageSize?: number;
 }
 
 export function AdminUsersClient({
   initialUsers,
   initialQuery,
   initialStatus,
+  totalCount = 0,
+  currentPage = 1,
+  pageSize = 30,
 }: AdminUsersClientProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [query, setQuery] = useState(initialQuery);
   const [status, setStatus] = useState(initialStatus);
   const [users, setUsers] = useState(initialUsers);
   const [isPending, startTransition] = useTransition();
 
+  const hasActiveFilters = Boolean(query.trim() || (status && status !== "all"));
+
+  const navigateWithFilters = (newQuery: string, newStatus: string, newPage = 1) => {
+    startTransition(() => {
+      const params = new URLSearchParams();
+      if (newQuery.trim()) params.set("q", newQuery.trim());
+      if (newStatus && newStatus !== "all") params.set("status", newStatus);
+      if (newPage > 1) params.set("page", String(newPage));
+
+      const queryStr = params.toString();
+      router.push(queryStr ? `/admin/users?${queryStr}` : "/admin/users");
+    });
+  };
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    const params = new URLSearchParams(searchParams.toString());
-    if (query.trim()) params.set("q", query.trim());
-    else params.delete("q");
+    navigateWithFilters(query, status, 1);
+  };
 
-    if (status !== "all") params.set("status", status);
-    else params.delete("status");
+  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextStatus = e.target.value;
+    setStatus(nextStatus);
+    navigateWithFilters(query, nextStatus, 1);
+  };
 
-    params.set("page", "1");
-    router.push(`/admin/users?${params.toString()}`);
+  const handleResetFilters = () => {
+    setQuery("");
+    setStatus("all");
+    navigateWithFilters("", "all", 1);
   };
 
   const handleGrantVip = (userId: string) => {
@@ -50,7 +71,12 @@ export function AdminUsersClient({
         setUsers((prev) =>
           prev.map((u) =>
             u.id === userId
-              ? { ...u, subscriptionStatus: "active", subscriptionPlan: "monthly", subscriptionProvider: "manual" }
+              ? {
+                  ...u,
+                  subscriptionStatus: "active",
+                  subscriptionPlan: "monthly",
+                  subscriptionProvider: "manual",
+                }
               : u,
           ),
         );
@@ -76,41 +102,89 @@ export function AdminUsersClient({
     });
   };
 
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const hasPrev = currentPage > 1;
+  const hasNext = currentPage < totalPages;
+
   return (
     <div className="space-y-4">
       {/* Search & Filters */}
       <Card className="p-4 bg-surface border-border">
         <form onSubmit={handleSearch} className="flex flex-col sm:flex-row items-center gap-3">
           <div className="relative flex-1 w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted pointer-events-none" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by name, email, or location..."
-              className="w-full rounded-xl border border-border bg-background pl-9 pr-4 py-2 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-hidden"
+              placeholder="Search members by name, email, location, or closet item (e.g. top, denim)..."
+              className="w-full rounded-xl border border-border bg-background pl-9 pr-8 py-2 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-hidden"
             />
+            {query.trim().length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  navigateWithFilters("", status, 1);
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground p-0.5"
+                title="Clear query"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
           </div>
 
           <select
             value={status}
-            onChange={(e) => setStatus(e.target.value)}
+            onChange={handleStatusChange}
             className="w-full sm:w-auto rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground focus:border-accent focus:outline-hidden"
           >
-            <option value="all">All Subscriptions</option>
+            <option value="all">All Members</option>
             <option value="active">Active Subscribers</option>
             <option value="free">Free / Incomplete</option>
+            <option value="admin">Administrators</option>
           </select>
 
-          <Button type="submit" size="sm" variant="primary" className="w-full sm:w-auto text-xs px-5">
-            Filter
-          </Button>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              disabled={isPending}
+              className="flex-1 sm:flex-none text-xs px-5 flex items-center justify-center gap-1.5"
+            >
+              {isPending ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" />
+                  <span>Filtering...</span>
+                </>
+              ) : (
+                <span>Filter</span>
+              )}
+            </Button>
+
+            {hasActiveFilters && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleResetFilters}
+                disabled={isPending}
+                className="text-xs px-3 border-border hover:bg-surface-muted"
+                title="Reset all filters"
+              >
+                <RotateCcw className="size-3.5" />
+                <span className="sr-only sm:not-sr-only sm:ml-1 text-[11px]">Reset</span>
+              </Button>
+            )}
+          </div>
         </form>
       </Card>
 
       {/* Users Table */}
       <Card className="overflow-hidden border-border bg-surface">
-        <div className="overflow-x-auto">
+        <div className={`overflow-x-auto transition-opacity duration-200 ${isPending ? "opacity-60 pointer-events-none" : "opacity-100"}`}>
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-border bg-surface-muted/40 text-muted uppercase text-[10px] tracking-wider font-semibold">
@@ -212,8 +286,56 @@ export function AdminUsersClient({
         </div>
 
         {users.length === 0 && (
-          <div className="text-center py-12 text-muted text-xs">
-            No users match your search query.
+          <div className="text-center py-12 px-4 space-y-3">
+            <p className="text-muted text-xs">
+              {hasActiveFilters
+                ? `No members found matching "${query ? query : status}".`
+                : "No registered members found."}
+            </p>
+            {hasActiveFilters && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleResetFilters}
+                className="text-xs px-3 border-border hover:bg-surface-muted"
+              >
+                Clear filters &amp; view all members
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Pagination Bar */}
+        {totalPages > 1 && (
+          <div className="border-t border-border px-4 py-3 flex items-center justify-between text-xs text-muted">
+            <span>
+              Page {currentPage} of {totalPages}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!hasPrev || isPending}
+                onClick={() => navigateWithFilters(query, status, currentPage - 1)}
+                className="h-8 px-2.5 text-xs flex items-center gap-1 border-border"
+              >
+                <ChevronLeft className="size-3.5" />
+                <span>Previous</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!hasNext || isPending}
+                onClick={() => navigateWithFilters(query, status, currentPage + 1)}
+                className="h-8 px-2.5 text-xs flex items-center gap-1 border-border"
+              >
+                <span>Next</span>
+                <ChevronRight className="size-3.5" />
+              </Button>
+            </div>
           </div>
         )}
       </Card>
