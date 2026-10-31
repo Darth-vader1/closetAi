@@ -29,6 +29,22 @@ export type DressCode = "athletic" | "casual" | "smart_casual" | "business" | "f
 
 export type Silhouette = "skinny" | "slim" | "regular" | "relaxed" | "wide" | "oversized" | "cropped";
 
+/**
+ * Body shape profiles for silhouette and proportion intelligence.
+ * Covers both female archetypes (hourglass, pear, apple, rectangle, inverted triangle)
+ * and tailored/athletic/curvy/runway silhouettes.
+ */
+export type BodyShape =
+  | "tailored"
+  | "hourglass"
+  | "pear"
+  | "apple"
+  | "rectangle"
+  | "inverted_triangle"
+  | "athletic"
+  | "curvy"
+  | "tall_slender";
+
 /** How much we trust a classification. Guesses are never treated as facts. */
 export type Confidence = "high" | "medium" | "low" | "unknown";
 
@@ -106,6 +122,8 @@ export interface StylingConstraints {
   comfortable: boolean;
   hotHint: boolean;
   coolHint: boolean;
+  /** Modest coverage preference (no exposed midriff, short skirts/shorts or deep plunge). */
+  modest: boolean;
   /** Don't repeat outfits worn/recommended in the last N days. */
   avoidRepeatDays: number | null;
   /** The user explicitly wants to repeat a favourite / previous outfit. */

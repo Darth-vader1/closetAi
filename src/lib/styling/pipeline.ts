@@ -14,7 +14,7 @@
 import { matchesForbidden, parseConstraints, parseWeather } from "@/lib/styling/constraints";
 import { buildCaveat, buildFactExplanation, sanitiseExplanation } from "@/lib/styling/explainer";
 import { scoreOutfit, type FeedbackSignal } from "@/lib/styling/scorer";
-import { isReliable, profileGarment, typeLabel } from "@/lib/styling/taxonomy";
+import { isReliable, isUnderlayerableOnePiece, isUnderlayerTop, profileGarment, typeLabel } from "@/lib/styling/taxonomy";
 import type {
   Fallback,
   FinalOutfit,
@@ -170,6 +170,23 @@ export function buildDeterministicCandidates(
         stylingTip: `Let the ${onepiece.item.name.toLowerCase()} anchor the silhouette.`,
         source: "engine",
       });
+
+      // 90s / Y2K layered look: underlayer fitted tee / turtleneck under slip / pinafore / sleeveless dress
+      if (isUnderlayerableOnePiece(onepiece)) {
+        const underTop = allTops.find((t) => isUnderlayerTop(t));
+        if (underTop) {
+          const layeredIds = [underTop.id, onepiece.id];
+          if (shoe) layeredIds.push(shoe.id);
+          proposals.push({
+            name: `Layered ${onepiece.item.name}`,
+            occasion: constraints.occasion ?? undefined,
+            itemIds: layeredIds,
+            styleDescription: "90s-inspired layered one-piece silhouette",
+            stylingTip: `Layer the ${underTop.item.name.toLowerCase()} underneath the ${onepiece.item.name.toLowerCase()} for an effortless, chic layered aesthetic.`,
+            source: "engine",
+          });
+        }
+      }
     }
   }
 

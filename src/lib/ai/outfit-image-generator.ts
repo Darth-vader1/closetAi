@@ -1,7 +1,16 @@
 import { logger } from "@/lib/logger";
 
 export type ModelSkinTone = "deep" | "rich_brown" | "caramel" | "olive" | "fair";
-export type ModelBodyBuild = "tailored" | "athletic" | "curvy" | "tall_slender";
+export type ModelBodyBuild =
+  | "tailored"
+  | "hourglass"
+  | "pear"
+  | "apple"
+  | "rectangle"
+  | "inverted_triangle"
+  | "athletic"
+  | "curvy"
+  | "tall_slender";
 
 interface GenerateOutfitImageOptions {
   outfitName: string;
@@ -27,6 +36,11 @@ const SKIN_TONE_DESCRIPTIONS: Record<ModelSkinTone, string> = {
 
 const BODY_BUILD_DESCRIPTIONS: Record<ModelBodyBuild, string> = {
   tailored: "classic balanced proportions",
+  hourglass: "defined hourglass silhouette with balanced bust and hips and a defined waist",
+  pear: "pear silhouette with graceful narrower shoulders and fuller hips",
+  apple: "apple silhouette with graceful soft torso and slender legs",
+  rectangle: "straight athletic rectangle silhouette with clean balanced lines",
+  inverted_triangle: "inverted triangle silhouette with structured shoulders and slender hips",
   athletic: "athletic toned build",
   curvy: "curvy full-figured proportions",
   tall_slender: "tall slender runway proportions",

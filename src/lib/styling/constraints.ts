@@ -304,6 +304,7 @@ export function emptyConstraints(prompt = ""): StylingConstraints {
     comfortable: false,
     hotHint: false,
     coolHint: false,
+    modest: false,
     avoidRepeatDays: null,
     allowRepeat: false,
     minDaysSinceWorn: null,
@@ -405,6 +406,14 @@ export function parseConstraints(prompt: string, owned: GarmentProfile[], option
   c.comfortable = /\b(comfort(?:able)?|cozy|comfy|breathable|easy)\b/.test(positive);
   c.hotHint = /\b(hot|scorching|heat ?wave|humid|sweaty|very warm|boiling)\b/.test(positive);
   c.coolHint = /\b(cold|chilly|harmattan|freezing|cool day|rainy|rain|wet)\b/.test(positive);
+  c.modest = /\b(modest(?:y|ly)?|hijab(?:i)?|covered|coverage|full[- ]coverage|no cleavage|covered arms|covered shoulders|conservative)\b/i.test(positive);
+  if (c.modest) {
+    c.forbidden.push({
+      phrase: "modest style preference",
+      types: ["crop_top", "shorts", "jorts", "athletic_shorts"],
+      silhouettes: ["cropped"],
+    });
+  }
 
   // 7. Variety / repetition / wardrobe rules.
   const rep = positive.match(/\b(?:last|past)\s+(\d+)\s+days?\b/);

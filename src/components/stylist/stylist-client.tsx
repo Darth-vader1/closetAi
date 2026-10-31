@@ -33,6 +33,7 @@ import {
   wearOutfitTodayAction,
   rateOutfitAction,
 } from "@/app/(app)/stylist/actions";
+import { BODY_BUILD_OPTIONS, type BodyBuildValue } from "@/lib/profile/options";
 import type { WardrobeItem } from "@/lib/wardrobe/queries";
 import { humanise } from "@/lib/wardrobe/categories";
 import type { WeatherForecast } from "@/lib/weather/service";
@@ -103,13 +104,6 @@ const SKIN_TONE_OPTIONS = [
   { value: "fair" as const, label: "Fair", swatch: "#F1D2B6" },
 ];
 
-const BODY_BUILD_OPTIONS = [
-  { value: "tailored" as const, label: "Classic Fit" },
-  { value: "athletic" as const, label: "Athletic" },
-  { value: "curvy" as const, label: "Curvy / Full" },
-  { value: "tall_slender" as const, label: "Tall / Runway" },
-];
-
 export function StylistClient({
   initialCleanCount,
   userStylePreferences = [],
@@ -122,7 +116,7 @@ export function StylistClient({
   const [selectedWeather, setSelectedWeather] = useState(initialWeather?.summary || "");
   const [selectedGender, setSelectedGender] = useState<"male" | "female" | "unisex">(initialGender);
   const [selectedSkinTone, setSelectedSkinTone] = useState<"deep" | "rich_brown" | "caramel" | "olive" | "fair">("rich_brown");
-  const [selectedBodyBuild, setSelectedBodyBuild] = useState<"tailored" | "athletic" | "curvy" | "tall_slender">("tailored");
+  const [selectedBodyBuild, setSelectedBodyBuild] = useState<BodyBuildValue>("tailored");
   const [stylistMode, setStylistMode] = useState<"prompt" | "pinterest">("prompt");
   const [pinterestInput, setPinterestInput] = useState("");
   const [loading, setLoading] = useState(false);

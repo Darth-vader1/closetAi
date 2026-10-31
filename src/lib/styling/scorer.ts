@@ -17,6 +17,7 @@
 import { colourInfo, readPalette } from "@/lib/styling/colour";
 import { profileGarment } from "@/lib/styling/taxonomy";
 import type {
+  BodyShape,
   DressCode,
   GarmentProfile,
   OutfitArchetype,
@@ -40,8 +41,8 @@ export interface FeedbackSignal {
   recentComboKeys?: ReadonlySet<string>;
   /** User's profile preferred styles. */
   userPreferredStyles?: readonly string[];
-  /** User's body build preference if provided. */
-  bodyBuild?: "tailored" | "athletic" | "curvy" | "tall_slender" | null;
+  /** User's body build or female body shape preference if provided. */
+  bodyBuild?: BodyShape | null;
 }
 
 export interface ScoreContext {
@@ -192,9 +193,62 @@ export function scoreOutfit(
       silhouetteScore = 6;
     }
   }
-  if (ctx.feedback?.bodyBuild === "athletic") {
+  const build = ctx.feedback?.bodyBuild;
+  if (build === "athletic") {
     if (profiles.some((p) => p.silhouette === "skinny")) silhouetteScore -= 3;
     if (bottom && (bottom.silhouette === "relaxed" || bottom.silhouette === "slim" || bottom.type === "joggers" || bottom.type === "athletic_shorts")) {
+      silhouetteScore += 1;
+    }
+  } else if (build === "hourglass") {
+    const hasBelt = accessories.some((a) => a.type === "belt");
+    const isFittedTop = primaryTop && (primaryTop.silhouette === "slim" || primaryTop.silhouette === "cropped");
+    const isWideOrAline = bottom && (bottom.silhouette === "wide" || bottom.silhouette === "relaxed" || bottom.type === "skirt");
+    if (hasBelt || (isFittedTop && isWideOrAline) || onepiece?.type === "dress") {
+      silhouetteScore += 2;
+    }
+    if (primaryTop?.silhouette === "oversized" && bottom?.silhouette === "wide" && !hasBelt) {
+      silhouetteScore -= 2; // shapeless boxy silhouette
+    }
+  } else if (build === "pear") {
+    const isAlineOrWide = bottom && (bottom.type === "skirt" || bottom.silhouette === "wide" || bottom.silhouette === "relaxed");
+    const isUpperDetail = primaryTop && ((primaryTop.pattern && primaryTop.pattern !== "solid") || outer);
+    if (isAlineOrWide || isUpperDetail || onepiece?.type === "dress") {
+      silhouetteScore += 2;
+    }
+    if (bottom?.silhouette === "skinny" && bottom.pattern && bottom.pattern !== "solid") {
+      silhouetteScore -= 2;
+    }
+  } else if (build === "apple") {
+    const isOpenLayer = Boolean(outer || (tops.length > 1 && tops.some((t) => t.layering)));
+    const isStraightBottom = bottom && (bottom.silhouette === "regular" || bottom.silhouette === "slim" || bottom.silhouette === "relaxed");
+    if (isOpenLayer || isStraightBottom || onepiece?.type === "dress") {
+      silhouetteScore += 2;
+    }
+    if (primaryTop?.type === "crop_top") {
+      silhouetteScore -= 2;
+    }
+  } else if (build === "rectangle") {
+    const hasBelt = accessories.some((a) => a.type === "belt");
+    const createsCurve = (primaryTop?.silhouette === "cropped" && bottom?.silhouette === "wide") ||
+      (bottom?.type === "skirt") || (tops.length > 1);
+    if (hasBelt || createsCurve) {
+      silhouetteScore += 2;
+    }
+  } else if (build === "inverted_triangle") {
+    const addsLowerVolume = bottom && (bottom.silhouette === "wide" || bottom.silhouette === "relaxed" || bottom.type === "skirt" || bottom.type === "cargo_pants");
+    if (addsLowerVolume) {
+      silhouetteScore += 2;
+    }
+    if (outer?.type === "blazer" && bottom?.silhouette === "skinny") {
+      silhouetteScore -= 2;
+    }
+  } else if (build === "curvy") {
+    if (onepiece?.type === "dress" || (primaryTop && bottom && primaryTop.silhouette !== "oversized")) {
+      silhouetteScore += 1;
+    }
+  } else if (build === "tall_slender") {
+    const hasLength = bottom?.length === "long" || outer?.type === "coat" || onepiece?.type === "dress";
+    if (hasLength) {
       silhouetteScore += 1;
     }
   }

@@ -15,7 +15,7 @@
  */
 import { colourInfo, readPalette } from "@/lib/styling/colour";
 import { matchesForbidden } from "@/lib/styling/constraints";
-import { CASUAL_ONLY_BOTTOMS, FORMAL_TYPES, isReliable, profileGarment, typeLabel } from "@/lib/styling/taxonomy";
+import { CASUAL_ONLY_BOTTOMS, FORMAL_TYPES, isReliable, isUnderlayerableOnePiece, isUnderlayerTop, profileGarment, typeLabel } from "@/lib/styling/taxonomy";
 import type {
   GarmentProfile,
   OutfitArchetype,
@@ -146,14 +146,22 @@ export function validateOutfit(
   }
 
   if (onepieces.length >= 1 && tops.length >= 1) {
-    // Only layering tops (cardigan, sweater) may sit over a dress; base tees/shirts conflict.
-    const nonLayeringTop = tops.find((t) => !t.layering);
-    if (nonLayeringTop) {
+    const onepiece = onepieces[0];
+    const underlayerable = isUnderlayerableOnePiece(onepiece);
+    for (const top of tops) {
+      if (top.layering) {
+        // Only layering tops (cardigan, sweater) may sit over a dress
+        continue;
+      }
+      // Intentional 90s / Y2K underlayering: fitted tee, mock neck, or turtleneck under a slip/pinafore/sleeveless dress
+      if (underlayerable && isUnderlayerTop(top)) {
+        continue;
+      }
       hardViolations.push(
         hard(
           "ONEPIECE_WITH_BASE_TOP",
-          `Cannot combine "${onepieces[0].item.name}" with non-layering top "${nonLayeringTop.item.name}".`,
-          [onepieces[0].id, nonLayeringTop.id],
+          `Cannot combine "${onepiece.item.name}" with non-layering top "${top.item.name}".`,
+          [onepiece.id, top.id],
         ),
       );
     }
@@ -295,6 +303,35 @@ export function validateOutfit(
       if (["athletic_shorts", "jorts", "shorts", "crop_top", "tank_top", "slides"].includes(p.type)) {
         hardViolations.push(
           hard("WORSHIP_DRESS_CODE_VIOLATION", `"${p.item.name}" is too casual for worship/service.`, [p.id]),
+        );
+      }
+    }
+  }
+
+  // Modesty coverage validation
+  if (ctx.constraints.modest) {
+    for (const p of profiles) {
+      if (p.length === "short" && (p.role === "bottom" || p.role === "onepiece")) {
+        hardViolations.push(
+          hard(
+            "MODESTY_LENGTH_VIOLATION",
+            `"${p.item.name}" is too short for a modest look.`,
+            [p.id],
+          ),
+        );
+      }
+      if (
+        (p.type === "tank_top" || p.type === "crop_top") &&
+        outers.length === 0 &&
+        !tops.some((t) => t.layering) &&
+        !onepieces.some((o) => isUnderlayerableOnePiece(o))
+      ) {
+        hardViolations.push(
+          hard(
+            "MODESTY_EXPOSED_TOP",
+            `"${p.item.name}" exposes shoulders or midriff without a modest cover layer.`,
+            [p.id],
+          ),
         );
       }
     }

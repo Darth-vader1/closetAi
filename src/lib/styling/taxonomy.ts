@@ -250,9 +250,10 @@ function clamp(n: number, min: number, max: number) {
 /** Detect a sleeve / neckline / length descriptor purely from text, so it can be shown and edited. */
 export function readDescriptors(item: WardrobeItem) {
   const t = text(item);
-  const sleeve = /\bsleeveless\b|\btank\b/.test(t) ? "sleeveless" : /\bshort[- ]sleeve/.test(t) ? "short" : /\blong[- ]sleeve/.test(t) ? "long" : null;
+  const sleeve: "sleeveless" | "short" | "long" | null = /\bsleeveless\b|\btank\b/.test(t) ? "sleeveless" : /\bshort[- ]sleeve/.test(t) ? "short" : /\blong[- ]sleeve/.test(t) ? "long" : null;
   const neckline = /\bv[- ]?neck\b/.test(t) ? "v-neck" : /\bcrew\b/.test(t) ? "crew" : /\bturtle|polo neck\b/.test(t) ? "turtleneck" : /\bcollar/.test(t) ? "collar" : null;
-  return { sleeve, neckline };
+  const length: "short" | "mid" | "long" | null = /\bmini\b/.test(t) ? "short" : /\bmaxi\b/.test(t) ? "long" : /\bmidi\b/.test(t) ? "mid" : null;
+  return { sleeve, neckline, length };
 }
 
 export function profileGarment(item: WardrobeItem): GarmentProfile {
@@ -333,6 +334,8 @@ export function profileGarment(item: WardrobeItem): GarmentProfile {
   const warmth = item.warmthLevel ?? def.warmth ?? null;
   if (item.warmthLevel == null && def.warmth != null) evidence.push(`warmth ${def.warmth} is the typical value for ${type}`);
 
+  const desc = readDescriptors(item);
+  const length = desc.length ?? def.length ?? null;
   const role = def.role;
   const usable = role !== "excluded" && role !== "unknown";
 
@@ -345,7 +348,7 @@ export function profileGarment(item: WardrobeItem): GarmentProfile {
     athletic,
     warmth,
     silhouette,
-    length: def.length ?? null,
+    length,
     colour: normaliseColour(item.primaryColour),
     pattern: item.pattern ?? null,
     confidence,
@@ -353,6 +356,30 @@ export function profileGarment(item: WardrobeItem): GarmentProfile {
     layering: Boolean(def.layering),
     usable,
   };
+}
+
+const UNDERLAYERABLE_ONEPIECE_RE =
+  /\b(slip|pinafore|dungarees?|overalls?|strappy|spaghetti|camisole|sleeveless|tank dress|apron|halter)\b/i;
+
+/** True for one-pieces (dresses/overalls) that can naturally sit over an underlayer top (90s / Y2K style). */
+export function isUnderlayerableOnePiece(p: GarmentProfile): boolean {
+  if (p.role !== "onepiece") return false;
+  const t = text(p.item);
+  if (UNDERLAYERABLE_ONEPIECE_RE.test(t)) return true;
+  const desc = readDescriptors(p.item);
+  return desc.sleeve === "sleeveless";
+}
+
+/** True for base tops suitable for layering under a sleeveless / slip dress (e.g. fitted baby tee, turtleneck, blouse). */
+export function isUnderlayerTop(p: GarmentProfile): boolean {
+  if (p.role !== "top") return false;
+  const t = text(p.item);
+  const isTurtleneck = /\b(turtleneck|mock ?neck|polo neck|roll neck)\b/i.test(t);
+  if (p.layering && !isTurtleneck) return false;
+  if (["t_shirt", "blouse", "sweater"].includes(p.type)) {
+    return p.silhouette !== "oversized" && p.silhouette !== "wide";
+  }
+  return false;
 }
 
 /** Garment types that are fine to fill an essential role (confidence at least medium). */

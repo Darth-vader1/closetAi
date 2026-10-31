@@ -14,7 +14,7 @@ const requestSchema = z.object({
   prompt: z.string().trim().min(1, "Please provide styling instructions or a vibe.").max(1000),
   occasion: z.string().trim().max(120).optional(),
   weather: z.string().trim().max(500).optional(),
-  bodyBuild: z.enum(["tailored", "athletic", "curvy", "tall_slender"]).optional(),
+  bodyBuild: z.enum(["tailored", "hourglass", "pear", "apple", "rectangle", "inverted_triangle", "athletic", "curvy", "tall_slender"]).optional(),
   anchorItemIds: z.array(z.string().uuid()).max(6).optional(),
   excludeItemIds: z.array(z.string().uuid()).max(20).optional(),
 });

@@ -33,4 +33,19 @@ export const OCCASION_OPTIONS = [
 
 export const OCCASION_VALUES = OCCASION_OPTIONS.map((o) => o.value) as string[];
 
+export const BODY_BUILD_OPTIONS = [
+  { value: "tailored", label: "Classic Fit" },
+  { value: "hourglass", label: "Hourglass" },
+  { value: "pear", label: "Pear / Triangle" },
+  { value: "apple", label: "Apple / Round" },
+  { value: "rectangle", label: "Rectangle / Straight" },
+  { value: "inverted_triangle", label: "Inverted Triangle" },
+  { value: "athletic", label: "Athletic" },
+  { value: "curvy", label: "Curvy / Full" },
+  { value: "tall_slender", label: "Tall / Runway" },
+] as const;
+
+export type BodyBuildValue = (typeof BODY_BUILD_OPTIONS)[number]["value"];
+export const BODY_BUILD_VALUES = BODY_BUILD_OPTIONS.map((b) => b.value) as [BodyBuildValue, ...BodyBuildValue[]];
+
 export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;

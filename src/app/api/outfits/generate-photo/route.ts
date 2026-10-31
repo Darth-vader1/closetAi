@@ -18,7 +18,7 @@ const requestSchema = z.object({
   outfitId: z.string().uuid().optional(),
   gender: z.enum(["male", "female", "unisex"]).optional().nullable(),
   skinTone: z.enum(["deep", "rich_brown", "caramel", "olive", "fair"]).optional().nullable(),
-  bodyBuild: z.enum(["tailored", "athletic", "curvy", "tall_slender"]).optional().nullable(),
+  bodyBuild: z.enum(["tailored", "hourglass", "pear", "apple", "rectangle", "inverted_triangle", "athletic", "curvy", "tall_slender"]).optional().nullable(),
   imageDataUrl: z.string().max(MAX_DATA_URL_LENGTH).optional().nullable(),
   items: z
     .array(

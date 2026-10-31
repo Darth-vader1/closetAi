@@ -4,14 +4,14 @@ import { getAiProvider } from "@/lib/ai/service";
 import { logger } from "@/lib/logger";
 import { runStylingPipeline } from "@/lib/styling/pipeline";
 import type { FeedbackSignal } from "@/lib/styling/scorer";
-import type { Fallback, ProposedOutfit, RejectedCandidate } from "@/lib/styling/types";
+import type { BodyShape, Fallback, ProposedOutfit, RejectedCandidate } from "@/lib/styling/types";
 import type { WardrobeItem } from "@/lib/wardrobe/queries";
 
 export interface StylistRequestOptions {
   userPrompt: string;
   occasion?: string | null;
   weather?: string | null;
-  bodyBuild?: "tailored" | "athletic" | "curvy" | "tall_slender" | null;
+  bodyBuild?: BodyShape | null;
   stylePreferences?: string[];
   allowRewearWorn?: boolean;
   anchorItemIds?: string[];
@@ -125,8 +125,22 @@ export async function generateStylistRecommendations(
     `User Request: "${input.userPrompt}"`,
     input.occasion ? `Target Occasion: ${input.occasion}` : null,
     input.weather ? `Weather Context: ${input.weather}` : null,
-    input.bodyBuild === "athletic"
+    input.bodyBuild === "hourglass"
+      ? "Body Shape: Hourglass (balanced bust and hips with a defined waist). Highlight waist definition with belted silhouettes, high-waisted bottoms, wrap cuts, or fitted waistlines; avoid shapeless, boxy cuts."
+      : input.bodyBuild === "pear"
+      ? "Body Shape: Pear / Triangle (fuller hips and thighs, narrower shoulders). Draw attention upward with open/wide necklines, structured or statement tops, and balance with A-line skirts/dresses or clean darker bottoms."
+      : input.bodyBuild === "apple"
+      ? "Body Shape: Apple / Round (fuller bust and torso, slender legs). Elongate the silhouette with V-necks, empire waists, open vertical layers, and showcase legs with straight or tailored bottoms; avoid stiff cinched waistbands."
+      : input.bodyBuild === "rectangle"
+      ? "Body Shape: Rectangle / Straight (balanced bust and hips with subtle waist definition). Create dimension and curves using waist belts, crop tops with high-waisted wide bottoms, pleated or flared skirts, and contrasting layers."
+      : input.bodyBuild === "inverted_triangle"
+      ? "Body Shape: Inverted Triangle (broader shoulders/chest, narrower hips). Soften the shoulder line with V-necks or scoop necks, and add lower-body volume with flared skirts, A-line silhouettes, or wide-leg pants; avoid heavy shoulder padding."
+      : input.bodyBuild === "athletic"
       ? "Body Build: Athletic (broad shoulders/chest, muscular thighs). Favour pieces with stretch, room through the thigh and a tapered leg; avoid restrictive, stiff or boxy cuts."
+      : input.bodyBuild === "curvy"
+      ? "Body Shape: Curvy (fuller curves through bust and hips). Choose garments with natural stretch, flattering drape, wrap styles, and well-tailored waistlines; avoid rigid, boxy cuts."
+      : input.bodyBuild === "tall_slender"
+      ? "Body Shape: Tall / Runway. Utilize long silhouettes, maxi lengths, wide-leg trousers, long coats, and bold color blocking effortlessly."
       : input.bodyBuild
       ? `Body Build: ${input.bodyBuild.replace("_", " ")}`
       : null,

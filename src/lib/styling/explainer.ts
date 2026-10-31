@@ -48,10 +48,16 @@ export function buildFactExplanation(
     parts.push(`Built on a clean neutral palette for effortless coordination`);
   } else if (palette.kind === "analogous" || palette.kind === "complementary") {
     parts.push(`Pairs ${palette.label} for intentional colour harmony`);
+  } else if (onepiece && top) {
+    parts.push(`Features the ${top.item.name.toLowerCase()} layered underneath your ${onepiece.item.name.toLowerCase()}`);
   } else if (onepiece) {
     parts.push(`Centres the look around your ${onepiece.item.name.toLowerCase()}`);
   } else if (top && bottom) {
     parts.push(`Pairs ${top.item.name.toLowerCase()} with ${bottom.item.name.toLowerCase()}`);
+  }
+
+  if (constraints.modest) {
+    parts.push(`maintaining comfortable, elegant coverage`);
   }
 
   // 2. Silhouette or layering note
