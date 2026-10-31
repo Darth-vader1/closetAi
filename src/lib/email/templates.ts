@@ -288,14 +288,14 @@ export function renderAuthEmailHtml({
   otpCode,
 }: AuthEmailProps): string {
   const isSignup = type === "signup";
-  const badge = isSignup ? "CLOSET·AI ACCOUNT VERIFICATION" : "CLOSET·AI PASSWORD RESET";
+  const badge = isSignup ? "WELCOME TO CLOSET·AI" : "CLOSET·AI PASSWORD RESET";
   const heading = isSignup
     ? `Welcome to ClosetAI${displayName ? `, ${escapeHtml(displayName)}` : ""}`
     : "Reset your ClosetAI password";
   const bodyText = isSignup
-    ? "Confirm your email address below to activate your digital wardrobe, 3D AI Stylist, and automated outfit briefings."
+    ? "We're thrilled to have you here! Confirm your email address below to activate your digital wardrobe, 3D AI Stylist, and smart outfit calendar."
     : "We received a request to reset the password for your ClosetAI account. Click the button below to choose a new password.";
-  const ctaLabel = isSignup ? "Verify Email Address →" : "Reset Password →";
+  const ctaLabel = isSignup ? "Activate My Account →" : "Reset Password →";
   const footerNote = isSignup
     ? "If you didn't create a ClosetAI account, you can safely ignore this email."
     : "If you didn't request a password reset, you can safely ignore this email — your password will remain unchanged.";
@@ -310,6 +310,34 @@ export function renderAuthEmailHtml({
           ${escapeHtml(otpCode)}
         </div>
       </div>
+    `
+    : "";
+
+  const featuresSection = isSignup
+    ? `
+      <!-- Feature Highlights -->
+      <table style="width: 100%; border-collapse: separate; border-spacing: 0; background-color: #fafaf9; border: 1px solid #e7e5e4; border-radius: 12px; margin-top: 28px; padding: 14px 18px;">
+        <tbody>
+          <tr>
+            <td style="padding: 8px 12px 8px 0; font-size: 20px; vertical-align: top; width: 32px;">📸</td>
+            <td style="padding: 8px 0; font-size: 13px; color: #44403c; line-height: 1.5;">
+              <strong style="color: #1c1917;">Digitize your wardrobe:</strong> Snap quick photos of shirts, pants, and shoes.
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 12px 8px 0; font-size: 20px; vertical-align: top; width: 32px;">✨</td>
+            <td style="padding: 8px 0; font-size: 13px; color: #44403c; line-height: 1.5;">
+              <strong style="color: #1c1917;">Product Studio AI:</strong> Automatic neural background removal and crease smoothing.
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 12px 8px 0; font-size: 20px; vertical-align: top; width: 32px;">👔</td>
+            <td style="padding: 8px 0; font-size: 13px; color: #44403c; line-height: 1.5;">
+              <strong style="color: #1c1917;">Personalized AI Stylist:</strong> Daily weather-smart look recommendations tailored to your style.
+            </td>
+          </tr>
+        </tbody>
+      </table>
     `
     : "";
 
@@ -337,6 +365,7 @@ export function renderAuthEmailHtml({
         </a>
       </div>
       ${otpSection}
+      ${featuresSection}
       <p style="margin: 24px 0 0 0; font-size: 12px; color: #78716c; word-break: break-all;">
         Or copy and paste this link into your browser:<br>
         <a href="${escapeHtml(actionUrl)}" style="color: #57534e;">${escapeHtml(actionUrl)}</a>

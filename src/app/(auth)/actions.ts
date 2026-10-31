@@ -93,7 +93,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
         const { renderAuthEmailHtml } = await import("@/lib/email/templates");
         const sent = await sendEmail({
           to: parsed.data.email,
-          subject: "Verify your ClosetAI account",
+          subject: `Welcome to ClosetAI${parsed.data.displayName ? `, ${parsed.data.displayName}` : ""}! ✨ Confirm your email`,
           html: renderAuthEmailHtml({
             type: "signup",
             displayName: parsed.data.displayName,
@@ -107,7 +107,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
         }
 
         const { notifyAdminsOfNewSignup } = await import("@/lib/admin/notifications");
-        void notifyAdminsOfNewSignup({
+        await notifyAdminsOfNewSignup({
           userId: linkData?.user?.id ?? null,
           email: parsed.data.email,
           displayName: parsed.data.displayName,
@@ -136,7 +136,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
     }
 
     const { notifyAdminsOfNewSignup } = await import("@/lib/admin/notifications");
-    void notifyAdminsOfNewSignup({
+    await notifyAdminsOfNewSignup({
       userId: data.user?.id ?? null,
       email: parsed.data.email,
       displayName: parsed.data.displayName,
@@ -144,7 +144,24 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
     });
 
     // When email confirmation is disabled in Supabase, a session is returned immediately.
-    if (data.session) redirect("/onboarding");
+    if (data.session) {
+      if (parsed.data.email) {
+        try {
+          const { renderOnboardingWelcomeHtml } = await import("@/lib/email/templates");
+          const { sendEmail } = await import("@/lib/email/service");
+          await sendEmail({
+            to: parsed.data.email,
+            subject: `Welcome to ClosetAI${parsed.data.displayName ? `, ${parsed.data.displayName}` : ""}! ✨ Your Digital Wardrobe is Ready`,
+            html: renderOnboardingWelcomeHtml({
+              displayName: parsed.data.displayName,
+            }),
+          });
+        } catch (welcomeErr) {
+          logger.warn("auth.welcome_email_failed", { error: welcomeErr });
+        }
+      }
+      redirect("/onboarding");
+    }
     return {
       ok: true,
       message: "Check your email for a verification link (please check your Spam or Promotions folder if you don't see it). Once confirmed, you can finish setting up your wardrobe.",

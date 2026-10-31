@@ -159,5 +159,26 @@ export async function skipOnboardingAction(): Promise<AuthActionResult> {
     }
   }
 
+  // Send Welcome Quickstart email if skipped
+  if (user.email) {
+    try {
+      const { renderOnboardingWelcomeHtml } = await import("@/lib/email/templates");
+      const { sendEmail } = await import("@/lib/email/service");
+      const { getProfile } = await import("@/lib/auth/session");
+      const profile = await getProfile();
+      const displayName = profile?.display_name || null;
+      await sendEmail({
+        to: user.email,
+        subject: `Welcome to ClosetAI${displayName ? `, ${displayName}` : ""}! ✨ Your Wardrobe Quickstart`,
+        html: renderOnboardingWelcomeHtml({
+          displayName,
+        }),
+      });
+      logger.info("onboarding.skip_welcome_email_sent", { userId: user.id });
+    } catch (emailErr) {
+      logger.warn("onboarding.skip_welcome_email_failed", { userId: user.id, error: emailErr });
+    }
+  }
+
   redirect("/subscription");
 }
