@@ -43,15 +43,20 @@ export default async function SubscriptionCallbackPage({
         const targetUserId = verifyRes.data.metadata?.userId || sessionUser?.id;
 
         if (targetUserId) {
-          await activateUserSubscription(targetUserId, {
+          const actRes = await activateUserSubscription(targetUserId, {
             planId,
             provider: "paystack",
             customerId: customerCode,
             subscriptionId: reference,
             reference,
             amount,
-            currency: "NGN",
+            currency: verifyRes.data.currency || "NGN",
           });
+
+          if (!actRes.ok) {
+            logger.warn("billing.paystack_callback_activation_failed", { userId: targetUserId, error: actRes.error });
+            redirect(sessionUser ? "/subscription?canceled=true&reason=invalid_amount" : "/login");
+          }
         }
 
         if (sessionUser) {
@@ -85,19 +90,27 @@ export default async function SubscriptionCallbackPage({
         const planId = rawPlan === "annual" ? "annual" : "monthly";
         const customerId = typeof session.customer === "string" ? session.customer : undefined;
         const subscriptionId = typeof session.subscription === "string" ? session.subscription : undefined;
-        const amount = session.amount_total || (planId === "annual" ? 4999 : 499);
+        const amount = session.amount_total ?? null;
+        const currency = (session.currency || "USD").toUpperCase();
         const targetUserId = session.metadata?.userId || sessionUser?.id;
 
-        if (targetUserId) {
-          await activateUserSubscription(targetUserId, {
+        if (targetUserId && amount !== null) {
+          const actRes = await activateUserSubscription(targetUserId, {
             planId,
             provider: "stripe",
             customerId,
             subscriptionId,
             reference: session.id,
             amount,
-            currency: "USD",
+            currency,
           });
+
+          if (!actRes.ok) {
+            logger.warn("billing.stripe_callback_activation_failed", { userId: targetUserId, error: actRes.error });
+            redirect(sessionUser ? "/subscription?canceled=true&reason=invalid_amount" : "/login");
+          }
+        } else {
+          redirect(sessionUser ? "/subscription?canceled=true&reason=missing_payment_details" : "/login");
         }
 
         if (sessionUser) {

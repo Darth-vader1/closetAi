@@ -206,9 +206,8 @@ export async function activateUserSubscription(
     if (data.provider === "paystack") {
       const expectedKobo = expectedPlan.priceNGN * 100;
       const matchesKobo = data.amount === expectedKobo;
-      const matchesNaira = data.amount === expectedPlan.priceNGN;
 
-      if (currencyUpper !== "NGN" || (!matchesKobo && !matchesNaira)) {
+      if (currencyUpper !== "NGN" || !matchesKobo) {
         logger.error("billing.activate.amount_mismatch_rejected", {
           userId,
           provider: data.provider,
@@ -221,9 +220,8 @@ export async function activateUserSubscription(
     } else if (data.provider === "stripe") {
       const expectedCents = Math.round(expectedPlan.priceUSD * 100);
       const matchesCents = data.amount === expectedCents;
-      const matchesUSD = data.amount === expectedPlan.priceUSD;
 
-      if (currencyUpper !== "USD" || (!matchesCents && !matchesUSD)) {
+      if (currencyUpper !== "USD" || !matchesCents) {
         logger.error("billing.activate.amount_mismatch_rejected", {
           userId,
           provider: data.provider,
@@ -390,8 +388,8 @@ export async function activateUserSubscription(
 
       const formattedAmount =
         data.currency.toUpperCase() === "NGN"
-          ? `₦${(data.amount > 10000 ? data.amount / 100 : data.amount).toLocaleString()}`
-          : `$${(data.amount > 100 ? data.amount / 100 : data.amount).toFixed(2)}`;
+          ? `₦${(data.amount / 100).toLocaleString()}`
+          : `$${(data.amount / 100).toFixed(2)}`;
 
       await sendEmail({
         to: userEmail,

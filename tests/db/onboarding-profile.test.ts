@@ -83,4 +83,70 @@ describe("Onboarding profile database operations & RLS", () => {
       ).rejects.toThrow();
     });
   });
+
+  it("neutralizes delete-and-reinsert attack attempting to self-grant superadmin role or active subscription", async () => {
+    const attackerIdRes = await db.query<{ id: string }>(
+      `insert into auth.users (raw_user_meta_data) values ('{"display_name":"Attacker"}'::jsonb) returning id`,
+    );
+    const attackerId = attackerIdRes.rows[0].id;
+
+    await asUser(db, attackerId, async () => {
+      // 1. Attacker deletes their own profile row
+      await db.query(`delete from public.profiles where id = $1`, [attackerId]);
+
+      // 2. Attacker inserts a new profile row specifying privileged columns
+      await db.query(
+        `insert into public.profiles (
+           id,
+           display_name,
+           role,
+           subscription_status,
+           subscription_plan,
+           subscription_provider,
+           customer_id
+         ) values (
+           $1,
+           'Attacker',
+           'superadmin',
+           'active',
+           'annual',
+           'paystack',
+           'cust_hacked_123'
+         )`,
+        [attackerId],
+      );
+
+      // 3. Verify profiles_guard_privileged_insert trigger forced safe defaults
+      const res = await db.query<{
+        role: string;
+        subscription_status: string;
+        subscription_plan: string | null;
+        subscription_provider: string | null;
+        customer_id: string | null;
+      }>(
+        `select role, subscription_status, subscription_plan, subscription_provider, customer_id
+         from public.profiles where id = $1`,
+        [attackerId],
+      );
+
+      expect(res.rows.length).toBe(1);
+      const row = res.rows[0];
+      expect(row.role).toBe("user");
+      expect(row.subscription_status).toBe("incomplete");
+      expect(row.subscription_plan).toBeNull();
+      expect(row.subscription_provider).toBeNull();
+      expect(row.customer_id).toBeNull();
+    });
+  });
+
+  it("enforces non-negative count on usage_records", async () => {
+    // Attempting to set negative count must violate usage_records_count_nonneg constraint
+    await expect(
+      db.query(
+        `insert into public.usage_records (user_id, feature, count, period_start, period_end)
+         values ($1, 'wardrobe_items', -5, now(), now() + interval '30 days')`,
+        [user1],
+      ),
+    ).rejects.toThrow(/usage_records_count_nonneg/);
+  });
 });

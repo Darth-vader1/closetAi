@@ -50,17 +50,26 @@ export async function POST(req: Request) {
         const rawPlan = session.metadata?.planId;
         const planId = rawPlan === "annual" ? "annual" : "monthly";
 
-        if (userId) {
-          await activateUserSubscription(userId, {
+        const amount = session.amount_total ?? null;
+        const currency = (session.currency || "USD").toUpperCase();
+
+        if (userId && amount !== null) {
+          const actResult = await activateUserSubscription(userId, {
             planId,
             provider: "stripe",
             customerId: typeof session.customer === "string" ? session.customer : undefined,
             subscriptionId: typeof session.subscription === "string" ? session.subscription : undefined,
             reference: session.id,
-            amount: session.amount_total || (planId === "annual" ? 4999 : 499),
-            currency: "USD",
+            amount,
+            currency,
           });
-          logger.info("webhook.stripe.session_completed_activated", { userId, planId, ref: session.id });
+          if (actResult.ok) {
+            logger.info("webhook.stripe.session_completed_activated", { userId, planId, ref: session.id });
+          } else {
+            logger.error("webhook.stripe.activation_rejected", { userId, planId, error: actResult.error });
+          }
+        } else {
+          logger.warn("webhook.stripe.session_completed_missing_data", { userId, amount });
         }
         break;
       }

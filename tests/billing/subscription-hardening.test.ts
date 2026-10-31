@@ -120,6 +120,28 @@ describe("Billing & Webhook Hardening", () => {
       expect(resWrongAmount.ok).toBe(false);
       expect(resWrongAmount.error).toMatch(/does not match pricing plan/i);
 
+      // Flaw fix test: ₦9.99 (999 kobo) must NEVER match the ₦999 plan
+      const resNineNairaBypass = await activateUserSubscription("user_1", {
+        planId: "monthly",
+        provider: "paystack",
+        reference: "ref_nine_naira_bypass",
+        amount: 999,
+        currency: "NGN",
+      });
+      expect(resNineNairaBypass.ok).toBe(false);
+      expect(resNineNairaBypass.error).toMatch(/does not match pricing plan/i);
+
+      // Flaw fix test: $0 (100% coupon) must NEVER match USD price
+      const resZeroDollarBypass = await activateUserSubscription("user_1", {
+        planId: "monthly",
+        provider: "stripe",
+        reference: "ref_zero_dollar_bypass",
+        amount: 0,
+        currency: "USD",
+      });
+      expect(resZeroDollarBypass.ok).toBe(false);
+      expect(resZeroDollarBypass.error).toMatch(/does not match pricing plan/i);
+
       // Wrong currency for USD plan
       const resWrongCurrency = await activateUserSubscription("user_1", {
         planId: "monthly",
