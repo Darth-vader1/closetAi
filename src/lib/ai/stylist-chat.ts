@@ -2,6 +2,11 @@ import { z } from "zod";
 import { AiProviderError, type AiProvider } from "@/lib/ai/types";
 import { getAiProvider } from "@/lib/ai/service";
 import { logger } from "@/lib/logger";
+import { profileGarment, isReliable } from "@/lib/styling/taxonomy";
+import { buildFactExplanation } from "@/lib/styling/explainer";
+import { inferArchetype } from "@/lib/styling/validator";
+import { emptyConstraints } from "@/lib/styling/constraints";
+import type { WardrobeItem } from "@/lib/wardrobe/queries";
 
 export const chatProposedOutfitSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -71,14 +76,16 @@ export const STYLIST_CHAT_SYSTEM_PROMPT = [
   "You are @ClosetAI Stylist, the user's personal AI fashion stylist and wardrobe confidant inside ClosetAI Connect.",
   "You chat naturally like a stylish, encouraging, and observant friend who knows every piece in the user's closet.",
   "CRITICAL STYLING & OUTFIT RULES:",
-  "1. COMPLETE OUTFITS ONLY: Whenever you suggest an outfit or answer 'what can I wear with X', EVERY outfit MUST include a complete wearable silhouette: Top + Bottom (trousers, jeans, chinos, shorts, skirt) + Footwear (or a full one-piece/traditional set + Footwear). NEVER suggest a top + belt + shoes without bottoms!",
-  "2. FORMALITY & AESTHETIC COHERENCE: Match formality and vibe across pieces. Do not pair streetwear graphic tees with formal leather loafers, and do not layer a short-sleeve polo over a graphic t-shirt. Only suggest a belt if the chosen bottoms have belt loops and suit a belt.",
-  "3. USE 'proposed_outfits' FOR OUTFIT IDEAS: Whenever you suggest 1 to 3 outfit combinations in your reply, you MUST populate 'proposed_outfits' with those complete looks (each containing the exact item_ids for the top, bottom, footwear, and accessories from the inventory) so the user can view and save each look as a card. Only use 'referenced_item_ids' for standalone single items that are NOT already part of 'proposed_outfits'.",
-  "4.SHARED ITEMS & OUTFITS: When the user attaches specific clothing items or saved outfits, inspect them closely (colour, fabric, category, style) and build your advice or outfits around them.",
-  "5. LAUNDRY AWARENESS: Prefer CLEAN items when building outfits to wear right now. If a key item is WORN or DIRTY, you may still mention it with a quick heads-up that it needs a wash.",
-  "6. CULTURAL & TRADITIONAL STYLING: For Nigerian/African celebrations (Owambe, Aso-Ebi, Senator, Ankara, Agbada, Lace, Kaftan, Church Thanksgiving), honor cultural aesthetics and accessories (Gele, Fila, coral beads).",
-  "7. NEVER invent or hallucinate UUIDs in 'referenced_item_ids' or 'proposed_outfits[].item_ids'. Only use exact IDs from the provided inventory.",
-  "8. Always include 2 to 4 helpful 'quick_replies' tailored to the conversation so the user can keep iterating effortlessly.",
+  "1. COMPLETE OUTFITS ONLY: Whenever you suggest an outfit or answer 'what can I wear with X', EVERY outfit MUST include a complete wearable silhouette: Top + Bottom (trousers, jeans, chinos, shorts, skirt) + Footwear (or a full one-piece/traditional set + Footwear). NEVER EVER suggest an outfit without bottoms (e.g. top + shoes without pants)! If there are no bottoms in the outfit, it is fundamentally broken.",
+  "2. EXACTLY ONE PAIR OF SHOES PER OUTFIT: An outfit can ONLY contain ONE pair of footwear/shoes! NEVER include two pairs of shoes (e.g. black loafers AND burgundy loafers) in the same outfit.",
+  "3. WEATHER-SMART REALISTIC LAYERING: In warm/hot weather (e.g. Lagos, warm sunny days), DO NOT layer a polo shirt over a long-sleeve henley or sweater. Keep layers breathable, light, and comfortable for the climate. Outerwear and mid-layers are only for cold, rainy, or formal tailored contexts.",
+  "4. FORMALITY & AESTHETIC COHERENCE: Match formality and vibe across pieces. Do not pair streetwear graphic tees with formal leather loafers, and do not layer a short-sleeve polo over a graphic t-shirt. Only suggest a belt if the chosen bottoms have belt loops and suit a belt.",
+  "5. USE 'proposed_outfits' FOR OUTFIT IDEAS: Whenever you suggest 1 to 3 outfit combinations in your reply, you MUST populate 'proposed_outfits' with those complete looks (each containing the exact item_ids for the top, bottom, footwear, and accessories from the inventory) so the user can view and save each look as a card. Only use 'referenced_item_ids' for standalone single items that are NOT already part of 'proposed_outfits'.",
+  "6. SHARED ITEMS & OUTFITS: When the user attaches specific clothing items or saved outfits, inspect them closely (colour, fabric, category, style) and build your advice or outfits around them.",
+  "7. LAUNDRY AWARENESS: Prefer CLEAN items when building outfits to wear right now. If a key item is WORN or DIRTY, you may still mention it with a quick heads-up that it needs a wash.",
+  "8. CULTURAL & TRADITIONAL STYLING: For Nigerian/African celebrations (Owambe, Aso-Ebi, Senator, Ankara, Agbada, Lace, Kaftan, Church Thanksgiving), honor cultural aesthetics and accessories (Gele, Fila, coral beads).",
+  "9. NEVER invent or hallucinate UUIDs in 'referenced_item_ids' or 'proposed_outfits[].item_ids'. Only use exact IDs from the provided inventory.",
+  "10. Always include 2 to 4 helpful 'quick_replies' tailored to the conversation so the user can keep iterating effortlessly.",
 ].join(" ");
 
 export interface ChatTurnInput {
@@ -137,6 +144,152 @@ export type GenerateStylistChatResult =
     }
   | { status: "unavailable"; reason: string }
   | { status: "failed"; message: string };
+
+function sanitizeProposedOutfits(
+  proposedOutfits: ChatProposedOutfit[],
+  inventory: ChatInventoryItem[],
+  validItemIds: Set<string>,
+): ChatProposedOutfit[] {
+  const inventoryMap = new Map(inventory.map((i) => [i.id, i]));
+  const wardrobeItemsMap = new Map<string, WardrobeItem>(
+    inventory.map((i) => [
+      i.id,
+      {
+        id: i.id,
+        name: i.name,
+        category: i.category,
+        subcategory: i.subcategory ?? null,
+        primaryColour: i.primaryColour ?? null,
+        secondaryColours: i.secondaryColours ?? [],
+        pattern: i.pattern ?? null,
+        material: i.material ?? null,
+        style: i.style ?? null,
+        occasions: i.occasions ?? [],
+        seasons: [],
+        warmthLevel: i.warmthLevel ?? null,
+        imagePath: "",
+        status: (i.status as WardrobeItem["status"]) ?? "CLEAN",
+        careType: "WASHABLE" as const,
+        isFavourite: false,
+        aiAnalysed: true,
+        wearCount: 0,
+        lastWornAt: null,
+        lastWashedAt: null,
+        createdAt: new Date(0).toISOString(),
+      },
+    ]),
+  );
+
+  const cleanOutfits: ChatProposedOutfit[] = [];
+
+  for (const outfit of proposedOutfits) {
+    let itemIds = [...new Set((outfit.item_ids ?? []).filter((id) => validItemIds.has(id)))];
+    if (itemIds.length === 0) continue;
+
+    let items = itemIds.map((id) => wardrobeItemsMap.get(id)!).filter(Boolean);
+    let profiles = items.map((it) => profileGarment(it));
+
+    // 1. Deduplicate footwear: a person only wears ONE pair of shoes at a time!
+    const shoes = profiles.filter((p) => p.role === "shoes");
+    let droppedShoeName: string | null = null;
+    if (shoes.length > 1) {
+      const extraShoeIds = new Set(shoes.slice(1).map((s) => s.id));
+      droppedShoeName = shoes[1].item.name;
+      itemIds = itemIds.filter((id) => !extraShoeIds.has(id));
+      items = itemIds.map((id) => wardrobeItemsMap.get(id)!).filter(Boolean);
+      profiles = items.map((it) => profileGarment(it));
+    }
+
+    // 2. Deduplicate competing base tops (e.g. polo over long-sleeve henley)
+    const tops = profiles.filter((p) => p.role === "top");
+    let droppedTopName: string | null = null;
+    if (tops.length > 1) {
+      const nonLayeringTops = tops.filter((t) => !t.layering);
+      if (nonLayeringTops.length > 1) {
+        const extraTopIds = new Set(nonLayeringTops.slice(1).map((t) => t.id));
+        droppedTopName = nonLayeringTops[1].item.name;
+        itemIds = itemIds.filter((id) => !extraTopIds.has(id));
+        items = itemIds.map((id) => wardrobeItemsMap.get(id)!).filter(Boolean);
+        profiles = items.map((it) => profileGarment(it));
+      }
+    }
+
+    // 3. Deduplicate competing accessories: max 1 bag, max 1 belt
+    const bags = profiles.filter((p) => p.type === "bag");
+    if (bags.length > 1) {
+      const extraBagIds = new Set(bags.slice(1).map((b) => b.id));
+      itemIds = itemIds.filter((id) => !extraBagIds.has(id));
+      items = itemIds.map((id) => wardrobeItemsMap.get(id)!).filter(Boolean);
+      profiles = items.map((it) => profileGarment(it));
+    }
+    const belts = profiles.filter((p) => p.type === "belt");
+    if (belts.length > 1) {
+      const extraBeltIds = new Set(belts.slice(1).map((b) => b.id));
+      itemIds = itemIds.filter((id) => !extraBeltIds.has(id));
+      items = itemIds.map((id) => wardrobeItemsMap.get(id)!).filter(Boolean);
+      profiles = items.map((it) => profileGarment(it));
+    }
+
+    // 4. Check for missing bottoms (Pants Check)
+    const hasBottom = profiles.some((p) => p.role === "bottom");
+    const hasOnePiece = profiles.some((p) => p.role === "onepiece");
+    if (!hasBottom && !hasOnePiece) {
+      // Look for a clean, reliable bottom in the inventory
+      const cleanBottoms = inventory
+        .map((i) => wardrobeItemsMap.get(i.id)!)
+        .filter((i) => Boolean(i) && (i.status === "CLEAN" || !i.status))
+        .map((i) => profileGarment(i))
+        .filter((p) => p.role === "bottom" && isReliable(p));
+
+      if (cleanBottoms.length > 0) {
+        // Automatically attach the first clean bottom
+        itemIds.push(cleanBottoms[0].id);
+        items = itemIds.map((id) => wardrobeItemsMap.get(id)!).filter(Boolean);
+        profiles = items.map((it) => profileGarment(it));
+      } else {
+        // No bottoms available to make a wearable outfit: skip this incomplete proposal
+        continue;
+      }
+    }
+
+    // 5. Check for missing footwear if shoes exist in inventory
+    const hasShoes = profiles.some((p) => p.role === "shoes");
+    if (!hasShoes) {
+      const cleanShoes = inventory
+        .map((i) => wardrobeItemsMap.get(i.id)!)
+        .filter((i) => Boolean(i) && (i.status === "CLEAN" || !i.status))
+        .map((i) => profileGarment(i))
+        .filter((p) => p.role === "shoes" && isReliable(p));
+
+      if (cleanShoes.length > 0) {
+        itemIds.push(cleanShoes[0].id);
+        items = itemIds.map((id) => wardrobeItemsMap.get(id)!).filter(Boolean);
+        profiles = items.map((it) => profileGarment(it));
+      }
+    }
+
+    // Must have at least 2 items (e.g. onepiece + shoes, or top + bottom)
+    if (itemIds.length < 2) continue;
+
+    // Clean explanation if dropped items were hallucinated in the text
+    let explanation = outfit.explanation;
+    if (droppedShoeName && explanation.toLowerCase().includes(droppedShoeName.toLowerCase())) {
+      const archetype = inferArchetype(profiles, false);
+      explanation = buildFactExplanation(profiles, archetype, emptyConstraints());
+    } else if (droppedTopName && explanation.toLowerCase().includes(droppedTopName.toLowerCase())) {
+      const archetype = inferArchetype(profiles, false);
+      explanation = buildFactExplanation(profiles, archetype, emptyConstraints());
+    }
+
+    cleanOutfits.push({
+      ...outfit,
+      item_ids: itemIds,
+      explanation,
+    });
+  }
+
+  return cleanOutfits;
+}
 
 export async function generateStylistChatReply(
   input: GenerateStylistChatInput,
@@ -235,12 +388,11 @@ export async function generateStylistChatReply(
       };
     }
 
-    const sanitizedOutfits = (parsed.data.proposed_outfits ?? [])
-      .map((outfit) => ({
-        ...outfit,
-        item_ids: [...new Set(outfit.item_ids.filter((id) => validItemIds.has(id)))],
-      }))
-      .filter((outfit) => outfit.item_ids.length >= 2);
+    const sanitizedOutfits = sanitizeProposedOutfits(
+      parsed.data.proposed_outfits ?? [],
+      input.inventory,
+      validItemIds,
+    );
 
     const outfitItemIdsSet = new Set(
       sanitizedOutfits.flatMap((outfit) => outfit.item_ids),
