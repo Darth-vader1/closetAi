@@ -69,7 +69,8 @@ export async function POST(req: Request) {
         const invoice = event.data.object as StripeInvoicePayload;
         const customer = invoice.customer;
         const customerId = typeof customer === "string" ? customer : customer?.id;
-        let userId = invoice.subscription_details?.metadata?.userId || invoice.metadata?.userId;
+        let userId: string | null | undefined =
+          invoice.subscription_details?.metadata?.userId || invoice.metadata?.userId;
 
         if (!userId && customerId) {
           userId = await findUserIdByCustomerCode("stripe", customerId);
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
         const sub = event.data.object as StripeSubscriptionPayload;
         const customer = sub.customer;
         const customerId = typeof customer === "string" ? customer : customer?.id;
-        let userId = sub.metadata?.userId;
+        let userId: string | null | undefined = sub.metadata?.userId;
 
         if (!userId && customerId) {
           userId = await findUserIdByCustomerCode("stripe", customerId);
@@ -109,7 +110,8 @@ export async function POST(req: Request) {
         const invoice = event.data.object as StripeInvoicePayload;
         const customer = invoice.customer;
         const customerId = typeof customer === "string" ? customer : customer?.id;
-        let userId = invoice.subscription_details?.metadata?.userId || invoice.metadata?.userId;
+        let userId: string | null | undefined =
+          invoice.subscription_details?.metadata?.userId || invoice.metadata?.userId;
 
         if (!userId && customerId) {
           userId = await findUserIdByCustomerCode("stripe", customerId);

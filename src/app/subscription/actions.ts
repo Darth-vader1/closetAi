@@ -130,8 +130,3 @@ export async function createSubscriptionCheckoutAction(
     return { ok: false, error: err instanceof Error ? err.message : "Stripe checkout failed." };
   }
 }
-
-/**
- * Authoritative activation is in src/lib/billing/activate.ts with server-only guard.
- */
-export { activateUserSubscription } from "@/lib/billing/activate";

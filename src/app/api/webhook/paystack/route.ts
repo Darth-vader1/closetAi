@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     switch (event.event) {
       case "charge.success": {
         const data = event.data;
-        let userId = data.metadata?.userId;
+        let userId: string | null | undefined = data.metadata?.userId;
         const customerCode = data.customer?.customer_code;
 
         // If metadata.userId is missing (e.g. automated renewal charge), look up by customer_code
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
       case "subscription.disable": {
         const data = event.data;
         const customerCode = data.customer?.customer_code;
-        let userId = data.metadata?.userId;
+        let userId: string | null | undefined = data.metadata?.userId;
 
         if (!userId && customerCode) {
           userId = await findUserIdByCustomerCode("paystack", customerCode);
