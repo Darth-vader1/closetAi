@@ -50,6 +50,21 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(expiredFallback);
       }
     }
+    if (type === "signup") {
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        if (userData?.user?.email) {
+          const { sendUserWelcomeEmail } = await import("@/lib/email/welcome");
+          await sendUserWelcomeEmail({
+            userId: userData.user.id,
+            email: userData.user.email,
+            displayName: (userData.user.user_metadata?.display_name as string) || null,
+          });
+        }
+      } catch (welcomeErr) {
+        logger.warn("auth.callback_welcome_email_failed", { error: welcomeErr });
+      }
+    }
   } catch (err) {
     logger.error("auth.callback_error", { err });
     return NextResponse.redirect(isRecovery ? `${origin}/reset-password` : `${origin}/login?error=link_invalid`);

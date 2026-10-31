@@ -112,17 +112,13 @@ export async function completeOnboardingAction(input: unknown): Promise<AuthActi
     // Send Onboarding Welcome Quickstart Email
     if (user.email) {
       try {
-        const { renderOnboardingWelcomeHtml } = await import("@/lib/email/templates");
-        const { sendEmail } = await import("@/lib/email/service");
-        await sendEmail({
-          to: user.email,
-          subject: `Welcome to ClosetAI${d.displayName ? `, ${d.displayName}` : ""} — Your Wardrobe Quickstart`,
-          html: renderOnboardingWelcomeHtml({
-            displayName: d.displayName,
-            preferredStyles: d.preferredStyles,
-          }),
+        const { sendUserWelcomeEmail } = await import("@/lib/email/welcome");
+        await sendUserWelcomeEmail({
+          userId: user.id,
+          email: user.email,
+          displayName: d.displayName,
+          preferredStyles: d.preferredStyles,
         });
-        logger.info("onboarding.welcome_email_sent", { userId: user.id, email: user.email });
       } catch (emailErr) {
         logger.warn("onboarding.welcome_email_failed", { userId: user.id, error: emailErr });
       }
@@ -162,19 +158,15 @@ export async function skipOnboardingAction(): Promise<AuthActionResult> {
   // Send Welcome Quickstart email if skipped
   if (user.email) {
     try {
-      const { renderOnboardingWelcomeHtml } = await import("@/lib/email/templates");
-      const { sendEmail } = await import("@/lib/email/service");
+      const { sendUserWelcomeEmail } = await import("@/lib/email/welcome");
       const { getProfile } = await import("@/lib/auth/session");
       const profile = await getProfile();
       const displayName = profile?.display_name || null;
-      await sendEmail({
-        to: user.email,
-        subject: `Welcome to ClosetAI${displayName ? `, ${displayName}` : ""}! ✨ Your Wardrobe Quickstart`,
-        html: renderOnboardingWelcomeHtml({
-          displayName,
-        }),
+      await sendUserWelcomeEmail({
+        userId: user.id,
+        email: user.email,
+        displayName,
       });
-      logger.info("onboarding.skip_welcome_email_sent", { userId: user.id });
     } catch (emailErr) {
       logger.warn("onboarding.skip_welcome_email_failed", { userId: user.id, error: emailErr });
     }

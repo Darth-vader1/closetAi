@@ -288,14 +288,14 @@ export function renderAuthEmailHtml({
   otpCode,
 }: AuthEmailProps): string {
   const isSignup = type === "signup";
-  const badge = isSignup ? "WELCOME TO CLOSET·AI" : "CLOSET·AI PASSWORD RESET";
+  const badge = isSignup ? "CLOSET·AI ACCOUNT VERIFICATION" : "CLOSET·AI PASSWORD RESET";
   const heading = isSignup
-    ? `Welcome to ClosetAI${displayName ? `, ${escapeHtml(displayName)}` : ""}`
+    ? "Verify your email address"
     : "Reset your ClosetAI password";
   const bodyText = isSignup
-    ? "We're thrilled to have you here! Confirm your email address below to activate your digital wardrobe, 3D AI Stylist, and smart outfit calendar."
+    ? `Hi${displayName ? ` ${escapeHtml(displayName)}` : ""}, thanks for signing up for ClosetAI. Please verify your email address to activate your account and start building your digital wardrobe.`
     : "We received a request to reset the password for your ClosetAI account. Click the button below to choose a new password.";
-  const ctaLabel = isSignup ? "Activate My Account →" : "Reset Password →";
+  const ctaLabel = isSignup ? "Verify Email Address →" : "Reset Password →";
   const footerNote = isSignup
     ? "If you didn't create a ClosetAI account, you can safely ignore this email."
     : "If you didn't request a password reset, you can safely ignore this email — your password will remain unchanged.";
@@ -310,34 +310,6 @@ export function renderAuthEmailHtml({
           ${escapeHtml(otpCode)}
         </div>
       </div>
-    `
-    : "";
-
-  const featuresSection = isSignup
-    ? `
-      <!-- Feature Highlights -->
-      <table style="width: 100%; border-collapse: separate; border-spacing: 0; background-color: #fafaf9; border: 1px solid #e7e5e4; border-radius: 12px; margin-top: 28px; padding: 14px 18px;">
-        <tbody>
-          <tr>
-            <td style="padding: 8px 12px 8px 0; font-size: 20px; vertical-align: top; width: 32px;">📸</td>
-            <td style="padding: 8px 0; font-size: 13px; color: #44403c; line-height: 1.5;">
-              <strong style="color: #1c1917;">Digitize your wardrobe:</strong> Snap quick photos of shirts, pants, and shoes.
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 12px 8px 0; font-size: 20px; vertical-align: top; width: 32px;">✨</td>
-            <td style="padding: 8px 0; font-size: 13px; color: #44403c; line-height: 1.5;">
-              <strong style="color: #1c1917;">Product Studio AI:</strong> Automatic neural background removal and crease smoothing.
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 12px 8px 0; font-size: 20px; vertical-align: top; width: 32px;">👔</td>
-            <td style="padding: 8px 0; font-size: 13px; color: #44403c; line-height: 1.5;">
-              <strong style="color: #1c1917;">Personalized AI Stylist:</strong> Daily weather-smart look recommendations tailored to your style.
-            </td>
-          </tr>
-        </tbody>
-      </table>
     `
     : "";
 
@@ -365,7 +337,6 @@ export function renderAuthEmailHtml({
         </a>
       </div>
       ${otpSection}
-      ${featuresSection}
       <p style="margin: 24px 0 0 0; font-size: 12px; color: #78716c; word-break: break-all;">
         Or copy and paste this link into your browser:<br>
         <a href="${escapeHtml(actionUrl)}" style="color: #57534e;">${escapeHtml(actionUrl)}</a>
@@ -837,7 +808,7 @@ export function renderOnboardingWelcomeHtml({
     <div style="background-color: #1c1917; padding: 36px 36px 32px 36px; text-align: left;">
       <span style="display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #d6d3d1; margin-bottom: 8px;">CLOSET·AI DIGITAL WARDROBE</span>
       <h1 style="margin: 0; font-family: Georgia, serif; font-size: 26px; font-weight: normal; color: #f5f5f4;">Your Closet is Ready${greetingName}</h1>
-      <p style="margin: 8px 0 0 0; font-size: 14px; color: #d6d3d1; line-height: 1.5;">You&apos;ve completed onboarding${stylesText}. Here is your 3-step quickstart to effortless everyday styling.</p>
+      <p style="margin: 8px 0 0 0; font-size: 14px; color: #d6d3d1; line-height: 1.5;">Your account is activated${stylesText}. Here is your 3-step quickstart to effortless everyday styling.</p>
     </div>
 
     <!-- Body -->

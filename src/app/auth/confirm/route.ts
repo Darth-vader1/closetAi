@@ -41,6 +41,23 @@ export async function GET(request: NextRequest) {
         logger.warn("auth.confirm_token_hash_failed", { code: error.code, status: error.status });
         return NextResponse.redirect(`${origin}/login?error=link_expired`);
       }
+
+      if (type === "signup") {
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user?.email) {
+            const { sendUserWelcomeEmail } = await import("@/lib/email/welcome");
+            await sendUserWelcomeEmail({
+              userId: userData.user.id,
+              email: userData.user.email,
+              displayName: (userData.user.user_metadata?.display_name as string) || null,
+            });
+          }
+        } catch (welcomeErr) {
+          logger.warn("auth.confirm_token_hash_welcome_email_failed", { error: welcomeErr });
+        }
+      }
+
       return NextResponse.redirect(`${origin}${next}`);
     }
 
@@ -54,6 +71,23 @@ export async function GET(request: NextRequest) {
         logger.warn("auth.confirm_otp_get_failed", { code: error.code, status: error.status });
         return NextResponse.redirect(`${origin}/login?error=link_expired`);
       }
+
+      if (type === "signup") {
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user?.email) {
+            const { sendUserWelcomeEmail } = await import("@/lib/email/welcome");
+            await sendUserWelcomeEmail({
+              userId: userData.user.id,
+              email: userData.user.email,
+              displayName: (userData.user.user_metadata?.display_name as string) || null,
+            });
+          }
+        } catch (welcomeErr) {
+          logger.warn("auth.confirm_otp_get_welcome_email_failed", { error: welcomeErr });
+        }
+      }
+
       return NextResponse.redirect(`${origin}${next}`);
     }
   } catch (err) {
@@ -106,6 +140,19 @@ export async function POST(request: NextRequest) {
     }
 
     logger.info("auth.confirm_otp_post_success", { type, userId: data.user?.id });
+
+    if (type === "signup" && data.user?.email) {
+      try {
+        const { sendUserWelcomeEmail } = await import("@/lib/email/welcome");
+        await sendUserWelcomeEmail({
+          userId: data.user.id,
+          email: data.user.email,
+          displayName: (data.user.user_metadata?.display_name as string) || null,
+        });
+      } catch (welcomeErr) {
+        logger.warn("auth.confirm_otp_welcome_email_failed", { error: welcomeErr });
+      }
+    }
 
     return NextResponse.json({ ok: true, redirectTo });
   } catch (err) {

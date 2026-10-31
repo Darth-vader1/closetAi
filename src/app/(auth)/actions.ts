@@ -93,7 +93,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
         const { renderAuthEmailHtml } = await import("@/lib/email/templates");
         const sent = await sendEmail({
           to: parsed.data.email,
-          subject: `Welcome to ClosetAI${parsed.data.displayName ? `, ${parsed.data.displayName}` : ""}! ✨ Confirm your email`,
+          subject: "Verify your ClosetAI account",
           html: renderAuthEmailHtml({
             type: "signup",
             displayName: parsed.data.displayName,
@@ -145,20 +145,13 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
 
     // When email confirmation is disabled in Supabase, a session is returned immediately.
     if (data.session) {
-      if (parsed.data.email) {
-        try {
-          const { renderOnboardingWelcomeHtml } = await import("@/lib/email/templates");
-          const { sendEmail } = await import("@/lib/email/service");
-          await sendEmail({
-            to: parsed.data.email,
-            subject: `Welcome to ClosetAI${parsed.data.displayName ? `, ${parsed.data.displayName}` : ""}! ✨ Your Digital Wardrobe is Ready`,
-            html: renderOnboardingWelcomeHtml({
-              displayName: parsed.data.displayName,
-            }),
-          });
-        } catch (welcomeErr) {
-          logger.warn("auth.welcome_email_failed", { error: welcomeErr });
-        }
+      if (parsed.data.email && data.user) {
+        const { sendUserWelcomeEmail } = await import("@/lib/email/welcome");
+        await sendUserWelcomeEmail({
+          userId: data.user.id,
+          email: parsed.data.email,
+          displayName: parsed.data.displayName,
+        });
       }
       redirect("/onboarding");
     }
