@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useRef, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Shield, CheckCircle2, X, ChevronLeft, ChevronRight, Loader2, RotateCcw } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -30,6 +30,14 @@ export function AdminUsersClient({
   const [status, setStatus] = useState(initialStatus);
   const [users, setUsers] = useState(initialUsers);
   const [isPending, startTransition] = useTransition();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up debounce timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   const hasActiveFilters = Boolean(query.trim() || (status && status !== "all"));
 
@@ -45,18 +53,38 @@ export function AdminUsersClient({
     });
   };
 
+  // Instant filter-as-you-type with debounced server push
+  const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setQuery(val);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      navigateWithFilters(val, status, 1);
+    }, 280);
+  };
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     navigateWithFilters(query, status, 1);
   };
 
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const nextStatus = e.target.value;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     setStatus(nextStatus);
     navigateWithFilters(query, nextStatus, 1);
   };
 
+  const handleClearQuery = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setQuery("");
+    navigateWithFilters("", status, 1);
+  };
+
   const handleResetFilters = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     setQuery("");
     setStatus("all");
     navigateWithFilters("", "all", 1);
@@ -102,6 +130,23 @@ export function AdminUsersClient({
     });
   };
 
+  // Instant client-side filtering while typing ahead before server response returns
+  const normalizedQuery = query.trim().toLowerCase();
+  const isTypingAhead = query !== initialQuery && normalizedQuery.length > 0;
+
+  const displayedUsers = isTypingAhead
+    ? users.filter((u) => {
+        return (
+          (u.displayName && u.displayName.toLowerCase().includes(normalizedQuery)) ||
+          (u.email && u.email.toLowerCase().includes(normalizedQuery)) ||
+          (u.location && u.location.toLowerCase().includes(normalizedQuery)) ||
+          (u.role && u.role.toLowerCase().includes(normalizedQuery)) ||
+          (u.subscriptionStatus && u.subscriptionStatus.toLowerCase().includes(normalizedQuery)) ||
+          (u.subscriptionProvider && u.subscriptionProvider.toLowerCase().includes(normalizedQuery))
+        );
+      })
+    : users;
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const hasPrev = currentPage > 1;
   const hasNext = currentPage < totalPages;
@@ -116,17 +161,14 @@ export function AdminUsersClient({
             <input
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search members by name, email, location, or closet item (e.g. top, denim)..."
+              onChange={handleQueryChange}
+              placeholder="Filter as you type by name, email, location, or closet item (e.g. gbem, top)..."
               className="w-full rounded-xl border border-border bg-background pl-9 pr-8 py-2 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-hidden"
             />
             {query.trim().length > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  setQuery("");
-                  navigateWithFilters("", status, 1);
-                }}
+                onClick={handleClearQuery}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground p-0.5"
                 title="Clear query"
               >
@@ -157,7 +199,7 @@ export function AdminUsersClient({
               {isPending ? (
                 <>
                   <Loader2 className="size-3.5 animate-spin" />
-                  <span>Filtering...</span>
+                  <span>Searching...</span>
                 </>
               ) : (
                 <span>Filter</span>
@@ -197,7 +239,7 @@ export function AdminUsersClient({
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {users.map((u) => {
+              {displayedUsers.map((u) => {
                 const isSubscribed = u.subscriptionStatus === "active" || u.subscriptionStatus === "trialing";
 
                 return (
@@ -285,7 +327,7 @@ export function AdminUsersClient({
           </table>
         </div>
 
-        {users.length === 0 && (
+        {displayedUsers.length === 0 && (
           <div className="text-center py-12 px-4 space-y-3">
             <p className="text-muted text-xs">
               {hasActiveFilters
