@@ -135,12 +135,14 @@ const flexibleCategory = z.preprocess((val) => {
     const s = val.toLowerCase().trim().replace(/[\s_]+/g, "-");
     if ((CATEGORY_VALUES as readonly string[]).includes(s)) return s;
     if (s === "tshirt" || s === "t-shirt" || s === "tee") return "t-shirts";
-    if (s === "trouser" || s === "pant" || s === "pants") return "trousers";
+    if (s === "trouser" || s === "pant" || s === "pants" || s === "sweatpants" || s === "sweatpant" || s === "joggers" || s === "jogger") return "trousers";
     if (s === "jean") return "jeans";
     if (s === "short") return "shorts";
     if (s === "dress") return "dresses";
     if (s === "skirt") return "skirts";
-    if (s === "shoe") return "shoes";
+    if (s === "shoe" || s === "clogs" || s === "clog" || s === "crocs" || s === "loafers" || s === "loafer") return "shoes";
+    if (s === "slides" || s === "slide" || s === "flip-flops" || s === "slippers") return "sandals";
+    if (s === "scarf" || s === "shawl") return "scarves";
     if (s === "jacket") return "jackets";
     if (s === "bag") return "bags";
   }
@@ -175,6 +177,7 @@ export const detectedClothingItemSchema = z
   .object({
     box_2d: flexibleBox2d.optional().default([0, 0, 1000, 1000]),
     worn_on_body: z.boolean().optional().default(false),
+    visual_description: z.string().trim().max(360).optional().nullable().transform((v) => v || ""),
     name: z.string().trim().min(1).max(120),
     category: flexibleCategory,
     subcategory: z.string().trim().max(60).optional().nullable().transform((v) => v || ""),
@@ -201,6 +204,7 @@ export const detectedClothingItemSchema = z
   .transform((v) => ({
     box2d: v.box_2d,
     wornOnBody: v.worn_on_body,
+    visualDescription: v.visual_description || null,
     suggestion: {
       name: v.name,
       category: v.category,
@@ -282,9 +286,14 @@ export const multiClothingAnalysisJsonSchema = {
             type: "boolean",
             description: "True if this garment or accessory is currently being worn or held by a person in the photo.",
           },
-          name: { type: "string", description: "Short descriptive name, e.g. 'Floral Puff Sleeve Midi Dress'. No brand names." },
+          visual_description: {
+            type: "string",
+            description:
+              "25-to-55-word standalone product description of THIS single item only (exact color shade, contrast collar/cuff trims, fabric/knit/foam texture, waistband/drawstring, pattern geometry, fringed edges, toe shape), ignoring skin and overlapping garments.",
+          },
+          name: { type: "string", description: "Specific descriptive name, e.g. 'Light Blue Black-Trim Ringer T-Shirt', 'Grey Wide-Leg Sweatpants', 'Blue Camo Foam Clogs'. No guessed brands." },
           category: { type: "string", enum: [...CATEGORY_VALUES] },
-          subcategory: { type: "string", description: "More specific garment type. Empty string if unsure." },
+          subcategory: { type: "string", description: "Specific garment subtype, e.g. 'Ringer T-shirt', 'Wide-leg Sweatpants', 'Clogs', 'Fringed Scarf'. Empty string if unsure." },
           primary_colour: { type: "string", enum: [...WARDROBE_COLOURS, "unknown"] },
           secondary_colours: { type: "array", items: { type: "string", enum: [...WARDROBE_COLOURS, "unknown"] } },
           pattern: { type: "string", enum: [...PATTERNS, "unknown"] },
@@ -300,7 +309,7 @@ export const multiClothingAnalysisJsonSchema = {
           uncertain_fields: { type: "array", items: { type: "string", enum: [...UNCERTAIN_FIELDS] } },
         },
         required: [
-          "box_2d", "worn_on_body", "name", "category", "subcategory", "primary_colour", "secondary_colours",
+          "box_2d", "worn_on_body", "visual_description", "name", "category", "subcategory", "primary_colour", "secondary_colours",
           "pattern", "style", "occasions", "seasons", "care_type", "confidence", "uncertain_fields",
         ],
       },
@@ -312,14 +321,18 @@ export const multiClothingAnalysisJsonSchema = {
 export const MULTI_CLOTHING_SYSTEM_PROMPT = [
   "You extract and catalogue every distinct garment, pair of shoes, or accessory from an image.",
   "The image may be: (1) an OOTD / mirror selfie / full-body photo of a person wearing an outfit ('ootd'), (2) a flatlay of multiple clothes ('flatlay'), or (3) an e-commerce order/cart screenshot ('screenshot').",
-  "RULES FOR OOTD / WORN PHOTOS:",
-  "- Focus ONLY on the primary foreground person. Ignore bystanders or people in the background.",
-  "- Identify every clearly visible piece worn or carried: outerwear/blazer/jacket, inner shirt/top/knitwear, trousers/jeans/skirt/shorts (or full dress/jumpsuit/agbada/kaftan), footwear, bag, belt, headwear, or sunglasses.",
-  "- For footwear worn on both feet, return ONLY ONE item entry (not two separate left/right shoe entries), with box_2d enclosing both shoes together (or the clearest full shoe if feet are far apart).",
-  "- Set worn_on_body: true and photo_type: 'ootd', and suggest a concise outfit_title (e.g. 'Crisp Monochrome Streetwear OOTD').",
+  "RULES FOR OOTD / MIRROR SELFIE / WORN PHOTOS:",
+  "- STRICT SUBJECT ISOLATION: Focus ONLY on the primary foreground wearer (e.g. the person centered or holding the phone in a mirror selfie). Completely ignore bystanders or people reflected to the sides/background — NEVER mix a bystander's slides, shoes, shirt, or pants into the foreground wearer's items.",
+  "- LAYERED & OCCLUDED ITEMS: Identify every distinct piece worn or carried (outerwear, inner top/tee, scarf/neckwear, bottoms or full dress/agbada/kaftan, footwear, bag, belt, headwear, sunglasses). When a scarf, chain, or jacket overlaps a shirt, trace the shirt's collar, sleeve cuffs, and chest carefully: capture contrast ringer trims on sleeves/collars in secondary_colours and name (e.g. 'Light Blue Black-Trim Ringer T-Shirt'), and keep scarf/pendant details out of the shirt description.",
+  "- ACCURATE SILHOUETTES & FOOTWEAR:",
+  "  * Distinguish fleece/jersey sweatpants & joggers (gathered elastic waistband, drawstring cord, soft knit drape -> category 'trousers', subcategory 'Wide-leg Sweatpants' or 'Joggers', name 'Grey Wide-Leg Sweatpants') from tailored trousers or denim jeans.",
+  "  * Inspect the foreground wearer's actual feet closely: distinguish closed-toe perforated molded foam clogs / Crocs (category 'shoes', subcategory 'Clogs', pattern 'camouflage' or 'printed' if camo/marbled) from open-toe slides/sandals (category 'sandals', subcategory 'Slides') or sneakers ('sneakers').",
+  "  * For footwear worn on both feet, return ONLY ONE unified pair entry with box_2d enclosing both shoes on the primary wearer.",
+  "- STANDALONE VISUAL DESCRIPTION: For EVERY item, write visual_description (25-55 words) describing ONLY that single garment laid out unworn — exact color shades, secondary/trim colors, fabric texture (cotton jersey, fleece knit, tartan woven wool, molded EVA foam, leather), waistband/cuff details, pattern geometry (e.g. intersecting beige/brown/white plaid check with fringed ends, NOT plain stripes), and silhouette, with zero mention of skin, body parts, mirrors, or overlapping clothes.",
+  "- Set worn_on_body: true and photo_type: 'ootd', and suggest a concise outfit_title (e.g. 'Relaxed Streetwear Scarf & Sweatpants OOTD').",
   "GENERAL RULES:",
   "- Return tight normalized bounding boxes box_2d as [ymin, xmin, ymax, xmax] (0 to 1000 scale).",
-  "- Describe only what is visible. Never invent brands or materials.",
-  "- For care_type: WASHABLE for regular clothing, WIPE_CLEAN for shoes and leather, NO_WASH for watches, belts, jewelry, bags, hats, and sunglasses.",
+  "- Describe only what is visible. Never invent brands unless a clear brand mark is legible.",
+  "- For care_type: WASHABLE for regular clothing and scarves, WIPE_CLEAN for shoes/clogs/sneakers/sandals and leather, NO_WASH for watches, belts, jewelry, bags, and sunglasses.",
   "- Return up to 12 distinct items. If no clothing is visible, return an empty items list.",
-].join(" ");
+].join("\n");

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { multiClothingAnalysisSchema } from "@/lib/ai/schemas";
 import { analyseMultiClothingImage } from "@/lib/ai/service";
 import {
+  buildGroundedPromptFromHints,
   classifyFlatLayFamily,
   craftCatalogPromptWithVision,
 } from "@/lib/ai/studio-flatlay-generator";
@@ -175,11 +176,12 @@ describe("OOTD & Multi-Item Outfit Extractor Schema", () => {
   it("classifies garment categories into de-bodied studio flat-lay families accurately", async () => {
     expect(classifyFlatLayFamily("shirts")).toBe("tops");
     expect(classifyFlatLayFamily("jackets")).toBe("tops");
-    expect(classifyFlatLayFamily("trousers")).toBe("bottoms");
+    expect(classifyFlatLayFamily("trousers", "Wide-leg Sweatpants")).toBe("bottoms");
     expect(classifyFlatLayFamily("skirts")).toBe("bottoms");
     expect(classifyFlatLayFamily("dresses")).toBe("onepiece");
     expect(classifyFlatLayFamily("agbada")).toBe("onepiece");
-    expect(classifyFlatLayFamily("loafers")).toBe("footwear");
+    expect(classifyFlatLayFamily("shoes", "Clogs")).toBe("footwear");
+    expect(classifyFlatLayFamily("scarves")).toBe("textiles");
     expect(classifyFlatLayFamily("bags")).toBe("accessories");
 
     // Verify fallback flat-lay prompt when AI isn't configured uses category-appropriate de-body framing
@@ -191,18 +193,157 @@ describe("OOTD & Multi-Item Outfit Extractor Schema", () => {
         mimeType: "image/jpeg",
         category: "shirts",
       });
-      expect(topFallback.prompt).toContain("no human neck");
-      expect(topFallback.prompt).toContain("no arms");
+      expect(topFallback.prompt.toLowerCase()).toContain("no human neck");
+      expect(topFallback.prompt.toLowerCase()).toContain("no arms");
 
       const bottomFallback = await craftCatalogPromptWithVision({
         bytes: mockImage.bytes,
         mimeType: "image/jpeg",
         category: "trousers",
       });
-      expect(bottomFallback.prompt).toContain("waistband");
-      expect(bottomFallback.prompt).toContain("no legs");
+      expect(bottomFallback.prompt.toLowerCase()).toContain("waistband");
+      expect(bottomFallback.prompt.toLowerCase()).toContain("no legs");
     } finally {
       process.env.AI_PROVIDER = prevProvider;
     }
+  });
+
+  it("locks garment color, pattern, and silhouette for mirror-selfie streetwear OOTD pieces", async () => {
+    const rawMirrorSelfie = {
+      photo_type: "ootd",
+      outfit_title: "Streetwear Plaid Scarf & Sweatpants OOTD",
+      items: [
+        {
+          box_2d: [440, 400, 650, 690],
+          worn_on_body: true,
+          visual_description:
+            "Sky-blue short-sleeve cotton jersey ringer t-shirt with contrasting black sleeve cuff trim and black crew neckline.",
+          name: "Light Blue Black-Trim Ringer T-Shirt",
+          category: "t-shirts",
+          subcategory: "Ringer T-shirt",
+          primary_colour: "blue",
+          secondary_colours: ["black"],
+          pattern: "solid",
+          style: "streetwear",
+          occasions: ["everyday"],
+          seasons: ["summer"],
+          care_type: "WASHABLE",
+          confidence: 0.94,
+          uncertain_fields: [],
+        },
+        {
+          box_2d: [430, 440, 725, 650],
+          worn_on_body: true,
+          visual_description:
+            "Rectangular woven winter scarf in beige, taupe-brown, and cream-white intersecting tartan plaid check with short fringed ends.",
+          name: "Beige Plaid Fringed Scarf",
+          category: "scarf",
+          subcategory: "Fringed Scarf",
+          primary_colour: "beige",
+          secondary_colours: ["brown", "white"],
+          pattern: "plaid",
+          style: "casual",
+          occasions: ["everyday"],
+          seasons: ["autumn", "winter"],
+          care_type: "WASHABLE",
+          confidence: 0.95,
+          uncertain_fields: [],
+        },
+        {
+          box_2d: [635, 375, 900, 655],
+          worn_on_body: true,
+          visual_description:
+            "Heather-grey baggy wide-leg cotton fleece sweatpants with gathered elastic waistband and off-white drawstring cord.",
+          name: "Grey Wide-Leg Sweatpants",
+          category: "sweatpants",
+          subcategory: "Wide-leg Sweatpants",
+          primary_colour: "grey",
+          secondary_colours: ["white"],
+          pattern: "solid",
+          style: "streetwear",
+          occasions: ["everyday"],
+          seasons: ["all_year"],
+          care_type: "WASHABLE",
+          confidence: 0.95,
+          uncertain_fields: [],
+        },
+        {
+          box_2d: [870, 430, 955, 698],
+          worn_on_body: true,
+          visual_description:
+            "Pair of molded EVA foam clogs with closed perforated rounded toe boxes in royal blue, navy, and white camouflage marbled pattern.",
+          name: "Blue Camo Foam Clogs",
+          category: "crocs",
+          subcategory: "Clogs",
+          primary_colour: "blue",
+          secondary_colours: ["navy", "white"],
+          pattern: "camouflage",
+          style: "casual",
+          occasions: ["everyday"],
+          seasons: ["summer", "all_year"],
+          care_type: "WIPE_CLEAN",
+          confidence: 0.92,
+          uncertain_fields: [],
+        },
+      ],
+    };
+
+    const parsed = multiClothingAnalysisSchema.safeParse(rawMirrorSelfie);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    const [tee, scarf, sweatpants, clogs] = parsed.data.items;
+    expect(tee.suggestion.secondaryColours).toEqual(["black"]);
+    expect(scarf.suggestion.category).toBe("scarves");
+    expect(sweatpants.suggestion.category).toBe("trousers");
+    expect(clogs.suggestion.category).toBe("shoes");
+    expect(clogs.visualDescription).toContain("molded EVA foam clogs");
+
+    // Scarf prompt uses textile unfolded framing + intersecting plaid check (not stripes)
+    const scarfPrompt = buildGroundedPromptFromHints("textiles", "scarves", {
+      name: scarf.suggestion.name,
+      subcategory: scarf.suggestion.subcategory,
+      primaryColour: scarf.suggestion.primaryColour,
+      secondaryColours: scarf.suggestion.secondaryColours,
+      pattern: scarf.suggestion.pattern,
+      visualDescription: scarf.visualDescription,
+    });
+    expect(scarfPrompt).toContain("NOT plain vertical stripes");
+    expect(scarfPrompt).toContain("fringed");
+
+    // Grey sweatpants prompt strictly locks grey + fleece sweatpants even without Vision API
+    const sweatpantsPrompt = await craftCatalogPromptWithVision({
+      bytes: mockImage.bytes,
+      mimeType: "image/jpeg",
+      category: sweatpants.suggestion.category,
+      hints: {
+        name: sweatpants.suggestion.name,
+        subcategory: sweatpants.suggestion.subcategory,
+        primaryColour: sweatpants.suggestion.primaryColour,
+        secondaryColours: sweatpants.suggestion.secondaryColours,
+        pattern: sweatpants.suggestion.pattern,
+        visualDescription: sweatpants.visualDescription,
+      },
+    });
+    expect(sweatpantsPrompt.providerName).toBe("ootd-vision-grounded");
+    expect(sweatpantsPrompt.prompt).toContain("dominant color MUST be grey");
+    expect(sweatpantsPrompt.prompt).toContain("never turn grey sweatpants into blue denim jeans");
+
+    // Blue camo clogs prompt strictly locks blue + camouflage + clogs
+    const clogsPrompt = await craftCatalogPromptWithVision({
+      bytes: mockImage.bytes,
+      mimeType: "image/jpeg",
+      category: clogs.suggestion.category,
+      hints: {
+        name: clogs.suggestion.name,
+        subcategory: clogs.suggestion.subcategory,
+        primaryColour: clogs.suggestion.primaryColour,
+        secondaryColours: clogs.suggestion.secondaryColours,
+        pattern: clogs.suggestion.pattern,
+        visualDescription: clogs.visualDescription,
+      },
+    });
+    expect(clogsPrompt.prompt).toContain("dominant color MUST be blue");
+    expect(clogsPrompt.prompt).toContain("camouflage / marbled pattern");
   });
 });

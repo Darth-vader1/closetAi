@@ -1,7 +1,10 @@
 import "server-only";
 import { z } from "zod";
 import { getAiProvider } from "@/lib/ai/service";
-import { generateStudioCatalogFlatLay } from "@/lib/ai/studio-flatlay-generator";
+import {
+  generateStudioCatalogFlatLay,
+  type StudioGarmentHints,
+} from "@/lib/ai/studio-flatlay-generator";
 import {
   getClearBackdropApiKey,
   getClipDropApiKey,
@@ -35,6 +38,8 @@ export type BeautificationProviderId =
   | "gemini+mistral-flux"
   | "groq+mistral-flux"
   | "mistral+mistral-flux"
+  | "ootd-vision-grounded+mistral-flux"
+  | "default+mistral-flux"
   | "mistral-flux"
   | "gemini"
   | "groq"
@@ -47,6 +52,8 @@ export interface GarmentEnhancementRequest {
   extension: string;
   mode: BeautificationMode;
   category?: string | null;
+  hints?: StudioGarmentHints | null;
+  forceVision?: boolean;
   skipSegmentation?: boolean;
   usePhotoRoomRelighting?: boolean;
   signal?: AbortSignal;
@@ -632,6 +639,8 @@ export async function runGarmentEnhancementService(
         bytes: req.bytes,
         mimeType: req.mimeType,
         category: req.category,
+        hints: req.hints ?? null,
+        forceVision: req.forceVision ?? false,
         signal: req.signal,
       });
 

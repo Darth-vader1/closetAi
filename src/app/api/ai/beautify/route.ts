@@ -14,11 +14,26 @@ import {
 } from "@/lib/wardrobe/enhancement-service";
 import { WARDROBE_BUCKET } from "@/lib/wardrobe/queries";
 
+const itemHintsSchema = z
+  .object({
+    name: z.string().trim().max(140).nullable().optional(),
+    subcategory: z.string().trim().max(80).nullable().optional(),
+    primaryColour: z.string().trim().max(40).nullable().optional(),
+    secondaryColours: z.array(z.string().trim().max(40)).max(6).nullable().optional(),
+    pattern: z.string().trim().max(40).nullable().optional(),
+    material: z.string().trim().max(80).nullable().optional(),
+    visualDescription: z.string().trim().max(420).nullable().optional(),
+  })
+  .optional()
+  .nullable();
+
 const requestSchema = z
   .object({
     path: z.string().min(1).max(300).optional(),
     imageDataUrl: z.string().optional(),
     category: z.string().trim().max(60).nullable().optional(),
+    itemHints: itemHintsSchema,
+    forceVision: z.boolean().optional().default(false),
     mode: z
       .enum(["clean-cutout", "ai-enhance", "catalog-flatlay"])
       .optional()
@@ -71,7 +86,8 @@ export async function POST(request: NextRequest) {
       return json({ error: "Invalid photo reference." }, 400);
     }
 
-    const { path, imageDataUrl, category, mode, skipSegmentation } = parsed.data;
+    const { path, imageDataUrl, category, itemHints, forceVision, mode, skipSegmentation } =
+      parsed.data;
 
     // Check freemium / premium beautify limits
     const usage = await checkUsageLimit(user.id, "beautify_processing");
@@ -167,6 +183,8 @@ export async function POST(request: NextRequest) {
       extension,
       mode,
       category: category ?? null,
+      hints: itemHints ?? null,
+      forceVision,
       skipSegmentation,
       signal: request.signal,
     });

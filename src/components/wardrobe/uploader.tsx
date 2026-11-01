@@ -81,6 +81,7 @@ interface Entry {
   sourceBrand?: string | null;
   sourceImageSha256?: string | null;
   allowDuplicate?: boolean;
+  visualDescription?: string | null;
   multiDetectedItems?: DetectedClothingItem[] | null;
   multiPhotoType?: "ootd" | "screenshot" | "flatlay" | null;
   multiOutfitTitle?: string | null;
@@ -184,6 +185,7 @@ export function WardrobeUploader({
   const multiCameraInput = useRef<HTMLInputElement>(null);
   const storeUrlInputRef = useRef<HTMLInputElement>(null);
   const formSubmittersRef = useRef(new Map<string, () => Promise<boolean>>());
+  const formValuesGettersRef = useRef(new Map<string, () => ItemFieldsInput>());
   const [savingAll, setSavingAll] = useState(false);
   const [outfitBundle, setOutfitBundle] = useState<PendingOutfitBundle | null>(null);
   const outfitBundleRef = useRef<PendingOutfitBundle | null>(null);
@@ -209,6 +211,17 @@ export function WardrobeUploader({
 
   const unregisterSubmitter = useCallback((id: string) => {
     formSubmittersRef.current.delete(id);
+  }, []);
+
+  const registerValuesGetter = useCallback(
+    (id: string, fn: () => ItemFieldsInput) => {
+      formValuesGettersRef.current.set(id, fn);
+    },
+    [],
+  );
+
+  const unregisterValuesGetter = useCallback((id: string) => {
+    formValuesGettersRef.current.delete(id);
   }, []);
 
   const runAnalysis = useCallback(
@@ -556,6 +569,14 @@ export function WardrobeUploader({
                   path: uploadedPath,
                   mode: targetMode,
                   category: item.suggestion.category ?? null,
+                  itemHints: {
+                    name: item.suggestion.name ?? null,
+                    subcategory: item.suggestion.subcategory ?? null,
+                    primaryColour: item.suggestion.primaryColour ?? null,
+                    secondaryColours: item.suggestion.secondaryColours ?? [],
+                    pattern: item.suggestion.pattern ?? null,
+                    visualDescription: item.visualDescription ?? null,
+                  },
                 }),
                 signal: controller.signal,
               }).catch(() => null);
@@ -637,6 +658,7 @@ export function WardrobeUploader({
             sourceBrand: parentEntry.sourceBrand,
             sourceImageSha256: null,
             allowDuplicate: parentEntry.allowDuplicate ?? false,
+            visualDescription: item.visualDescription ?? null,
           });
         }
 
@@ -839,9 +861,19 @@ export function WardrobeUploader({
   );
 
   const runBeautifyOnEntry = useCallback(
-    async (entry: Entry, requestedMode: BeautificationMode) => {
-      // If user clicks the already-active mode, toggle back to Original preview without deleting the beautified version
-      if (entry.isCutout && entry.beautifyMode === requestedMode && entry.originalPreviewUrl && entry.originalPath) {
+    async (
+      entry: Entry,
+      requestedMode: BeautificationMode,
+      forceRegenerate = false,
+    ) => {
+      // If user clicks the already-active mode (and didn't ask to regenerate), toggle back to Original preview
+      if (
+        !forceRegenerate &&
+        entry.isCutout &&
+        entry.beautifyMode === requestedMode &&
+        entry.originalPreviewUrl &&
+        entry.originalPath
+      ) {
         patch(entry.id, {
           previewUrl: entry.originalPreviewUrl,
           path: entry.originalPath,
@@ -855,9 +887,38 @@ export function WardrobeUploader({
         patch(entry.id, { processingCutout: true, beautifyError: null });
         const sourceUrl = entry.originalPreviewUrl ?? entry.previewUrl;
         const origPath = entry.originalPath ?? entry.path;
-        let cachedCutout = entry.photoRoomCutoutDataUrl ?? null;
+        let cachedCutout =
+          requestedMode === "catalog-flatlay"
+            ? null
+            : (entry.photoRoomCutoutDataUrl ?? null);
         let providerUsed = entry.beautifyProvider ?? "local-studio";
         let modelUsed = entry.beautifyModel ?? "closetai-cv-v2";
+
+        const liveValues = formValuesGettersRef.current.get(entry.id)?.();
+        const activeCategory =
+          liveValues?.category || entry.suggestion?.category || null;
+        const activeName =
+          liveValues?.name?.trim() || entry.suggestion?.name || null;
+        const activeSubcategory =
+          liveValues?.subcategory?.trim() ||
+          entry.suggestion?.subcategory ||
+          null;
+        const activePrimaryColour =
+          liveValues?.primaryColour || entry.suggestion?.primaryColour || null;
+        const activeSecondaryColours =
+          liveValues?.secondaryColours?.length
+            ? liveValues.secondaryColours
+            : (entry.suggestion?.secondaryColours ?? []);
+        const activePattern =
+          liveValues?.pattern || entry.suggestion?.pattern || null;
+        const activeMaterial = liveValues?.material?.trim() || null;
+
+        const userEditedCoreIdentity =
+          Boolean(entry.suggestion) &&
+          (activeName !== entry.suggestion?.name ||
+            activeCategory !== entry.suggestion?.category ||
+            activePrimaryColour !== entry.suggestion?.primaryColour ||
+            activePattern !== entry.suggestion?.pattern);
 
         let aiParams: AiEnhancementParams | null = null;
         if (origPath) {
@@ -868,7 +929,19 @@ export function WardrobeUploader({
               body: JSON.stringify({
                 path: origPath,
                 mode: requestedMode,
-                category: entry.suggestion?.category ?? null,
+                category: activeCategory,
+                forceVision: forceRegenerate || userEditedCoreIdentity,
+                itemHints: {
+                  name: activeName,
+                  subcategory: activeSubcategory,
+                  primaryColour: activePrimaryColour,
+                  secondaryColours: activeSecondaryColours,
+                  pattern: activePattern,
+                  material: activeMaterial,
+                  visualDescription: userEditedCoreIdentity
+                    ? null
+                    : (entry.visualDescription ?? null),
+                },
                 skipSegmentation:
                   Boolean(cachedCutout) && requestedMode !== "catalog-flatlay",
               }),
@@ -908,7 +981,7 @@ export function WardrobeUploader({
           cachedCutout ?? sourceUrl,
           {
             mode: requestedMode,
-            category: entry.suggestion?.category ?? null,
+            category: activeCategory,
             tolerance: 36,
             background: "clean-white",
             addShadow: true,
@@ -1437,6 +1510,8 @@ export function WardrobeUploader({
               onDismissMulti={handleDismissMulti}
               registerSubmitter={registerSubmitter}
               unregisterSubmitter={unregisterSubmitter}
+              registerValuesGetter={registerValuesGetter}
+              unregisterValuesGetter={unregisterValuesGetter}
             />
           </li>
         ))}
@@ -1473,6 +1548,8 @@ function EntryCard({
   onOpenCropper,
   registerSubmitter,
   unregisterSubmitter,
+  registerValuesGetter,
+  unregisterValuesGetter,
 }: {
   entry: Entry;
   aiAvailable: boolean;
@@ -1487,11 +1564,13 @@ function EntryCard({
     options: MultiItemExtractOptions,
   ) => void;
   onDismissMulti: (id: string) => void;
-  onBeautify: (entry: Entry, mode: BeautificationMode) => void;
+  onBeautify: (entry: Entry, mode: BeautificationMode, forceRegenerate?: boolean) => void;
   onRotate: (entry: Entry, degrees: 90 | -90) => void;
   onOpenCropper: (entry: Entry) => void;
   registerSubmitter: (id: string, fn: () => Promise<boolean>) => void;
   unregisterSubmitter: (id: string) => void;
+  registerValuesGetter: (id: string, fn: () => ItemFieldsInput) => void;
+  unregisterValuesGetter: (id: string) => void;
 }) {
   if (entry.multiDetectedItems && entry.multiDetectedItems.length > 1) {
     return (
@@ -1615,24 +1694,48 @@ function EntryCard({
                     : "AI Enhance"}
                 </Button>
               </div>
-              <Button
-                type="button"
-                variant={
-                  entry.isCutout && entry.beautifyMode === "catalog-flatlay"
-                    ? "primary"
-                    : "outline"
-                }
-                size="sm"
-                className="w-full px-2 text-[11px]"
-                disabled={entry.processingCutout}
-                onClick={() => onBeautify(entry, "catalog-flatlay")}
-                title="Remove body/skin and render a standalone unworn studio flat-lay"
-              >
-                <Layers className="size-3" aria-hidden />
-                {entry.isCutout && entry.beautifyMode === "catalog-flatlay"
-                  ? "Restore Original"
-                  : "De-Body Studio Flat-Lay"}
-              </Button>
+              {entry.isCutout && entry.beautifyMode === "catalog-flatlay" ? (
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    className="w-full px-2 text-[11px]"
+                    disabled={entry.processingCutout}
+                    onClick={() => onBeautify(entry, "catalog-flatlay")}
+                    title="Switch back to original cropped photo"
+                  >
+                    <Layers className="size-3" aria-hidden />
+                    Original
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full px-2 text-[11px]"
+                    disabled={entry.processingCutout}
+                    loading={entry.processingCutout}
+                    onClick={() => onBeautify(entry, "catalog-flatlay", true)}
+                    title="Re-render flat-lay using your edited item details"
+                  >
+                    <RefreshCw className="size-3" aria-hidden />
+                    Regenerate
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full px-2 text-[11px]"
+                  disabled={entry.processingCutout}
+                  onClick={() => onBeautify(entry, "catalog-flatlay")}
+                  title="Remove body/skin and render a standalone unworn studio flat-lay"
+                >
+                  <Layers className="size-3" aria-hidden />
+                  De-Body Studio Flat-Lay
+                </Button>
+              )}
               {entry.beautifyError ? (
                 <p className="text-[11px] text-danger">{entry.beautifyError}</p>
               ) : null}
@@ -1684,6 +1787,8 @@ function EntryCard({
               onScanMulti={onScanMulti}
               registerSubmitter={registerSubmitter}
               unregisterSubmitter={unregisterSubmitter}
+              registerValuesGetter={registerValuesGetter}
+              unregisterValuesGetter={unregisterValuesGetter}
             />
           ) : null}
         </div>
@@ -1701,6 +1806,8 @@ function ReviewForm({
   onScanMulti,
   registerSubmitter,
   unregisterSubmitter,
+  registerValuesGetter,
+  unregisterValuesGetter,
 }: {
   entry: Entry;
   aiAvailable: boolean;
@@ -1710,6 +1817,8 @@ function ReviewForm({
   onScanMulti: (entry: Entry) => void;
   registerSubmitter: (id: string, fn: () => Promise<boolean>) => void;
   unregisterSubmitter: (id: string) => void;
+  registerValuesGetter: (id: string, fn: () => ItemFieldsInput) => void;
+  unregisterValuesGetter: (id: string) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const form = useForm<ItemFieldsInput, unknown, ItemFields>({
@@ -1718,6 +1827,13 @@ function ReviewForm({
       ? suggestionToValues(entry.suggestion, entry.initialValues)
       : (entry.initialValues ?? emptyItemValues()),
   });
+
+  useEffect(() => {
+    registerValuesGetter(entry.id, () => form.getValues());
+    return () => {
+      unregisterValuesGetter(entry.id);
+    };
+  }, [entry.id, form, registerValuesGetter, unregisterValuesGetter]);
 
   // Refill the form when the user asks for a fresh AI suggestion.
   const lastKey = useRef(entry.suggestionKey);

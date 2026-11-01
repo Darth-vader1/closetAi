@@ -238,7 +238,7 @@ export async function analyseMultiClothingImage(
         kind: "vision",
         system: MULTI_CLOTHING_SYSTEM_PROMPT,
         prompt:
-          "Detect whether this is a worn OOTD photo ('ootd'), flatlay ('flatlay'), or order screenshot ('screenshot'). Identify each distinct garment, footwear pair, or accessory on the primary wearer or layout, returning tight [ymin, xmin, ymax, xmax] (0-1000) bounds, worn_on_body, and cataloguing attributes.",
+          "Detect whether this is a worn OOTD/mirror selfie ('ootd'), flatlay ('flatlay'), or order screenshot ('screenshot'). Focus strictly on the primary foreground person (ignore background bystanders). Identify each distinct garment, neckwear/scarf, footwear pair (clogs vs slides vs sneakers), or accessory, returning tight [ymin, xmin, ymax, xmax] (0-1000) bounds, worn_on_body, a rich standalone visual_description of each garment's exact colors/trims/fabric/pattern/silhouette, and cataloguing attributes.",
         image,
         jsonSchema: multiClothingAnalysisJsonSchema,
         signal: options.signal,
