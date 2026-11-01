@@ -244,7 +244,7 @@ function getFamilyFramingRules(family: GarmentFamily): {
       return {
         defaultSubject: "pair of trousers or skirt",
         framingRule:
-          "crisp top-down 90-degree full-length studio flat-lay laid completely flat from waistband to hem on a seamless pure white background (#FFFFFF), clean empty inner waistband visible, natural fabric/pleat drape smoothed neatly, soft contact shadow, absolutely NO human waist, NO hips, NO legs, NO skin, NO belt, NO shoes, NO tucked-in top.",
+          "crisp top-down 90-degree full-length studio flat-lay laid completely flat from waistband to hem on a seamless pure white background (#FFFFFF), clean empty inner waistband visible, natural fabric/pleat drape smoothed neatly, pristine uniform fabric texture with NO distressing, NO bleach stains, and NO graphic prints unless specified, soft contact shadow, absolutely NO human waist, NO hips, NO legs, NO skin, NO belt, NO shoes, NO tucked-in top.",
       };
     case "belts":
       return {
@@ -307,8 +307,8 @@ function formatPatternRequirement(pattern?: string | null): string | null {
   if (p === "camouflage") {
     return "organic multi-tone camouflage / marbled pattern";
   }
-  if (p === "solid") {
-    return "solid unpatterned body (preserving any contrast collar, cuff, or drawstring trim)";
+  if (p === "solid" || p === "plain") {
+    return "completely solid, pristine unpatterned fabric throughout, strictly uniform monochrome body with ZERO graphic prints, ZERO distressing, ZERO bleach splatters, ZERO claw or scratch marks, and ZERO extraneous patterns (preserving only authentic contrast collar, cuff, or drawstring trim if present)";
   }
   return `${p.replace(/_/g, " ")} pattern`;
 }
@@ -544,7 +544,7 @@ async function renderWithMistralFlux(
             description:
               "Generates faithful standalone unworn e-commerce studio flat-lay photographs of clothing, scarves, footwear, and accessories.",
             instructions:
-              "Always invoke the image_generation tool immediately to generate a photorealistic standalone unworn e-commerce studio catalog flat-lay photograph on a pure white (#FFFFFF) background. STRICTLY obey every color, contrast trim, fabric texture (e.g. grey cotton fleece sweatpants vs denim; perforated foam clogs vs leather slides; plaid check scarf with fringe vs stripes), and silhouette in the user prompt. Never invent human body parts, skin, neck, arms, legs, feet, hands, phones, or mannequins.",
+              "Always invoke the image_generation tool immediately to generate a photorealistic standalone unworn e-commerce studio catalog flat-lay photograph on a pure white (#FFFFFF) background. STRICTLY obey every color, contrast trim, fabric texture (e.g. grey cotton fleece sweatpants vs denim; perforated foam clogs vs leather slides; plaid check scarf with fringe vs stripes), and silhouette in the user prompt. Never invent human body parts, skin, neck, arms, legs, feet, hands, phones, or mannequins. For solid or unpatterned garments, keep the fabric completely clean, uniform, and pristine with ZERO artificial graphics, scratch/claw marks, bleach stains, or distressing.",
             tools: [{ type: "image_generation" }],
           }),
           signal: combined,
