@@ -16,6 +16,8 @@ export interface AdminMetrics {
   subscribersStripe: number;
   newUsersThisWeek: number;
   totalRevenueNGN: number;
+  aiCalls24h: number;
+  aiCalls7d: number;
 }
 
 export interface AdminUserRow {
@@ -32,6 +34,8 @@ export interface AdminUserRow {
   createdAt: string;
   garmentCount: number;
   outfitCount: number;
+  aiCalls7d: number;
+  aiCalls30d: number;
 }
 
 export interface AdminSubscriptionRow {
@@ -94,6 +98,7 @@ async function getUserEmailMap(): Promise<Map<string, string>> {
 
 export async function getAdminMetrics(): Promise<AdminMetrics> {
   const adminClient = createAdminClient();
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   // Run counting queries concurrently across tables
@@ -105,6 +110,8 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     flatlaysRes,
     subsRes,
     txsRes,
+    ai24hRes,
+    ai7dRes,
   ] = await Promise.all([
     adminClient.from("profiles").select("id", { count: "exact", head: true }),
     adminClient.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", oneWeekAgo),
@@ -116,6 +123,8 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
       .in("status", ["active", "trialing"])
       .neq("plan_id", "free"),
     adminClient.from("payment_transactions").select("amount, currency, status").eq("status", "success"),
+    adminClient.from("ai_usage_events").select("id", { count: "exact", head: true }).gte("created_at", oneDayAgo),
+    adminClient.from("ai_usage_events").select("id", { count: "exact", head: true }).gte("created_at", oneWeekAgo),
   ]);
 
   const totalUsers = usersRes.count ?? 0;
@@ -123,6 +132,8 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
   const totalGarments = garmentsRes.count ?? 0;
   const totalOutfits = outfitsRes.count ?? 0;
   const totalFlatlays = (flatlaysRes as { count?: number }).count ?? 0;
+  const aiCalls24h = ai24hRes.count ?? 0;
+  const aiCalls7d = ai7dRes.count ?? 0;
 
   // Calculate subscriptions and MRR from live user_subscriptions table (paid plans only)
   let activeSubscribers = 0;
@@ -214,6 +225,8 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     subscribersStripe,
     newUsersThisWeek,
     totalRevenueNGN,
+    aiCalls24h,
+    aiCalls7d,
   };
 }
 
@@ -260,6 +273,15 @@ export async function listAdminUsers(options: {
         .filter(([, info]) => !info.emailConfirmedAt)
         .map(([id]) => id);
       q = q.in("id", unverifiedIds.length > 0 ? unverifiedIds : ["00000000-0000-0000-0000-000000000000"]);
+    } else if (options.status === "ai_active") {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: activeAiRows } = await adminClient
+        .from("ai_usage_events")
+        .select("user_id")
+        .gte("created_at", thirtyDaysAgo)
+        .limit(2000);
+      const activeIds = Array.from(new Set((activeAiRows ?? []).map((r) => r.user_id).filter(Boolean)));
+      q = q.in("id", activeIds.length > 0 ? activeIds : ["00000000-0000-0000-0000-000000000000"]);
     }
   }
 
@@ -329,11 +351,21 @@ export async function listAdminUsers(options: {
   }
 
   const userIds = profiles.map((p) => p.id);
+  const sevenDaysMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const thirtyDaysAgoIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Fetch garment & outfit counts for these users in batch
-  const [garmentsRes, outfitsRes] = await Promise.all([
+  // Fetch garment, outfit & 30d AI call counts for these users in batch
+  const [garmentsRes, outfitsRes, aiUsageRes] = await Promise.all([
     adminClient.from("wardrobe_items").select("user_id").in("user_id", userIds),
     adminClient.from("outfits").select("user_id").in("user_id", userIds),
+    userIds.length > 0
+      ? adminClient
+          .from("ai_usage_events")
+          .select("user_id, created_at")
+          .in("user_id", userIds)
+          .gte("created_at", thirtyDaysAgoIso)
+          .limit(5000)
+      : Promise.resolve({ data: [] as Array<{ user_id: string; created_at: string }> }),
   ]);
 
   const garmentCounts = new Map<string, number>();
@@ -344,6 +376,15 @@ export async function listAdminUsers(options: {
   const outfitCounts = new Map<string, number>();
   for (const row of outfitsRes.data ?? []) {
     outfitCounts.set(row.user_id, (outfitCounts.get(row.user_id) || 0) + 1);
+  }
+
+  const ai30dCounts = new Map<string, number>();
+  const ai7dCounts = new Map<string, number>();
+  for (const row of aiUsageRes.data ?? []) {
+    ai30dCounts.set(row.user_id, (ai30dCounts.get(row.user_id) || 0) + 1);
+    if (Date.parse(row.created_at) >= sevenDaysMs) {
+      ai7dCounts.set(row.user_id, (ai7dCounts.get(row.user_id) || 0) + 1);
+    }
   }
 
   const users: AdminUserRow[] = profiles.map((p) => {
@@ -362,6 +403,8 @@ export async function listAdminUsers(options: {
       createdAt: p.created_at,
       garmentCount: garmentCounts.get(p.id) || 0,
       outfitCount: outfitCounts.get(p.id) || 0,
+      aiCalls7d: ai7dCounts.get(p.id) || 0,
+      aiCalls30d: ai30dCounts.get(p.id) || 0,
     };
   });
 

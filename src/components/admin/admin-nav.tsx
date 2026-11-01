@@ -8,6 +8,7 @@ import {
   CreditCard,
   Send,
   Activity,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -15,6 +16,7 @@ const ADMIN_LINKS = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/users", label: "Users & Closets", icon: Users },
   { href: "/admin/subscriptions", label: "Subscriptions & MRR", icon: CreditCard },
+  { href: "/admin/ai-usage", label: "AI Usage", icon: Sparkles },
   { href: "/admin/broadcasts", label: "Announcements", icon: Send },
   { href: "/admin/system", label: "System Health", icon: Activity },
 ];

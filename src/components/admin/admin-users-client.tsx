@@ -184,6 +184,7 @@ export function AdminUsersClient({
           >
             <option value="all">All Members</option>
             <option value="active">Active Subscribers</option>
+            <option value="ai_active">Active AI Users (30d)</option>
             <option value="free">Free / Incomplete</option>
             <option value="verified">Verified Accounts</option>
             <option value="unverified">Unverified / Abandoned</option>
@@ -235,6 +236,7 @@ export function AdminUsersClient({
                 <th className="py-3 px-4">User</th>
                 <th className="py-3 px-4">Location</th>
                 <th className="py-3 px-4">Wardrobe</th>
+                <th className="py-3 px-4">AI Usage</th>
                 <th className="py-3 px-4">Membership</th>
                 <th className="py-3 px-4">Role</th>
                 <th className="py-3 px-4 text-right">Actions</th>
@@ -284,6 +286,21 @@ export function AdminUsersClient({
                     {/* Wardrobe Items */}
                     <td className="py-3.5 px-4">
                       <span className="font-medium text-foreground">{u.garmentCount}</span> clothes · {u.outfitCount} outfits
+                    </td>
+
+                    {/* AI Usage */}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      {u.aiCalls30d > 0 ? (
+                        <div>
+                          <span className="font-semibold text-foreground">{u.aiCalls30d}</span>{" "}
+                          <span className="text-muted">in 30d</span>
+                          <p className="text-[10px] text-accent font-medium">
+                            {u.aiCalls7d} this week
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-muted">0 calls</span>
+                      )}
                     </td>
 
                     {/* Subscription Status */}

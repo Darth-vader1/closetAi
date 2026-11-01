@@ -53,7 +53,7 @@ export default async function AdminOverviewPage() {
       </div>
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {/* MRR Card */}
         <Card className="p-5 space-y-3 bg-surface border-border">
           <div className="flex items-center justify-between">
@@ -165,6 +165,33 @@ export default async function AdminOverviewPage() {
           <p className="text-[11px] text-muted border-t border-border/60 pt-2">
             {metrics.totalFlatlays} flatlay boards composed
           </p>
+        </Card>
+
+        {/* AI Requests (7d) */}
+        <Card className="p-5 space-y-3 bg-surface border-border">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">AI Requests (7d)</span>
+            <div className="size-8 rounded-lg bg-accent-soft text-accent grid place-items-center">
+              <Sparkles className="size-4" />
+            </div>
+          </div>
+          <div>
+            <div className="font-serif text-2xl sm:text-3xl font-medium tracking-tight text-foreground">
+              {metrics.aiCalls7d.toLocaleString()}
+            </div>
+            <p className="text-xs text-muted mt-0.5">
+              {metrics.aiCalls24h.toLocaleString()} calls in last 24h
+            </p>
+          </div>
+          <div className="border-t border-border/60 pt-2">
+            <Link
+              href="/admin/ai-usage"
+              className="text-[11px] text-accent font-medium hover:underline inline-flex items-center gap-1"
+            >
+              <span>Inspect per-user usage</span>
+              <ArrowRight className="size-3" />
+            </Link>
+          </div>
         </Card>
       </div>
 
