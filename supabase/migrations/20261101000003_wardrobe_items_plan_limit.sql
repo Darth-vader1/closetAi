@@ -16,7 +16,8 @@ begin
   select coalesce(p.subscription_status in ('active', 'trialing')
                   and (p.subscription_expires_at is null or p.subscription_expires_at > now()), false)
     into v_premium
-    from public.profiles p where p.id = new.user_id;
+    from public.profiles p where p.id = new.user_id
+    for update;
 
   if coalesce(v_premium, false) then
     return new;

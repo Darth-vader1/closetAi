@@ -132,4 +132,70 @@ describe("Wardrobe items database plan limit trigger (20261101000003)", () => {
       expect(Number(countRes.rows[0].count)).toBe(31);
     });
   });
+
+  it("enforces free-plan limit on saved outfits (10 max, 11th blocked with P0001)", async () => {
+    await asUser(db, freeUser, async () => {
+      for (let i = 1; i <= 10; i++) {
+        await db.query(
+          `insert into public.outfits (user_id, name) values ($1, $2)`,
+          [freeUser, `Free Outfit ${i}`],
+        );
+      }
+
+      await expect(
+        db.query(
+          `insert into public.outfits (user_id, name) values ($1, 'Free Outfit 11')`,
+          [freeUser],
+        ),
+      ).rejects.toThrow("Free plan limit reached (10 saved outfits)");
+    });
+
+    // Premium user can insert >10 outfits
+    await asUser(db, premiumUser, async () => {
+      for (let i = 1; i <= 12; i++) {
+        await db.query(
+          `insert into public.outfits (user_id, name) values ($1, $2)`,
+          [premiumUser, `Premium Outfit ${i}`],
+        );
+      }
+      const countRes = await db.query<{ count: string }>(
+        `select count(*) as count from public.outfits where user_id = $1`,
+        [premiumUser],
+      );
+      expect(Number(countRes.rows[0].count)).toBe(12);
+    });
+  });
+
+  it("enforces free-plan limit on flatlay compositions (3 max, 4th blocked with P0001)", async () => {
+    await asUser(db, freeUser, async () => {
+      for (let i = 1; i <= 3; i++) {
+        await db.query(
+          `insert into public.flatlay_compositions (user_id, name) values ($1, $2)`,
+          [freeUser, `Free Flatlay ${i}`],
+        );
+      }
+
+      await expect(
+        db.query(
+          `insert into public.flatlay_compositions (user_id, name) values ($1, 'Free Flatlay 4')`,
+          [freeUser],
+        ),
+      ).rejects.toThrow("Free plan limit reached (3 flatlay designs)");
+    });
+
+    // Premium user can insert >3 flatlays
+    await asUser(db, premiumUser, async () => {
+      for (let i = 1; i <= 5; i++) {
+        await db.query(
+          `insert into public.flatlay_compositions (user_id, name) values ($1, $2)`,
+          [premiumUser, `Premium Flatlay ${i}`],
+        );
+      }
+      const countRes = await db.query<{ count: string }>(
+        `select count(*) as count from public.flatlay_compositions where user_id = $1`,
+        [premiumUser],
+      );
+      expect(Number(countRes.rows[0].count)).toBe(5);
+    });
+  });
 });
