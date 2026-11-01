@@ -9,6 +9,7 @@ import {
   Sparkles,
   UserCheck,
   Wand2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -22,6 +23,14 @@ export interface MultiItemExtractOptions {
   markWornToday: boolean;
 }
 
+export interface MultiExtractProgress {
+  current: number;
+  total: number;
+  stageName: string;
+  itemName: string;
+  percent: number;
+}
+
 export function MultiItemCard({
   sourcePreviewUrl,
   sourceFileName,
@@ -30,8 +39,10 @@ export function MultiItemCard({
   outfitTitle = null,
   loading,
   loadingStep,
+  progress,
   onConfirm,
   onDismiss,
+  onCancel,
 }: {
   sourcePreviewUrl: string;
   sourceFileName: string;
@@ -40,8 +51,10 @@ export function MultiItemCard({
   outfitTitle?: string | null;
   loading: boolean;
   loadingStep?: string | null;
+  progress?: MultiExtractProgress | null;
   onConfirm: (selected: DetectedClothingItem[], options: MultiItemExtractOptions) => void;
   onDismiss: () => void;
+  onCancel?: () => void;
 }) {
   const isOotd = photoType === "ootd" || items.some((it) => it.wornOnBody);
 
@@ -95,7 +108,7 @@ export function MultiItemCard({
   };
 
   return (
-    <Card className="p-5 sm:p-6 border-accent/40 bg-surface">
+    <Card className="p-4 sm:p-6 border-accent/40 bg-surface mb-12 sm:mb-6 shadow-sm">
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* Source Photo Preview with Interactive Garment Bounding Boxes */}
         <div className="w-full shrink-0 lg:w-64 flex flex-col items-center">
@@ -364,40 +377,106 @@ export function MultiItemCard({
             </div>
           )}
 
-          {/* Action buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={loading}
-              onClick={onDismiss}
-            >
-              Keep whole photo as 1 item
-            </Button>
+          {/* Action & Extraction Progress State */}
+          {loading ? (
+            <div className="rounded-2xl border-2 border-accent/40 bg-accent-soft/25 p-4 sm:p-5 shadow-sm space-y-3 animate-in fade-in duration-200">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-contrast shadow-xs">
+                    <Loader2 className="size-4.5 animate-spin" aria-hidden />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-xs font-bold text-foreground">
+                        {progress
+                          ? `Extracting piece ${progress.current} of ${progress.total}`
+                          : loadingStep || "Extracting pieces…"}
+                      </p>
+                      {progress?.percent != null ? (
+                        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-accent-contrast">
+                          {progress.percent}%
+                        </span>
+                      ) : null}
+                    </div>
+                    {progress?.itemName ? (
+                      <p className="text-[11px] text-muted truncate max-w-xs sm:max-w-md">
+                        <span className="font-medium text-foreground">{progress.itemName}</span>
+                        {progress.stageName ? ` · ${progress.stageName}` : ""}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-muted">
+                        Isolating garments &amp; preparing review cards…
+                      </p>
+                    )}
+                  </div>
+                </div>
 
-            <Button
-              type="button"
-              loading={loading}
-              disabled={loading || selectedIndices.size === 0}
-              onClick={handleImport}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                  <span>{loadingStep || "Extracting & preparing garments…"}</span>
-                </>
-              ) : (
-                <>
-                  <CheckSquare className="size-4" aria-hidden />
-                  <span>
-                    Extract {selectedIndices.size} selected{" "}
-                    {selectedIndices.size === 1 ? "piece" : "pieces"}
-                  </span>
-                </>
-              )}
-            </Button>
-          </div>
+                {onCancel && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onCancel}
+                    className="self-start sm:self-auto shrink-0 text-xs min-h-9 px-3.5 border-border-strong hover:bg-surface text-muted hover:text-foreground"
+                  >
+                    <X className="size-3.5 mr-1" aria-hidden />
+                    Cancel
+                  </Button>
+                )}
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full bg-surface-muted rounded-full h-2 overflow-hidden border border-border/60">
+                <div
+                  className="bg-accent h-full rounded-full transition-all duration-300 ease-out"
+                  style={{
+                    width: `${Math.max(
+                      5,
+                      Math.min(
+                        100,
+                        progress?.percent ??
+                          ((progress?.current ?? 1) / (progress?.total ?? (selectedIndices.size || 1))) * 100,
+                      ),
+                    )}%`,
+                  }}
+                />
+              </div>
+
+              <p className="text-[11px] text-muted leading-tight">
+                {studioExtraction === "catalog-flatlay"
+                  ? "AI removes arms, legs & background into clean catalog flat-lays. If external AI takes too long, it falls back cleanly."
+                  : studioExtraction === "clean-cutout"
+                    ? "Isolating garment crop and removing background cleanly."
+                    : "Cropping garments directly."}
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={loading}
+                onClick={onDismiss}
+                className="w-full sm:w-auto text-xs"
+              >
+                Keep whole photo as 1 item
+              </Button>
+
+              <Button
+                type="button"
+                disabled={selectedIndices.size === 0}
+                onClick={handleImport}
+                className="w-full sm:w-auto shadow-xs font-semibold"
+              >
+                <CheckSquare className="size-4 shrink-0" aria-hidden />
+                <span className="truncate">
+                  Extract {selectedIndices.size} selected{" "}
+                  {selectedIndices.size === 1 ? "piece" : "pieces"}
+                </span>
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </Card>

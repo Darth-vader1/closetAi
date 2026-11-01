@@ -15,6 +15,7 @@ import { ImageCropperModal } from "@/components/wardrobe/image-cropper-modal";
 import { emptyItemValues, ItemFieldsForm } from "@/components/wardrobe/item-fields";
 import {
   MultiItemCard,
+  type MultiExtractProgress,
   type MultiItemExtractOptions,
 } from "@/components/wardrobe/multi-item-card";
 import {
@@ -87,6 +88,7 @@ interface Entry {
   multiOutfitTitle?: string | null;
   multiCropping?: boolean;
   multiLoadingStep?: string | null;
+  multiProgress?: MultiExtractProgress | null;
 }
 
 interface PendingOutfitBundle {
@@ -177,6 +179,7 @@ export function WardrobeUploader({
   } | null>(null);
 
   const controllers = useRef(new Map<string, AbortController>());
+  const multiExtractAbortRef = useRef<AbortController | null>(null);
   const entriesRef = useRef<Entry[]>([]);
   const limiter = useRef(createLimiter(1));
   const fileInput = useRef<HTMLInputElement>(null);
@@ -512,41 +515,98 @@ export function WardrobeUploader({
     setEntries((list) => list.filter((e) => e.id !== id));
   }, []);
 
+  const cancelMultiExtraction = useCallback(
+    (id: string) => {
+      if (multiExtractAbortRef.current) {
+        multiExtractAbortRef.current.abort();
+        multiExtractAbortRef.current = null;
+      }
+      patch(id, {
+        multiCropping: false,
+        multiLoadingStep: null,
+        multiProgress: null,
+      });
+    },
+    [patch],
+  );
+
   const importSelectedMultiItems = useCallback(
     async (
       parentEntry: Entry,
       selected: DetectedClothingItem[],
       extractOptions: MultiItemExtractOptions,
     ) => {
+      const abortController = new AbortController();
+      multiExtractAbortRef.current = abortController;
+
       patch(parentEntry.id, {
         multiCropping: true,
-        multiLoadingStep: `Cropping ${selected.length} pieces…`,
+        multiLoadingStep: `Extracting ${selected.length} pieces…`,
+        multiProgress: {
+          current: 1,
+          total: selected.length,
+          stageName: "Preparing extraction…",
+          itemName: selected[0]?.suggestion.name || "First piece",
+          percent: 5,
+        },
       });
+
       try {
         const croppedEntries: Entry[] = [];
 
         for (let idx = 0; idx < selected.length; idx++) {
+          if (abortController.signal.aborted) break;
+
           const item = selected[idx];
+          const itemName = item.suggestion.name || `Garment ${idx + 1}`;
+          const percentBase = Math.round((idx / selected.length) * 100);
+
           patch(parentEntry.id, {
-            multiLoadingStep: `Extracting piece ${idx + 1} of ${selected.length} (${item.suggestion.name})…`,
+            multiCropping: true,
+            multiLoadingStep: `Extracting piece ${idx + 1} of ${selected.length}`,
+            multiProgress: {
+              current: idx + 1,
+              total: selected.length,
+              stageName: "Cropping bounding box…",
+              itemName,
+              percent: Math.max(5, percentBase),
+            },
           });
 
           const { file: croppedFile, previewUrl } = await cropGarmentFromImage(
             parentEntry.file,
             item.box2d,
-            item.suggestion.name,
+            itemName,
             item.wornOnBody ? 0.06 : 0.04,
           );
 
-          const controller = new AbortController();
+          if (abortController.signal.aborted) break;
+
           const croppedId = crypto.randomUUID();
-          controllers.current.set(croppedId, controller);
+          controllers.current.set(croppedId, abortController);
 
           const preparedBlob = await prepareImage(croppedFile);
+          if (abortController.signal.aborted) break;
+
+          patch(parentEntry.id, {
+            multiProgress: {
+              current: idx + 1,
+              total: selected.length,
+              stageName:
+                extractOptions.studioExtraction !== "crop-only"
+                  ? "Studio flat-lay retouching…"
+                  : "Uploading photo…",
+              itemName,
+              percent: Math.round(((idx + 0.35) / selected.length) * 100),
+            },
+          });
+
           const uploadedPath = await uploadPhoto(preparedBlob, {
-            signal: controller.signal,
+            signal: abortController.signal,
             onProgress: () => {},
           });
+
+          if (abortController.signal.aborted) break;
 
           let finalPath = uploadedPath;
           let finalPreviewUrl = previewUrl;
@@ -559,9 +619,14 @@ export function WardrobeUploader({
           let beautifyWarnings: string[] = [];
           let isCutout = false;
 
-          if (extractOptions.studioExtraction !== "crop-only") {
+          if (extractOptions.studioExtraction !== "crop-only" && !abortController.signal.aborted) {
             try {
               const targetMode = extractOptions.studioExtraction;
+              const timeoutSignal = AbortSignal.timeout(15000);
+              const combinedSignal = AbortSignal.any
+                ? AbortSignal.any([abortController.signal, timeoutSignal])
+                : abortController.signal;
+
               const apiRes = await fetch("/api/ai/beautify", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -578,8 +643,13 @@ export function WardrobeUploader({
                     visualDescription: item.visualDescription ?? null,
                   },
                 }),
-                signal: controller.signal,
-              }).catch(() => null);
+                signal: combinedSignal,
+              }).catch((err) => {
+                console.warn("Studio beautify network error or timeout:", err);
+                return null;
+              });
+
+              if (abortController.signal.aborted) break;
 
               if (apiRes?.ok) {
                 const body = (await apiRes.json()) as {
@@ -594,6 +664,16 @@ export function WardrobeUploader({
                 beautifyModel = body.model ?? "closetai-cv-v2";
               }
 
+              patch(parentEntry.id, {
+                multiProgress: {
+                  current: idx + 1,
+                  total: selected.length,
+                  stageName: "Rendering studio canvas…",
+                  itemName,
+                  percent: Math.round(((idx + 0.65) / selected.length) * 100),
+                },
+              });
+
               const beautified = await beautifyGarmentImage(
                 photoRoomCutoutDataUrl ?? preparedBlob,
                 {
@@ -606,8 +686,20 @@ export function WardrobeUploader({
                 },
               );
 
+              if (abortController.signal.aborted) break;
+
+              patch(parentEntry.id, {
+                multiProgress: {
+                  current: idx + 1,
+                  total: selected.length,
+                  stageName: "Saving studio image…",
+                  itemName,
+                  percent: Math.round(((idx + 0.85) / selected.length) * 100),
+                },
+              });
+
               beautifiedPath = await uploadPhoto(beautified.blob, {
-                signal: controller.signal,
+                signal: abortController.signal,
                 onProgress: () => {},
               });
               beautifiedPreviewUrl = URL.createObjectURL(beautified.blob);
@@ -621,8 +713,9 @@ export function WardrobeUploader({
             }
           }
 
-          const suggestion: ClothingSuggestion = item.suggestion;
+          if (abortController.signal.aborted) break;
 
+          const suggestion: ClothingSuggestion = item.suggestion;
           const initialValues = suggestionToValues(
             suggestion,
             parentEntry.initialValues,
@@ -662,6 +755,27 @@ export function WardrobeUploader({
           });
         }
 
+        if (abortController.signal.aborted) {
+          multiExtractAbortRef.current = null;
+          patch(parentEntry.id, {
+            multiCropping: false,
+            multiLoadingStep: null,
+            multiProgress: null,
+          });
+          return;
+        }
+
+        patch(parentEntry.id, {
+          multiLoadingStep: "Preparing review cards…",
+          multiProgress: {
+            current: selected.length,
+            total: selected.length,
+            stageName: "Complete! Preparing review…",
+            itemName: "",
+            percent: 100,
+          },
+        });
+
         const parentStoragePath = parentEntry.originalPath ?? parentEntry.path;
         if (extractOptions.bundleAsOutfit && croppedEntries.length >= 2) {
           setOutfitBundle({
@@ -685,11 +799,14 @@ export function WardrobeUploader({
           return next;
         });
 
+        multiExtractAbortRef.current = null;
         controllers.current.delete(parentEntry.id);
       } catch (err) {
+        multiExtractAbortRef.current = null;
         patch(parentEntry.id, {
           multiCropping: false,
           multiLoadingStep: null,
+          multiProgress: null,
           error:
             err instanceof Error
               ? err.message
@@ -702,7 +819,16 @@ export function WardrobeUploader({
 
   const handleDismissMulti = useCallback(
     (id: string) => {
-      patch(id, { multiDetectedItems: null });
+      if (multiExtractAbortRef.current) {
+        multiExtractAbortRef.current.abort();
+        multiExtractAbortRef.current = null;
+      }
+      patch(id, {
+        multiDetectedItems: null,
+        multiCropping: false,
+        multiLoadingStep: null,
+        multiProgress: null,
+      });
     },
     [patch],
   );
@@ -1487,7 +1613,7 @@ export function WardrobeUploader({
         </Card>
       ) : null}
 
-      <ul className="space-y-4" aria-label="Photos being added">
+      <ul className="space-y-4 pb-20 sm:pb-8" aria-label="Photos being added">
         {entries.map((entry) => (
           <li key={entry.id}>
             <EntryCard
@@ -1508,6 +1634,7 @@ export function WardrobeUploader({
               onScanMulti={handleScanMulti}
               onImportMultiItems={importSelectedMultiItems}
               onDismissMulti={handleDismissMulti}
+              onCancelMultiExtraction={cancelMultiExtraction}
               registerSubmitter={registerSubmitter}
               unregisterSubmitter={unregisterSubmitter}
               registerValuesGetter={registerValuesGetter}
@@ -1543,6 +1670,7 @@ function EntryCard({
   onScanMulti,
   onImportMultiItems,
   onDismissMulti,
+  onCancelMultiExtraction,
   onBeautify,
   onRotate,
   onOpenCropper,
@@ -1564,6 +1692,7 @@ function EntryCard({
     options: MultiItemExtractOptions,
   ) => void;
   onDismissMulti: (id: string) => void;
+  onCancelMultiExtraction: (id: string) => void;
   onBeautify: (entry: Entry, mode: BeautificationMode, forceRegenerate?: boolean) => void;
   onRotate: (entry: Entry, degrees: 90 | -90) => void;
   onOpenCropper: (entry: Entry) => void;
@@ -1582,8 +1711,10 @@ function EntryCard({
         outfitTitle={entry.multiOutfitTitle ?? null}
         loading={Boolean(entry.multiCropping)}
         loadingStep={entry.multiLoadingStep}
+        progress={entry.multiProgress}
         onConfirm={(selected, options) => onImportMultiItems(entry, selected, options)}
         onDismiss={() => onDismissMulti(entry.id)}
+        onCancel={() => onCancelMultiExtraction(entry.id)}
       />
     );
   }
