@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 export type ContextualGuideSection =
   | "wardrobe"
   | "studio"
+  | "flatlay"
+  | "connect"
   | "stylist"
   | "packing"
   | "calendar"
@@ -31,22 +33,22 @@ interface GuideConfig {
   };
 }
 
-const GUIDE_CONFIGS: Record<ContextualGuideSection, GuideConfig> = {
+export const GUIDE_CONFIGS: Record<ContextualGuideSection, GuideConfig> = {
   wardrobe: {
     emoji: "👕",
     headline: "How to build your Digital Wardrobe",
     subtitle:
-      "Start by uploading a few everyday staples — tops, bottoms, and footwear. ClosetAI handles the organization automatically.",
+      "Upload photos, split multi-item outfits, import directly from online stores, and let Product Studio polish your shots.",
     steps: [
       {
-        badge: "1 · Snap or Upload",
-        title: "Add a photo of your garment",
-        body: "Click 'Add clothes' and upload a clear photo of a single piece on a hanger, flat-lay, or product shot.",
+        badge: "1 · Upload, Crop or Import",
+        title: "Add photos or paste a store URL",
+        body: "Snap a single piece, split a full-body outfit photo into separate items, or import straight from an online store link.",
       },
       {
-        badge: "2 · Automatic AI Tagging",
-        title: "Let AI fill in the details",
-        body: "ClosetAI's vision model inspects the image and suggests the garment name, category, colour, season, and style tags.",
+        badge: "2 · AI Tagging & Studio Beautify",
+        title: "Clean cutouts & automatic tags",
+        body: "Vision AI fills in category, colour, season, and style, while Beautify removes cluttered backgrounds with studio lighting.",
       },
       {
         badge: "3 · Live Laundry Status",
@@ -55,7 +57,7 @@ const GUIDE_CONFIGS: Record<ContextualGuideSection, GuideConfig> = {
       },
     ],
     primaryCta: {
-      label: "Upload Your First Garment →",
+      label: "Add or Import Garment →",
       href: "/wardrobe/new",
     },
   },
@@ -63,43 +65,97 @@ const GUIDE_CONFIGS: Record<ContextualGuideSection, GuideConfig> = {
     emoji: "✨",
     headline: "Welcome to Outfit Studio",
     subtitle:
-      "Here is how Outfit Studio turns individual garments in your wardrobe into complete, wearable outfits.",
+      "Turn individual pieces in your wardrobe into complete 3D looks, saved outfits, and magazine-worthy flatlay boards.",
     steps: [
       {
-        badge: "1 · Smart Suggestions",
-        title: "Instant rule-based combinations",
-        body: "Outfit Studio automatically pairs your clean tops, bottoms, and shoes based on colour harmony, season, and formality.",
+        badge: "1 · Smart Combinations",
+        title: "Instant rule-based pairings",
+        body: "Outfit Studio pairs your clean tops, bottoms, and footwear based on colour harmony, season, and formality.",
       },
       {
-        badge: "2 · Custom Mix & Match",
-        title: "Build & save your own looks",
-        body: "Select specific pieces from your closet, name the look, and save it to your personal outfit library.",
+        badge: "2 · Flatlay Collage Studio",
+        title: "Compose editorial boards",
+        body: "Open Flatlay Studio to arrange garments on linen or limewash backdrops and export high-resolution PNG lookbooks.",
       },
       {
-        badge: "3 · Log Wears & Generate Photos",
+        badge: "3 · Log Wears & 3D Previews",
         title: "Wear today or visualize",
-        body: "Tap 'Wear Today' to log the outfit and increment wear counts, or generate a studio lookbook photo of the combination.",
+        body: "Tap 'Wear Today' to log the outfit and increment wear counts, or render a studio lookbook photo of the combination.",
       },
     ],
+    primaryCta: {
+      label: "Open Flatlay Studio →",
+      href: "/studio/flatlay",
+    },
+  },
+  flatlay: {
+    emoji: "🎨",
+    headline: "How Flatlay Studio Works",
+    subtitle:
+      "Compose editorial fashion collages from your actual wardrobe and export crisp lookbook boards.",
+    steps: [
+      {
+        badge: "1 · Pick Pieces or Saved Outfits",
+        title: "Load garments onto the canvas",
+        body: "Import an entire saved outfit with one click or pick individual wardrobe items from the drawer (studio cutouts look sharpest!).",
+      },
+      {
+        badge: "2 · Presets & Studio Backdrops",
+        title: "Arrange layers & aspect ratios",
+        body: "Apply smart collage presets, drag, rotate, resize, and switch between linen, limewash, editorial frame, or dark backdrops.",
+      },
+      {
+        badge: "3 · Save & Export PNGs",
+        title: "Shareable high-res boards",
+        body: "Save editable boards to your library and export crisp PNGs in 1:1, 4:5, 9:16, or 16:9 for social sharing or Connect.",
+      },
+    ],
+  },
+  connect: {
+    emoji: "💬",
+    headline: "Welcome to ClosetAI Connect",
+    subtitle:
+      "Chat live with your personal AI stylist or collaborate on outfits with friends and stylists.",
+    steps: [
+      {
+        badge: "1 · @ClosetAI Stylist Chat",
+        title: "Conversational styling & cards",
+        body: "Open your pinned @ClosetAI Stylist thread to ask what to wear and receive complete, saveable outfit cards from your clean closet.",
+      },
+      {
+        badge: "2 · Share Your Closet ID",
+        title: "Connect with friends & stylists",
+        body: "Copy your unique Closet ID tag so friends can start a conversation, swap outfit ideas, and react in real time.",
+      },
+      {
+        badge: "3 · Privacy-First Wardrobe Access",
+        title: "Granular, revocable sharing",
+        body: "Grant or revoke view access anytime under Wardrobe Access — private categories (intimates, underwear, swimwear) stay strictly hidden.",
+      },
+    ],
+    primaryCta: {
+      label: "Chat with @ClosetAI Stylist →",
+      href: "/connect/stylist",
+    },
   },
   stylist: {
     emoji: "🤖",
     headline: "How Your AI Stylist Works",
     subtitle:
-      "Your AI Stylist combines live weather, occasion, and your clean wardrobe to curate personalized looks.",
+      "Live weather, 9 body builds, modest coverage controls, and your clean wardrobe come together for tailored looks.",
     steps: [
       {
-        badge: "1 · Set Context & Model Fit",
-        title: "Choose occasion, skin tone & build",
-        body: "Pick your occasion (Work, Date Night, Casual), weather, skin tone swatch, and body build at the top.",
+        badge: "1 · Occasion, Build & Coverage",
+        title: "Choose fit, body shape & vibe",
+        body: "Select your occasion, skin tone, body shape (Hourglass, Pear, Apple, Curvy, Athletic, Classic & more), or modest coverage cues.",
       },
       {
-        badge: "2 · AI-Curated Recommendations",
+        badge: "2 · Proportion & Layering Engine",
         title: "Styled strictly from your closet",
-        body: "Ask for a look and the AI Stylist selects matching clean pieces from your wardrobe with a styling rationale and pro tip.",
+        body: "Our engine balances silhouettes, supports smart layering (including slip-dress underlayers), and honours traditional Nigerian wear.",
       },
       {
-        badge: "3 · 3D Mannequin & Studio Lookbook",
+        badge: "3 · 3D Stage & Studio Lookbook",
         title: "Preview in 3D or editorial photo",
         body: "Inspect the outfit on the interactive 3D mannequin or render a high-resolution studio lookbook photo.",
       },

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { FlatlayStudioEditor } from "@/components/studio/flatlay/flatlay-studio-editor";
 import { requireUser } from "@/lib/auth/session";
 import { listFlatlayCompositions } from "@/lib/flatlay/queries";
@@ -58,6 +59,8 @@ export default async function FlatlayStudioPage() {
         title="Flatlay Studio"
         description="Compose magazine-worthy fashion collages from your actual wardrobe. Drag, rotate, resize, adjust layers, and export high-res PNG lookbooks."
       />
+
+      <ContextualGuide section="flatlay" />
 
       <FlatlayStudioEditor
         initialComposition={compositions[0] ?? null}

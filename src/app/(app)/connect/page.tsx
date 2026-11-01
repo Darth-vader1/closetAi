@@ -8,6 +8,7 @@ import { NewConversationButton } from "@/components/connect/new-conversation-but
 import { ClosetIdCard } from "@/components/connect/closet-id-card";
 import { PinnedStylistCard } from "@/components/connect/pinned-stylist-card";
 import { ConnectPushPrompt } from "@/components/connect/connect-notification-provider";
+import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { requireUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -64,6 +65,9 @@ export default async function ConnectPage() {
           </div>
         }
       />
+
+      {/* Contextual guide for ClosetAI Connect */}
+      <ContextualGuide section="connect" />
 
       {/* Push notification opt-in prompt */}
       <div className="mb-4">

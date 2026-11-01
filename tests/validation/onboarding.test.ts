@@ -61,4 +61,11 @@ describe("onboardingSchema", () => {
     expect(parsed.dailyEnabled).toBe(false);
     expect(parsed.weeklyEnabled).toBe(false);
   });
+
+  it("defaults gender to unisex and accepts womenswear/menswear while rejecting invalid values", () => {
+    expect(onboardingSchema.parse(valid).gender).toBe("unisex");
+    expect(onboardingSchema.parse({ ...valid, gender: "womenswear" }).gender).toBe("womenswear");
+    expect(onboardingSchema.parse({ ...valid, gender: "menswear" }).gender).toBe("menswear");
+    expect(onboardingSchema.safeParse({ ...valid, gender: "invalid" }).success).toBe(false);
+  });
 });

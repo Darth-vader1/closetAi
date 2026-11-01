@@ -9,6 +9,7 @@ import { Chip, toggleValue as toggle } from "@/components/ui/chip";
 import { Alert } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
 import { COLOUR_OPTIONS, OCCASION_OPTIONS, STYLE_OPTIONS, WEEKDAYS } from "@/lib/profile/options";
+import { GENDER_OPTIONS } from "@/lib/validation/settings";
 import { listTimeZones } from "@/lib/scheduling/timezone";
 import { onboardingSchema, type OnboardingData, type OnboardingInput } from "@/lib/validation/onboarding";
 
@@ -29,6 +30,7 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
     resolver: zodResolver(onboardingSchema),
     defaultValues: {
       displayName: initialName,
+      gender: "unisex",
       preferredStyles: [],
       favouriteColours: [],
       commonOccasions: [],
@@ -77,6 +79,31 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
         <Field id="displayName" label="Display name" error={errors.displayName?.message}>
           <Input id="displayName" autoComplete="given-name" aria-invalid={!!errors.displayName} {...form.register("displayName")} />
         </Field>
+
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">Styling presentation <span className="font-normal text-muted">(optional)</span></legend>
+          <p className="text-xs text-muted">
+            Tailors silhouette proportions, body-shape options (Hourglass, Pear, Athletic &amp; more), layering, and coverage in AI Stylist.
+          </p>
+          <Controller
+            control={form.control}
+            name="gender"
+            render={({ field }) => (
+              <div className="flex flex-wrap gap-2">
+                {GENDER_OPTIONS.map((g) => (
+                  <Chip
+                    key={g.value}
+                    selected={(field.value ?? "unisex") === g.value}
+                    onToggle={() => field.onChange(g.value)}
+                  >
+                    {g.label}
+                  </Chip>
+                ))}
+              </div>
+            )}
+          />
+          {errors.gender?.message ? <p role="alert" className="text-sm text-danger">{errors.gender.message}</p> : null}
+        </fieldset>
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Preferred styles <span className="font-normal text-muted">(optional)</span></legend>
@@ -151,8 +178,10 @@ export function OnboardingForm({ initialName }: { initialName: string }) {
 
       <section className="space-y-5" aria-labelledby="email-heading">
         <div>
-          <h2 id="email-heading" className="text-2xl">Email</h2>
-          <p className="mt-1 text-muted">Both emails are off unless you turn them on. You can change this any time.</p>
+          <h2 id="email-heading" className="text-2xl">Morning Briefings &amp; Summaries</h2>
+          <p className="mt-1 text-muted">
+            Emails are off unless you turn them on. You can also connect verified WhatsApp daily outfit &amp; laundry briefings anytime in Settings.
+          </p>
         </div>
 
         <Field id="timezone" label="Your timezone" hint="Emails are sent at your local time." error={errors.timezone?.message}>

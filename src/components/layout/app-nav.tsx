@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Compass, Ellipsis, LogOut, X } from "lucide-react";
+import { Compass, Ellipsis, LogOut, Sparkles, X } from "lucide-react";
 import { signOutAction } from "@/app/(auth)/actions";
 import { Logo } from "@/components/layout/logo";
 import { NAV_ITEMS } from "@/components/layout/nav-items";
 import { triggerProductTour } from "@/components/onboarding/product-tour";
+import { triggerWhatsNewModal } from "@/components/onboarding/whats-new-modal";
 import { cn } from "@/lib/utils/cn";
 import { InstallPwaBanner } from "@/components/ui/install-pwa-banner";
 import { isChatRoute } from "@/components/layout/app-main";
@@ -72,6 +73,19 @@ export function Sidebar({ displayName, isAdmin }: { displayName: string; isAdmin
         )}
         <button
           type="button"
+          onClick={triggerWhatsNewModal}
+          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl px-3 text-sm font-medium text-muted hover:bg-surface-muted hover:text-foreground cursor-pointer"
+        >
+          <span className="flex items-center gap-3">
+            <Sparkles className="size-[1.125rem] text-accent" aria-hidden />
+            What&apos;s New
+          </span>
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent">
+            New
+          </span>
+        </button>
+        <button
+          type="button"
           onClick={triggerProductTour}
           className="flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted hover:bg-surface-muted hover:text-foreground cursor-pointer"
         >
@@ -115,20 +129,30 @@ export function MobileNav({ displayName, isAdmin }: { displayName: string; isAdm
     <div className="lg:hidden">
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur-sm">
         <Logo href="/dashboard" />
-        <button
-          type="button"
-          onClick={triggerProductTour}
-          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium text-muted hover:text-foreground"
-        >
-          <Compass className="size-3.5 text-accent" aria-hidden />
-          Tour
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={triggerWhatsNewModal}
+            className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent-soft/60 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent-soft"
+          >
+            <Sparkles className="size-3.5" aria-hidden />
+            New
+          </button>
+          <button
+            type="button"
+            onClick={triggerProductTour}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium text-muted hover:text-foreground"
+          >
+            <Compass className="size-3.5 text-accent" aria-hidden />
+            Tour
+          </button>
+        </div>
       </header>
 
       {moreOpen ? (
         <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label="More navigation">
           <button type="button" className="absolute inset-0 bg-foreground/30" aria-label="Close menu" onClick={() => setMoreOpen(false)} />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-border bg-surface px-4 pb-24 pt-5 space-y-3">
+          <div className="absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-3xl border-t border-border bg-surface px-4 pb-24 pt-5 space-y-3">
             <div className="flex items-center justify-between px-2">
               <p className="truncate text-sm text-muted">{displayName}</p>
               <button type="button" onClick={() => setMoreOpen(false)} className="grid size-11 place-items-center rounded-full hover:bg-surface-muted" aria-label="Close menu">
@@ -161,6 +185,22 @@ export function MobileNav({ displayName, isAdmin }: { displayName: string; isAdm
                   Admin Console
                 </Link>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreOpen(false);
+                  triggerWhatsNewModal();
+                }}
+                className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl px-3 text-base font-medium text-foreground hover:bg-surface-muted"
+              >
+                <span className="flex items-center gap-3">
+                  <Sparkles className="size-5 text-accent" aria-hidden />
+                  What&apos;s New
+                </span>
+                <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent">
+                  New
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => {

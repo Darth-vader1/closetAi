@@ -3,6 +3,7 @@ import { ConfigNotice } from "@/components/layout/config-notice";
 import { MobileNav, Sidebar } from "@/components/layout/app-nav";
 import { AppMain } from "@/components/layout/app-main";
 import { ProductTour } from "@/components/onboarding/product-tour";
+import { WhatsNewModal } from "@/components/onboarding/whats-new-modal";
 import { ConnectNotificationProvider } from "@/components/connect/connect-notification-provider";
 import { getProfile, requireUser } from "@/lib/auth/session";
 import { isAdminUser } from "@/lib/auth/admin";
@@ -25,6 +26,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const isAdmin = await isAdminUser(user);
 
   const displayName = profile?.display_name ?? user.email ?? "You";
+  const completedAtMs = profile.onboarding_completed_at
+    ? new Date(profile.onboarding_completed_at).getTime()
+    : 0;
+  // eslint-disable-next-line react-hooks/purity
+  const isReturningUser = completedAtMs > 0 && Date.now() - completedAtMs > 5 * 60 * 1000;
 
   return (
     <ConnectNotificationProvider currentUserId={user.id}>
@@ -37,6 +43,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </AppMain>
         </div>
         <ProductTour userId={user.id} />
+        <WhatsNewModal userId={user.id} isReturningUser={isReturningUser} />
       </div>
     </ConnectNotificationProvider>
   );

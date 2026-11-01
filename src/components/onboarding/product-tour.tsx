@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getProductTourStorageKey, getWhatsNewStorageKey } from "@/components/onboarding/whats-new-modal";
 
 export const START_PRODUCT_TOUR_EVENT = "closetai:start-product-tour";
 
@@ -15,13 +16,13 @@ interface TourStep {
   description: string;
 }
 
-const TOUR_STEPS: TourStep[] = [
+export const TOUR_STEPS: TourStep[] = [
   {
     id: "welcome",
     emoji: "👋",
     title: "Welcome to ClosetAI!",
     description:
-      "Let's take a quick tour to help you get the most out of your digital wardrobe.",
+      "Let's take a quick tour of everything inside your AI-powered digital wardrobe — from studio flatlays to live stylist chat.",
   },
   {
     id: "dashboard",
@@ -30,34 +31,43 @@ const TOUR_STEPS: TourStep[] = [
     emoji: "📊",
     title: "Your Dashboard",
     description:
-      "Get an overview of your wardrobe, outfit recommendations, and clothing activity.",
+      "See your wardrobe utilization rate, most-worn staples, untouched pieces, and clean-vs-laundry status at a glance.",
   },
   {
     id: "wardrobe",
     targetSelector: '[data-tour="nav-/wardrobe"]',
     mobileSelector: '[data-tour-mobile="nav-/wardrobe"]',
     emoji: "👕",
-    title: "Your Digital Wardrobe",
+    title: "Wardrobe, Beautify & Store Import",
     description:
-      "Upload your clothes, organize them, and keep track of what is clean, worn, or in the laundry.",
+      "Upload photos, split multi-item shots, enhance snaps with Product Studio background removal, or import directly from online store URLs.",
   },
   {
     id: "studio",
     targetSelector: '[data-tour="nav-/studio"]',
     mobileSelector: '[data-tour-mobile="nav-/studio"]',
     emoji: "✨",
-    title: "Create Your Outfits",
+    title: "Outfit & Flatlay Studio",
     description:
-      "Combine clothes you already own and discover new outfit combinations.",
+      "Mix and match clean clothes, preview in 3D, and compose magazine-worthy collage boards in Flatlay Studio to export as high-res PNGs.",
+  },
+  {
+    id: "connect",
+    targetSelector: '[data-tour="nav-/connect"]',
+    mobileSelector: '[data-tour-mobile="nav-/connect"]',
+    emoji: "💬",
+    title: "Connect & Live Stylist Chat",
+    description:
+      "Chat 1-on-1 with @ClosetAI Stylist for instant saveable outfit cards, or share your Closet ID with friends and personal stylists.",
   },
   {
     id: "stylist",
     targetSelector: '[data-tour="nav-/stylist"]',
     mobileSelector: '[data-tour-mobile="nav-/stylist"]',
     emoji: "🤖",
-    title: "Meet Your AI Stylist",
+    title: "AI Stylist & Proportion Engine",
     description:
-      "Get personalized outfit recommendations based on your wardrobe and preferences.",
+      "Weather-smart looks tailored to 9 body shapes (Hourglass, Pear, Athletic & more), slip-dress layering, modest coverage, and traditional wear.",
   },
   {
     id: "packing",
@@ -66,7 +76,7 @@ const TOUR_STEPS: TourStep[] = [
     emoji: "🧳",
     title: "Trip Packing Capsule",
     description:
-      "Enter any destination and trip duration to pack a weather-aware, carry-on friendly mix-and-match capsule.",
+      "Enter any destination and trip length (up to 30 days) to generate a weather-aware carry-on capsule and day-by-day rotation.",
   },
   {
     id: "calendar",
@@ -75,22 +85,23 @@ const TOUR_STEPS: TourStep[] = [
     emoji: "📅",
     title: "Outfit Calendar",
     description:
-      "Schedule your outfits ahead of time and keep a visual history of what you wore each day.",
+      "Schedule outfits ahead of time, log wears with one tap, and avoid repeating the same outfit on consecutive days.",
   },
   {
     id: "laundry",
     targetSelector: '[data-tour="nav-/laundry"]',
     mobileSelector: '[data-tour-mobile="nav-/laundry"]',
     emoji: "🧺",
-    title: "Laundry Tracker",
+    title: "Laundry & Morning Briefs",
     description:
-      "See which garments need a wash and mark loads clean with a single tap so your outfit suggestions stay accurate.",
+      "Track 7 wash stages so dirty items never appear in suggestions, and enable automated Email or WhatsApp morning briefings in Settings.",
   },
   {
     id: "finish",
     emoji: "🎉",
     title: "You're all set!",
-    description: "Your wardrobe journey starts here. Let's get styling!",
+    description:
+      "Your digital closet is ready. Anytime we ship new features, tap 'What's New' in the menu to explore them!",
   },
 ];
 
@@ -109,7 +120,8 @@ export function triggerProductTour() {
 }
 
 export function ProductTour({ userId }: { userId: string }) {
-  const storageKey = `closetai_product_tour_seen_${userId}`;
+  const storageKey = getProductTourStorageKey(userId);
+  const whatsNewKey = getWhatsNewStorageKey(userId);
   const [open, setOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<TargetRect | null>(null);
@@ -164,6 +176,8 @@ export function ProductTour({ userId }: { userId: string }) {
     try {
       const seen = window.localStorage.getItem(storageKey);
       if (!seen) {
+        // Brand-new tour covers the current release features, so prevent double-modal collision
+        window.localStorage.setItem(whatsNewKey, new Date().toISOString());
         const timer = window.setTimeout(() => {
           setStepIndex(0);
           setOpen(true);
@@ -173,7 +187,7 @@ export function ProductTour({ userId }: { userId: string }) {
     } catch {
       // Ignore storage errors
     }
-  }, [storageKey]);
+  }, [storageKey, whatsNewKey]);
 
   useEffect(() => {
     const onStartTour = () => {

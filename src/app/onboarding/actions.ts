@@ -56,6 +56,7 @@ export async function completeOnboardingAction(input: unknown): Promise<AuthActi
 
   const profilePayload = {
     display_name: d.displayName,
+    gender: d.gender,
     favourite_colours: d.favouriteColours,
     common_occasions: d.commonOccasions,
     location: d.location,
