@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   ArrowRight,
   Sparkles,
+  UserCheck,
+  Clock,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -51,7 +53,7 @@ export default async function AdminOverviewPage() {
       </div>
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {/* MRR Card */}
         <Card className="p-5 space-y-3 bg-surface border-border">
           <div className="flex items-center justify-between">
@@ -71,7 +73,7 @@ export default async function AdminOverviewPage() {
             )}
           </div>
           <p className="text-[11px] text-muted border-t border-border/60 pt-2">
-            Active Paystack & Stripe subscribers
+            Active Paystack &amp; Stripe subscribers
           </p>
         </Card>
 
@@ -92,14 +94,14 @@ export default async function AdminOverviewPage() {
             </p>
           </div>
           <p className="text-[11px] text-muted border-t border-border/60 pt-2">
-            ₦999/mo & $4.99/mo Pro members
+            ₦999/mo &amp; $4.99/mo Pro members
           </p>
         </Card>
 
         {/* Total Registered Users */}
         <Card className="p-5 space-y-3 bg-surface border-border">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Total Users</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Total Signups</span>
             <div className="size-8 rounded-lg bg-sky-500/10 text-sky-600 grid place-items-center">
               <Users className="size-4" />
             </div>
@@ -113,8 +115,35 @@ export default async function AdminOverviewPage() {
             </p>
           </div>
           <p className="text-[11px] text-muted border-t border-border/60 pt-2">
-            Registered accounts on platform
+            All registered account records
           </p>
+        </Card>
+
+        {/* Signup Verification & Abandonment KPI */}
+        <Card className="p-5 space-y-3 bg-surface border-border">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Verification Rate</span>
+            <div className="size-8 rounded-lg bg-emerald-500/10 text-emerald-600 grid place-items-center">
+              <UserCheck className="size-4" />
+            </div>
+          </div>
+          <div>
+            <div className="font-serif text-2xl sm:text-3xl font-medium tracking-tight text-foreground">
+              {metrics.verificationRate}%
+            </div>
+            <p className="text-xs text-muted mt-0.5">
+              {metrics.verifiedUsers} verified · {metrics.unverifiedUsers} pending
+            </p>
+          </div>
+          <div className="border-t border-border/60 pt-2">
+            <Link
+              href="/admin/users?status=unverified"
+              className="text-[11px] text-amber-600 font-medium hover:underline inline-flex items-center gap-1"
+            >
+              <span>Inspect {metrics.unverifiedUsers} abandoned</span>
+              <ArrowRight className="size-3" />
+            </Link>
+          </div>
         </Card>
 
         {/* Wardrobe Items Cataloged */}
@@ -148,13 +177,22 @@ export default async function AdminOverviewPage() {
               <Users className="size-4 text-accent" />
               <h2 className="font-serif text-base font-medium text-foreground">Recent Member Signups</h2>
             </div>
-            <Link
-              href="/admin/users"
-              className="inline-flex items-center gap-1 text-xs text-accent hover:underline font-medium"
-            >
-              <span>View all ({metrics.totalUsers})</span>
-              <ArrowRight className="size-3" />
-            </Link>
+            <div className="flex items-center gap-2 text-xs">
+              <Link
+                href="/admin/users?status=unverified"
+                className="text-[11px] font-medium text-amber-600 hover:underline hidden sm:inline"
+              >
+                {metrics.unverifiedUsers} abandoned
+              </Link>
+              <span className="text-border hidden sm:inline">·</span>
+              <Link
+                href="/admin/users"
+                className="inline-flex items-center gap-1 text-xs text-accent hover:underline font-medium"
+              >
+                <span>View all ({metrics.totalUsers})</span>
+                <ArrowRight className="size-3" />
+              </Link>
+            </div>
           </div>
 
           <div className="divide-y divide-border/60">
@@ -178,9 +216,25 @@ export default async function AdminOverviewPage() {
                   <span className="text-[11px] text-muted hidden sm:inline">
                     {user.garmentCount} items
                   </span>
-                  {user.subscriptionStatus === "active" ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-600 px-2 py-0.5 text-[10px] font-semibold">
+                  {user.emailConfirmedAt ? (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-600 px-2 py-0.5 text-[10px] font-semibold"
+                      title="Account verified and confirmed"
+                    >
                       <CheckCircle2 className="size-2.5" />
+                      <span>Verified</span>
+                    </span>
+                  ) : (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-600 px-2 py-0.5 text-[10px] font-semibold"
+                      title="Pending email verification"
+                    >
+                      <Clock className="size-2.5" />
+                      <span>Unverified</span>
+                    </span>
+                  )}
+                  {user.subscriptionStatus === "active" ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft text-accent px-2 py-0.5 text-[10px] font-semibold">
                       <span>Pro</span>
                     </span>
                   ) : (

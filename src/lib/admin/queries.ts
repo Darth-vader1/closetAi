@@ -3,6 +3,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export interface AdminMetrics {
   totalUsers: number;
+  verifiedUsers: number;
+  unverifiedUsers: number;
+  verificationRate: number;
   activeSubscribers: number;
   mrrNGN: number;
   mrrUSD: number;
@@ -180,8 +183,27 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     }
   }
 
+  // Calculate verification counts and conversion rate from Supabase Auth
+  const authMap = await getUserAuthMap();
+  let verifiedUsers = 0;
+  let unverifiedUsers = 0;
+  for (const info of authMap.values()) {
+    if (info.emailConfirmedAt) {
+      verifiedUsers++;
+    } else {
+      unverifiedUsers++;
+    }
+  }
+  const totalTracked = verifiedUsers + unverifiedUsers;
+  const verificationRate = totalTracked > 0
+    ? Math.round((verifiedUsers / totalTracked) * 100)
+    : 0;
+
   return {
     totalUsers,
+    verifiedUsers,
+    unverifiedUsers,
+    verificationRate,
     activeSubscribers,
     mrrNGN,
     mrrUSD,
