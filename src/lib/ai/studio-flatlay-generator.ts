@@ -325,16 +325,40 @@ export function buildGroundedPromptFromHints(
   const { defaultSubject, framingRule } = getFamilyFramingRules(family);
   const name = hints?.name?.trim() || "";
   const subcategory = hints?.subcategory?.trim() || "";
-  const primary =
+  let primary =
     hints?.primaryColour && hints.primaryColour !== "unknown"
       ? hints.primaryColour.trim()
       : "";
+
+  if (!primary && name) {
+    const colorMatch = name.match(
+      /\b(black|white|grey|gray|ash|navy|blue|green|olive|brown|beige|cream|red|burgundy|pink|orange|yellow|purple)\b/i,
+    );
+    if (colorMatch) {
+      primary = colorMatch[1].toLowerCase();
+    }
+  }
+
   const secondaries = (hints?.secondaryColours ?? [])
     .map((c) => c.trim())
     .filter((c) => Boolean(c) && c !== "unknown" && c !== primary);
   const material = hints?.material?.trim() || "";
   const visualDesc = hints?.visualDescription?.trim() || "";
   const patternDesc = formatPatternRequirement(hints?.pattern);
+
+  const lowerName = name.toLowerCase();
+  const lowerSub = subcategory.toLowerCase();
+  const isFullZip =
+    lowerSub.includes("full-zip") ||
+    lowerSub.includes("full zip") ||
+    lowerName.includes("zip-up") ||
+    lowerName.includes("zip up") ||
+    lowerName.includes("full zip") ||
+    (lowerName.includes("zip") && !lowerName.includes("half") && !lowerName.includes("quarter"));
+
+  const closureClause = isFullZip
+    ? "Front closure specification: Continuous full-length front metal zipper running all the way from the bottom ribbed hem up to the hood collar (full-zip jacket/hoodie, NOT a half-zip or quarter-zip pullover)."
+    : "";
 
   const subjectParts = [
     primary && !name.toLowerCase().includes(primary.toLowerCase()) ? primary : "",
@@ -348,7 +372,13 @@ export function buildGroundedPromptFromHints(
 
   const colorLockParts: string[] = [];
   if (primary) {
-    colorLockParts.push(`dominant color MUST be ${primary}`);
+    if (primary.toLowerCase() === "black") {
+      colorLockParts.push("dominant garment color MUST be solid pitch black (RGB ~#111111). Absolutely NEVER substitute white, cream, or light grey fabric");
+    } else if (primary.toLowerCase() === "white") {
+      colorLockParts.push("dominant garment color MUST be crisp clean white");
+    } else {
+      colorLockParts.push(`dominant color MUST be ${primary}`);
+    }
   }
   if (secondaries.length > 0) {
     colorLockParts.push(`secondary/trim colors: ${secondaries.join(", ")}`);
@@ -356,9 +386,10 @@ export function buildGroundedPromptFromHints(
 
   const specClauses = [
     `Commercial luxury e-commerce product photograph of a standalone unworn ${subjectLabel}.`,
+    closureClause,
     visualDesc ? `Exact garment construction: ${visualDesc.replace(/\.$/, "")}.` : "",
     colorLockParts.length > 0
-      ? `STRICT COLOR LOCK: ${colorLockParts.join("; ")}. Never substitute unrelated colors (never turn grey sweatpants into blue denim jeans; never turn colored clogs/shoes into black leather slides).`
+      ? `STRICT COLOR LOCK: ${colorLockParts.join("; ")}. Never substitute unrelated colors (never turn a black hoodie into white or grey; never turn grey sweatpants into blue denim jeans; never turn colored clogs/shoes into black leather slides).`
       : "",
     patternDesc ? `Pattern specification: ${patternDesc}.` : "",
     material ? `Fabric/material texture: ${material}.` : "",
@@ -413,8 +444,15 @@ export async function craftCatalogPromptWithVision(
       `Target category/subtype: ${[options.category, options.hints?.subcategory].filter(Boolean).join(" / ")}`,
     );
   }
-  if (options.hints?.primaryColour) {
-    hintLines.push(`Known primary color: ${options.hints.primaryColour}`);
+  const resolvedPrimary =
+    options.hints?.primaryColour ||
+    (options.hints?.name
+      ? options.hints.name.match(
+          /\b(black|white|grey|gray|ash|navy|blue|green|olive|brown|beige|cream|red|burgundy|pink|orange|yellow|purple)\b/i,
+        )?.[1]
+      : null);
+  if (resolvedPrimary) {
+    hintLines.push(`Known primary color: ${resolvedPrimary}`);
   }
   if (options.hints?.secondaryColours?.length) {
     hintLines.push(

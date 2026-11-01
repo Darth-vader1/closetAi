@@ -190,13 +190,41 @@ export async function POST(request: NextRequest) {
       return json({ error: "No image source provided." }, 400);
     }
 
+    let resolvedCategory = category ?? null;
+    let resolvedHints = itemHints ?? null;
+
+    if (path && (!resolvedCategory || !resolvedHints?.name || !resolvedHints?.primaryColour)) {
+      const { data: dbItem } = await supabase
+        .from("wardrobe_items")
+        .select("name, category, subcategory, primary_colour, secondary_colours, pattern, material, style")
+        .or(`image_path.eq.${path},original_image_path.eq.${path}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (dbItem) {
+        resolvedCategory = resolvedCategory || dbItem.category;
+        resolvedHints = {
+          name: resolvedHints?.name || dbItem.name,
+          subcategory: resolvedHints?.subcategory || dbItem.subcategory,
+          primaryColour: resolvedHints?.primaryColour || dbItem.primary_colour,
+          secondaryColours:
+            resolvedHints?.secondaryColours && resolvedHints.secondaryColours.length > 0
+              ? resolvedHints.secondaryColours
+              : dbItem.secondary_colours,
+          pattern: resolvedHints?.pattern || dbItem.pattern,
+          material: resolvedHints?.material || dbItem.material,
+          visualDescription: resolvedHints?.visualDescription || null,
+        };
+      }
+    }
+
     const serviceResult = await runGarmentEnhancementService({
       bytes,
       mimeType,
       extension,
       mode,
-      category: category ?? null,
-      hints: itemHints ?? null,
+      category: resolvedCategory,
+      hints: resolvedHints,
       forceVision,
       skipSegmentation,
       signal: request.signal,

@@ -69,6 +69,12 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
             id={item.id}
             name={item.name}
             category={item.category}
+            subcategory={item.subcategory}
+            primaryColour={item.primaryColour}
+            secondaryColours={item.secondaryColours}
+            pattern={item.pattern}
+            material={item.material}
+            style={item.style}
             isFavourite={item.isFavourite}
             activeImagePath={item.imagePath}
             originalImagePath={originalImagePath}

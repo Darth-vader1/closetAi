@@ -45,6 +45,12 @@ interface ItemBeautifyCardProps {
   id: string;
   name: string;
   category: string;
+  subcategory?: string | null;
+  primaryColour?: string | null;
+  secondaryColours?: string[] | null;
+  pattern?: string | null;
+  material?: string | null;
+  style?: string | null;
   isFavourite: boolean;
   activeImagePath: string;
   originalImagePath: string;
@@ -59,6 +65,12 @@ export function ItemBeautifyCard({
   id,
   name,
   category,
+  subcategory,
+  primaryColour,
+  secondaryColours,
+  pattern,
+  material,
+  style: _style,
   isFavourite,
   activeImagePath: initialActivePath,
   originalImagePath,
@@ -306,6 +318,11 @@ export function ItemBeautifyCard({
           itemId={id}
           itemName={name}
           category={category}
+          subcategory={subcategory}
+          primaryColour={primaryColour}
+          secondaryColours={secondaryColours}
+          pattern={pattern}
+          material={material}
           originalImagePath={originalImagePath}
           initialOriginalUrl={originalUrl}
           initialBeautifiedUrl={beautifiedUrl}
@@ -348,6 +365,11 @@ interface BeautifyExistingItemModalProps {
   itemId: string;
   itemName: string;
   category: string;
+  subcategory?: string | null;
+  primaryColour?: string | null;
+  secondaryColours?: string[] | null;
+  pattern?: string | null;
+  material?: string | null;
   originalImagePath: string;
   initialOriginalUrl?: string;
   initialBeautifiedUrl?: string;
@@ -836,6 +858,11 @@ function BeautifyExistingItemModal({
   itemId,
   itemName,
   category,
+  subcategory,
+  primaryColour,
+  secondaryColours,
+  pattern,
+  material,
   originalImagePath,
   initialOriginalUrl,
   initialBeautifiedUrl,
@@ -990,6 +1017,16 @@ function BeautifyExistingItemModal({
           try {
             const requestPayload: Record<string, unknown> = {
               mode: targetMode,
+              category,
+              itemHints: {
+                name: itemName,
+                category,
+                subcategory,
+                primaryColour,
+                secondaryColours,
+                pattern,
+                material,
+              },
               skipSegmentation: isFlatLayMode ? false : !needCutout,
             };
             if (editedSourceDataUrlRef.current) {
