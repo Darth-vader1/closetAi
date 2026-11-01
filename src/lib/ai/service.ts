@@ -146,6 +146,93 @@ export function getAiProvider(source: Record<string, string | undefined> = proce
   return { available: true, provider: createMultiProvider(chain) };
 }
 
+/**
+ * Spatial 2D bounding-box & multi-garment provider chain (`multi_clothing_analysis`).
+ * Prioritizes providers with native `box_2d` [ymin, xmin, ymax, xmax] spatial grounding
+ * and fine-grained micro-accessory resolution (`gemini` -> `groq`), keeping `mistral`
+ * (`pixtral-12b-2409`, which lacks 2D bounding-box regression) strictly as a last resort.
+ */
+export function getSpatialAiProvider(source: Record<string, string | undefined> = process.env): AiAvailability {
+  const resolved = resolveAiConfig(source);
+  if (!resolved.ok) return { available: false, reason: resolved.reason };
+  if (resolved.config.provider === "mock") return { available: true, provider: createMockProvider() };
+
+  const chain: AiProvider[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of ["gemini", "groq", "mistral"] as const) {
+    if (seen.has(candidate)) continue;
+
+    if (candidate === "gemini") {
+      const geminiKey = (
+        source.GEMINI_API_KEY ||
+        (source.AI_API_KEY && !source.AI_API_KEY.startsWith("gsk_") && !source.AI_API_KEY.startsWith("mstrl_")
+          ? source.AI_API_KEY
+          : "") ||
+        ""
+      ).trim();
+      if (geminiKey) {
+        const keys = geminiKey.split(",").map((k) => k.trim()).filter(Boolean);
+        const rawVision = (source.AI_VISION_MODEL || "").trim();
+        const isNonGemini = /^(meta-llama|llama|qwen|openai|pixtral|mistral)/i.test(rawVision);
+        const visionModel = rawVision && !isNonGemini ? rawVision : "gemini-3.1-flash-lite";
+        chain.push(
+          createGeminiProvider({
+            apiKey: keys[0],
+            apiKeys: keys,
+            visionModel,
+            textModel: visionModel,
+            timeoutMs: 25_000,
+          }),
+        );
+        seen.add("gemini");
+      }
+    } else if (candidate === "groq") {
+      const groqKey = (
+        source.GROQ_API_KEY ||
+        (source.AI_API_KEY?.startsWith("gsk_") ? source.AI_API_KEY : "") ||
+        ""
+      ).trim();
+      if (groqKey) {
+        const keys = groqKey.split(",").map((k) => k.trim()).filter(Boolean);
+        const rawVision = (source.AI_VISION_MODEL || "").trim();
+        const isNonGroq = /^(pixtral|mistral|gemini|meta-llama|llama)/i.test(rawVision);
+        const visionModel = rawVision && !isNonGroq ? rawVision : "qwen/qwen3.8-27b";
+        chain.push(
+          createGroqProvider({
+            apiKey: keys[0],
+            apiKeys: keys,
+            visionModel,
+            textModel: "openai/gpt-oss-120b",
+          }),
+        );
+        seen.add("groq");
+      }
+    } else if (candidate === "mistral") {
+      const mistralKey = (
+        source.MISTRAL_API_KEY ||
+        (source.AI_API_KEY?.startsWith("mstrl_") ? source.AI_API_KEY : "") ||
+        ""
+      ).trim();
+      if (mistralKey) {
+        const keys = mistralKey.split(",").map((k) => k.trim()).filter(Boolean);
+        chain.push(
+          createMistralProvider({
+            apiKey: keys[0],
+            apiKeys: keys,
+            visionModel: "pixtral-12b-2409",
+            textModel: "mistral-small-latest",
+          }),
+        );
+        seen.add("mistral");
+      }
+    }
+  }
+
+  if (chain.length === 0) return getAiProvider(source);
+  return { available: true, provider: createMultiProvider(chain) };
+}
+
 export type AnalyseResult =
   | { status: "ok"; suggestion: ClothingSuggestion; provider: AiProvider["name"]; isMock: boolean }
   | { status: "unavailable"; reason: string }
@@ -305,13 +392,13 @@ export function normalizeRawDetectionCoordinates(
 
       const fitsWithinPixelBounds = maxY <= dims.height + 16 && maxX <= dims.width + 16;
 
-      // Portrait pixel-coordinate trap (e.g. 564x1024 mirror selfie where pixel x ≈ 215..385 looks like 22%..38% instead of 38%..68%)
+      // Portrait pixel-coordinate trap (e.g. 564x1024 mirror selfie where pixel x ≈ 215..400 looks like 22%..40% instead of 38%..70%)
       if (fitsWithinPixelBounds && dims.width < dims.height * 0.82 && dims.width < 900) {
         const midX = (minX + maxX) / 2;
         const pixelCenterRatioX = midX / dims.width;
         const looksShiftedLeftInNormalizedSpace =
-          midX < 395 &&
-          maxX <= dims.width * 0.92 &&
+          midX <= 345 &&
+          maxX <= dims.width * 0.76 &&
           (isOotd || (validBoxes.length >= 2 && minX >= dims.width * 0.16));
         if (looksShiftedLeftInNormalizedSpace && pixelCenterRatioX >= 0.34 && pixelCenterRatioX <= 0.74) {
           scaleY = 1000 / dims.height;
@@ -322,8 +409,8 @@ export function normalizeRawDetectionCoordinates(
         const midY = (minY + maxY) / 2;
         const pixelCenterRatioY = midY / dims.height;
         const looksShiftedUpInNormalizedSpace =
-          midY < 395 &&
-          maxY <= dims.height * 0.92 &&
+          midY <= 345 &&
+          maxY <= dims.height * 0.76 &&
           (isOotd || (validBoxes.length >= 2 && minY >= dims.height * 0.16));
         if (looksShiftedUpInNormalizedSpace && pixelCenterRatioY >= 0.34 && pixelCenterRatioY <= 0.74) {
           scaleY = 1000 / dims.height;
@@ -364,7 +451,7 @@ export async function analyseMultiClothingImage(
 ): Promise<MultiAnalyseResult> {
   let provider = options.provider;
   if (!provider) {
-    const availability = getAiProvider();
+    const availability = getSpatialAiProvider();
     if (!availability.available) return { status: "unavailable", reason: availability.reason };
     provider = availability.provider;
   }
@@ -372,7 +459,7 @@ export async function analyseMultiClothingImage(
   const dims = options.dimensions === undefined ? readImageDimensions(image.bytes) : options.dimensions;
   const dimensionHint =
     dims && dims.width > 0 && dims.height > 0
-      ? ` Image resolution is ${dims.width}x${dims.height}px — normalize EVERY box_2d [ymin, xmin, ymax, xmax] strictly to 0..1000 across the full ${dims.width}px width and ${dims.height}px height (divide pixel y by ${dims.height} * 1000 and pixel x by ${dims.width} * 1000; horizontal center x=${Math.round(dims.width / 2)}px MUST be 500, NOT ${Math.round(dims.width / 2)}).`
+      ? ` Image resolution is ${dims.width}x${dims.height}px — normalize EVERY box_2d [ymin, xmin, ymax, xmax] strictly to 0..1000 across the full width and height (horizontal center is x=500).`
       : " Normalize EVERY box_2d [ymin, xmin, ymax, xmax] strictly to 0..1000 across the full image width and height (horizontal center is x=500).";
 
   const MAX_ATTEMPTS = 2;
@@ -385,7 +472,7 @@ export async function analyseMultiClothingImage(
         kind: "vision",
         system: MULTI_CLOTHING_SYSTEM_PROMPT,
         prompt:
-          "Detect whether this is a worn OOTD/mirror selfie ('ootd'), flatlay ('flatlay'), or order screenshot ('screenshot'). Focus strictly on the primary foreground person (ignore background bystanders). Identify each distinct garment, neckwear/scarf, footwear pair (clogs vs slides vs sneakers), belt, tie, and accessory — AND perform a dedicated micro-scan of the neck and center chest (especially between open scarf ends, collars, or layered over a t-shirt/top) so pendant/cross necklaces, chains, watches, bracelets, and eyewear are NEVER missed! Return worn_on_body, a rich standalone visual_description of each item's exact colors/trims/fabric/pendant/silhouette (excluding overlapping pieces), and cataloguing attributes." +
+          "Detect whether this is a worn OOTD/mirror selfie ('ootd'), flatlay ('flatlay'), or order screenshot ('screenshot'). Focus strictly on the primary foreground person (ignore background bystanders). Identify each distinct garment, neckwear/scarf, footwear pair (clogs vs slides vs sneakers), belt, tie, and accessory — AND perform a dedicated micro-scan of the neck and center chest (especially between open scarf ends, collars, or layered over a t-shirt/top) so visible pendant/cross necklaces, chains, watches, bracelets, and eyewear are NEVER missed! Omit any item that is not present (NEVER output 'No Visible ...' placeholder entries). Return worn_on_body, a rich standalone visual_description of each item's exact colors/trims/fabric/pendant/silhouette (excluding overlapping pieces), and cataloguing attributes." +
           dimensionHint,
         image,
         jsonSchema: multiClothingAnalysisJsonSchema,

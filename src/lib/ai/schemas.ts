@@ -424,6 +424,19 @@ const flexiblePhotoType = z.preprocess((val) => {
   return "screenshot";
 }, z.enum(["ootd", "screenshot", "flatlay"]));
 
+const ABSENCE_PLACEHOLDER_PATTERNS = [
+  /^(?:no\s+|none\b|n\/a\b|nil\b|null\b|not\s+visible\b|nothing\b|unrecogni[sz]ed\b|absent\b|missing\b|empty\b)/i,
+  /\b(?:no\s+visible|none\s+visible|not\s+present|not\s+worn|nothing\s+detected)\b/i,
+  /\bno\s+(?:necklace|jewellery|jewelry|pendant|chain|cross|belt|tie|watch|watches|accessory|accessories|bag|hat|cap|scarf|eyewear|sunglasses|bracelet|earrings?|ring)\b/i,
+];
+
+export function isPlaceholderAbsenceItem(name: string, confidence?: number): boolean {
+  const trimmed = name.trim();
+  if (!trimmed) return true;
+  if (typeof confidence === "number" && confidence < 0.2) return true;
+  return ABSENCE_PLACEHOLDER_PATTERNS.some((re) => re.test(trimmed));
+}
+
 export const multiClothingAnalysisSchema = z.preprocess((val) => {
   if (Array.isArray(val)) {
     return { items: val };
@@ -442,11 +455,19 @@ export const multiClothingAnalysisSchema = z.preprocess((val) => {
   photo_type: flexiblePhotoType.optional().default("screenshot"),
   outfit_title: z.string().trim().max(90).optional().nullable().default(null),
   items: z.array(detectedClothingItemSchema).max(12),
-}).transform((v) => ({
-  photoType: v.photo_type === "ootd" || v.items.some((i) => i.wornOnBody) ? ("ootd" as const) : v.photo_type,
-  outfitTitle: v.outfit_title || null,
-  items: v.items,
-})));
+}).transform((v) => {
+  const validItems = v.items.filter(
+    (item) => !isPlaceholderAbsenceItem(item.suggestion.name, item.suggestion.confidence),
+  );
+  return {
+    photoType:
+      v.photo_type === "ootd" || validItems.some((i) => i.wornOnBody)
+        ? ("ootd" as const)
+        : v.photo_type,
+    outfitTitle: v.outfit_title || null,
+    items: validItems,
+  };
+}));
 
 export type DetectedClothingItem = z.output<typeof detectedClothingItemSchema>;
 export type MultiClothingSuggestion = z.output<typeof multiClothingAnalysisSchema>;
@@ -516,8 +537,9 @@ export const MULTI_CLOTHING_SYSTEM_PROMPT = [
   "RULES FOR OOTD / MIRROR SELFIE / WORN PHOTOS:",
   "- STRICT SUBJECT ISOLATION: Focus ONLY on the primary foreground wearer (e.g. the person centered or holding the phone in a mirror selfie). Completely ignore bystanders or people reflected to the sides/background — NEVER mix a bystander's slides, shoes, shirt, or pants into the foreground wearer's items.",
   "- LAYERED & OCCLUDED ITEMS: Identify every distinct piece worn or carried. When a scarf, tie, chain, pendant necklace, belt, or jacket overlaps another garment, trace each item separately: capture contrast ringer trims on sleeves/collars in secondary_colours and name, and never merge overlapping pieces together.",
-  "- MANDATORY NECK, CHEST & MICRO-ACCESSORY SCAN (DO NOT SKIP!): Perform a dedicated close-up check of the neck, collarbone, and center chest — ESPECIALLY between open scarf ends, open collars, or jacket lapels, and resting over solid or colored t-shirts/tops. Extract ALL necklaces, pendant necklaces, black/metal/wooden cross pendants, medallions, lockets, chains, thin cord necklaces, chokers, pearl strands, and coral beads -> category 'jewellery' (subcategory 'Pendant Necklace', 'Cross Necklace', or 'Chain Necklace', care_type 'NO_WASH').",
+  "- MANDATORY NECK, CHEST & MICRO-ACCESSORY SCAN (DO NOT SKIP!): Perform a dedicated close-up check of the neck, collarbone, and center chest — ESPECIALLY between open scarf ends, open collars, or jacket lapels, and resting over solid or colored t-shirts/tops. When visible, extract necklaces, pendant necklaces, black/metal/wooden cross pendants, medallions, lockets, chains, thin cord necklaces, chokers, pearl strands, and coral beads -> category 'jewellery' (subcategory 'Pendant Necklace', 'Cross Necklace', or 'Chain Necklace', care_type 'NO_WASH').",
   "  * WORN PENDANT vs PRINTED GRAPHIC: If a cross, charm, or pendant hangs at chest level with a thin cord, string, or chain extending upward toward the neck/scarf/collar, it is a SEPARATE worn necklace ('jewellery') — NEVER skip it and NEVER merge it into the underlying t-shirt/top's pattern or visual_description! Give the necklace its own tight box_2d around the visible chain + pendant, and describe the underlying shirt cleanly WITHOUT the necklace.",
+  "  * ONLY EMIT VISIBLE ITEMS: If no necklace, belt, tie, watch, or accessory is actually present in the photo, simply omit it — NEVER output negative placeholder items like 'No Visible Necklace or Jewellery', 'None', or 'No Belt'.",
   "- BELTS & TIES: Always check the waistline and collar area! Extract visible leather/woven/chain belts ('belts', care_type 'NO_WASH', describing strap material, color, and buckle finish) separately from trousers/skirts/dresses. Extract neckties & bow ties ('ties', care_type 'NO_WASH', describing weave, pattern, and blade/bow shape) separately from shirts and blazers.",
   "- AFRICAN & TRADITIONAL WEARS: Accurately recognize Nigerian/African traditional attire — Agbada, Senator wear, Kaftan, Isiagu, Dashiki, Adire, Kente, Ankara gowns/two-pieces, Aso-Ebi lace gowns, Aso-Oke, Boubou/Bubu, Iro & Buba, and Abaya -> category 'traditional' (style 'traditional', specific subcategory such as 'Agbada', 'Senator Wear', 'Ankara Gown', 'Aso-Ebi Gown', 'Boubou', 'Iro & Buba'). Extract accompanying Gele / pleated headties ('headwraps', subcategory 'Gele'), Fila / Kufi / Abeti-Aja caps ('hats', subcategory 'Fila Cap'), hand fans/clutches ('bags' or 'accessories'), and coral/traditional beads ('jewellery', subcategory 'Coral Beads') as separate items!",
   "- LADIES' WEAR: Accurately classify blouses, corset tops, bodysuits & peplum tops ('blouses'), crop/tube tops ('crop-tops'), camisoles/halter/tank tops ('tank-tops'), cardigans ('cardigans'), mini/midi/maxi/bodycon/wrap dresses ('dresses'), jumpsuits & rompers ('jumpsuits'), pleated/pencil/satin/mini/maxi skirts ('skirts'), palazzo/wide-leg trousers ('trousers'), leggings ('leggings'), stilettos/pumps/strappy/block heels/wedges ('heels'), ballet flats & mules ('flats'), and handbags/clutches/shoulder bags/totes ('bags'). In OOTD photos, do NOT classify a person's natural hair as a 'wigs' item (only use 'wigs' in flatlays/screenshots of standalone wigs; DO extract worn 'headwraps', 'hats', and 'caps').",

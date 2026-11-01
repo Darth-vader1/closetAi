@@ -36,23 +36,37 @@ export function createGeminiProvider(options: GeminiOptions, client?: GeminiLike
     return cached;
   };
 
-  const timeout = options.timeoutMs ?? 18_000;
+  const timeout = options.timeoutMs ?? 35_000;
 
   return {
     name: "gemini",
     isMock: false,
     async generateJson(req: AiJsonRequest): Promise<unknown> {
+      const isComplexMultiSchema = req.task === "multi_clothing_analysis";
+      const promptText = isComplexMultiSchema
+        ? `${req.prompt}\nRespond strictly with valid JSON conforming to this schema:\n${JSON.stringify(req.jsonSchema)}`
+        : req.prompt;
+
       const parts: Array<Record<string, unknown>> = [];
       if (req.image) {
         parts.push({ inlineData: { mimeType: req.image.mimeType, data: Buffer.from(req.image.bytes).toString("base64") } });
       }
-      parts.push({ text: req.prompt });
+      parts.push({ text: promptText });
 
       const timeoutSignal = AbortSignal.timeout(timeout);
       const signal = req.signal ? AbortSignal.any([req.signal, timeoutSignal]) : timeoutSignal;
 
       const primaryModel = req.kind === "vision" ? options.visionModel : options.textModel;
       let response: { text?: string } | undefined;
+
+      const buildConfig = (): Record<string, unknown> => ({
+        systemInstruction: req.system,
+        responseMimeType: "application/json",
+        ...(isComplexMultiSchema ? {} : { responseJsonSchema: req.jsonSchema }),
+        temperature: 0.2,
+        ...(isComplexMultiSchema ? { thinkingConfig: { thinkingLevel: "LOW" } } : {}),
+        abortSignal: signal,
+      });
 
       const maxKeyAttempts = Math.min(keys.length, 2);
       for (let attempt = 0; attempt < maxKeyAttempts; attempt++) {
@@ -63,13 +77,7 @@ export function createGeminiProvider(options: GeminiOptions, client?: GeminiLike
           response = await ai.models.generateContent({
             model: primaryModel,
             contents: [{ role: "user", parts }],
-            config: {
-              systemInstruction: req.system,
-              responseMimeType: "application/json",
-              responseJsonSchema: req.jsonSchema,
-              temperature: 0.2,
-              abortSignal: signal,
-            },
+            config: buildConfig(),
           });
           break; // Success!
         } catch (err) {
@@ -93,13 +101,7 @@ export function createGeminiProvider(options: GeminiOptions, client?: GeminiLike
                 response = await ai.models.generateContent({
                   model: primaryModel,
                   contents: [{ role: "user", parts }],
-                  config: {
-                    systemInstruction: req.system,
-                    responseMimeType: "application/json",
-                    responseJsonSchema: req.jsonSchema,
-                    temperature: 0.2,
-                    abortSignal: signal,
-                  },
+                  config: buildConfig(),
                 });
                 break;
               } catch (retryErr) {
@@ -115,13 +117,7 @@ export function createGeminiProvider(options: GeminiOptions, client?: GeminiLike
               response = await ai.models.generateContent({
                 model: "gemini-flash-latest",
                 contents: [{ role: "user", parts }],
-                config: {
-                  systemInstruction: req.system,
-                  responseMimeType: "application/json",
-                  responseJsonSchema: req.jsonSchema,
-                  temperature: 0.2,
-                  abortSignal: signal,
-                },
+                config: buildConfig(),
               });
               break;
             } catch (fallbackErr) {
@@ -138,8 +134,13 @@ export function createGeminiProvider(options: GeminiOptions, client?: GeminiLike
 
       const text = response.text;
       if (!text) throw new AiProviderError("The model returned an empty response.", true);
+      const cleaned = text
+        .trim()
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
       try {
-        return JSON.parse(text);
+        return JSON.parse(cleaned);
       } catch {
         throw new AiProviderError("The model returned text that was not valid JSON.", true);
       }

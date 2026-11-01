@@ -54,8 +54,9 @@ export function createGroqProvider(options: GroqOptions): AiProvider {
         temperature: 0.2,
       };
 
-      const maxAttempts = Math.min(keys.length, 3);
+      const maxAttempts = Math.max(2, Math.min(keys.length + 1, 3));
       let lastError: unknown = null;
+      let retriedRateLimitWait = false;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const currentKey = keys[activeKeyIndex];
@@ -76,6 +77,11 @@ export function createGroqProvider(options: GroqOptions): AiProvider {
               if (keys.length > 1 && attempt < maxAttempts - 1 && !signal.aborted) {
                 activeKeyIndex = (activeKeyIndex + 1) % keys.length;
                 continue;
+              }
+              if (!retriedRateLimitWait && attempt < maxAttempts - 1 && !signal.aborted) {
+                retriedRateLimitWait = true;
+                await new Promise((r) => setTimeout(r, 2000));
+                if (!signal.aborted) continue;
               }
               throw new AiProviderError("Groq AI service is busy or rate-limited. Please try again in a moment.", false);
             }

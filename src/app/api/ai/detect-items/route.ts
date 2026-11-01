@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { takeAiQuota } from "@/lib/ai/rate-limit";
-import { analyseMultiClothingImage, getAiProvider } from "@/lib/ai/service";
+import { analyseMultiClothingImage, getSpatialAiProvider } from "@/lib/ai/service";
 import { getSessionUser } from "@/lib/auth/session";
 import { assertActiveSubscription } from "@/lib/billing/entitlements";
 import { ConfigError } from "@/lib/env";
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       return json({ error: "Invalid photo reference." }, 400);
     }
 
-    const availability = getAiProvider();
+    const availability = getSpatialAiProvider();
     if (!availability.available) {
       logger.info("ai.unavailable", { reason: availability.reason });
       const reason =

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { MULTI_CLOTHING_SYSTEM_PROMPT, multiClothingAnalysisSchema } from "@/lib/ai/schemas";
-import { analyseMultiClothingImage, normalizeRawDetectionCoordinates } from "@/lib/ai/service";
+import {
+  isPlaceholderAbsenceItem,
+  MULTI_CLOTHING_SYSTEM_PROMPT,
+  multiClothingAnalysisSchema,
+} from "@/lib/ai/schemas";
+import {
+  analyseMultiClothingImage,
+  getSpatialAiProvider,
+  normalizeRawDetectionCoordinates,
+} from "@/lib/ai/service";
 import {
   buildGroundedPromptFromHints,
   classifyFlatLayFamily,
@@ -710,5 +718,52 @@ describe("OOTD & Multi-Item Outfit Extractor Schema", () => {
     expect(normalizeRawDetectionCoordinates(leftColumnOrderScreenshot, { width: 564, height: 1024 })).toEqual(
       leftColumnOrderScreenshot,
     );
+  });
+
+  it("strips hallucinated 'No Visible Necklace or Jewellery' placeholder items and prioritizes spatial-grounded providers", () => {
+    expect(isPlaceholderAbsenceItem("No Visible Necklace or Jewellery")).toBe(true);
+    expect(isPlaceholderAbsenceItem("None")).toBe(true);
+    expect(isPlaceholderAbsenceItem("No Belt")).toBe(true);
+    expect(isPlaceholderAbsenceItem("Unrecognised item")).toBe(true);
+    expect(isPlaceholderAbsenceItem("Black Cross Pendant Necklace")).toBe(false);
+    expect(isPlaceholderAbsenceItem("No-Collar Linen Shirt")).toBe(false);
+
+    const parsed = multiClothingAnalysisSchema.safeParse({
+      photo_type: "ootd",
+      outfit_title: "Streetwear OOTD",
+      items: [
+        {
+          box_2d: [440, 400, 640, 680],
+          worn_on_body: true,
+          name: "Light Blue Ringer T-Shirt",
+          category: "t-shirts",
+          primary_colour: "blue",
+        },
+        {
+          box_2d: [350, 240, 460, 330],
+          worn_on_body: true,
+          name: "No Visible Necklace or Jewellery",
+          category: "accessories",
+          primary_colour: "unknown",
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.items).toHaveLength(1);
+    expect(parsed.data.items[0].suggestion.name).toBe("Light Blue Ringer T-Shirt");
+
+    // Verify getSpatialAiProvider prioritizes gemini -> groq ahead of mistral even when AI_PROVIDER starts with groq,mistral
+    const spatial = getSpatialAiProvider({
+      AI_PROVIDER: "groq,mistral,gemini",
+      GROQ_API_KEY: "gsk_test",
+      MISTRAL_API_KEY: "mstrl_test",
+      GEMINI_API_KEY: "AIza_test",
+    });
+    expect(spatial.available).toBe(true);
+    if (spatial.available) {
+      expect(spatial.provider.name).toBe("gemini");
+    }
   });
 });
