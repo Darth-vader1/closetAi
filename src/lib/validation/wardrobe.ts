@@ -35,7 +35,11 @@ export const itemFieldsSchema = z.object({
   careType: z.enum(CARE_TYPES).default("WASHABLE"),
 });
 
-export const beautificationModeSchema = z.enum(["clean-cutout", "ai-enhance"]);
+export const beautificationModeSchema = z.enum([
+  "clean-cutout",
+  "ai-enhance",
+  "catalog-flatlay",
+]);
 export const beautificationStatusSchema = z.enum([
   "NONE",
   "PROCESSING",

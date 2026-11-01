@@ -30,7 +30,7 @@ export interface WardrobeItem {
   imagePath: string;
   originalImagePath?: string;
   beautifiedImagePath?: string | null;
-  beautificationMode?: "clean-cutout" | "ai-enhance" | null;
+  beautificationMode?: "clean-cutout" | "ai-enhance" | "catalog-flatlay" | null;
   beautificationProvider?: string | null;
   beautificationModel?: string | null;
   beautificationStatus?:
@@ -124,7 +124,9 @@ function toItem(row: Row): WardrobeItem {
     originalImagePath: row.original_image_path ?? row.image_path,
     beautifiedImagePath: row.beautified_image_path ?? null,
     beautificationMode:
-      row.beautification_mode === "clean-cutout" || row.beautification_mode === "ai-enhance"
+      row.beautification_mode === "clean-cutout" ||
+      row.beautification_mode === "ai-enhance" ||
+      row.beautification_mode === "catalog-flatlay"
         ? row.beautification_mode
         : null,
     beautificationProvider: row.beautification_provider ?? null,

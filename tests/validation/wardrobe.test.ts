@@ -71,6 +71,21 @@ describe("createItemSchema", () => {
     expect(createItemSchema.safeParse({ ...validItem, aiAnalysed: false }).success).toBe(false);
     expect(createItemSchema.safeParse({ ...validItem, aiAnalysed: false, imagePath: "u/x.jpg" }).success).toBe(true);
   });
+
+  it("accepts catalog-flatlay beautification mode for extracted OOTD garments", () => {
+    const parsed = createItemSchema.safeParse({
+      ...validItem,
+      aiAnalysed: true,
+      imagePath: "u/flatlay.jpg",
+      originalImagePath: "u/orig.jpg",
+      beautifiedImagePath: "u/flatlay.jpg",
+      beautificationMode: "catalog-flatlay",
+      beautificationProvider: "ootd-vision-grounded+mistral-flux",
+      beautificationModel: "mistral-medium-2505+flux-1.1-pro-ultra",
+      beautificationStatus: "COMPLETED",
+    });
+    expect(parsed.success).toBe(true);
+  });
 });
 
 describe("parseWardrobeQuery", () => {

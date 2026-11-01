@@ -194,6 +194,20 @@ export async function saveItemAction(
     .select("id")
     .single();
 
+  // Graceful fallback if DB check constraint hasn't been migrated for 'catalog-flatlay' yet
+  if (
+    error?.code === "23514" &&
+    fullPayload.beautification_mode === "catalog-flatlay"
+  ) {
+    const compatInsert = await supabase
+      .from("wardrobe_items")
+      .insert({ ...fullPayload, beautification_mode: "ai-enhance" })
+      .select("id")
+      .single();
+    data = compatInsert.data;
+    error = compatInsert.error;
+  }
+
   if (
     error &&
     (error.message.includes("original_image_path") ||
@@ -414,7 +428,7 @@ export async function saveBeautifiedImageAction(
     activeImageUrl: string | null;
     originalImageUrl: string | null;
     beautifiedImageUrl: string | null;
-    beautificationMode: "clean-cutout" | "ai-enhance";
+    beautificationMode: "clean-cutout" | "ai-enhance" | "catalog-flatlay";
     beautificationProvider: string;
     beautificationModel: string;
     beautifiedAt: string;
@@ -465,6 +479,24 @@ export async function saveBeautifiedImageAction(
     })
     .eq("id", idResult.data)
     .eq("user_id", user.id);
+
+  if (error?.code === "23514" && mode === "catalog-flatlay") {
+    const compatUpdate = await supabase
+      .from("wardrobe_items")
+      .update({
+        image_path: beautifiedPath,
+        original_image_path: preservedOriginal,
+        beautified_image_path: beautifiedPath,
+        beautification_mode: "ai-enhance",
+        beautification_provider: resolvedProvider,
+        beautification_model: resolvedModel,
+        beautification_status: "COMPLETED",
+        beautified_at: nowIso,
+      })
+      .eq("id", idResult.data)
+      .eq("user_id", user.id);
+    error = compatUpdate.error;
+  }
 
   if (
     error &&
