@@ -208,6 +208,8 @@ export async function analyseClothingImage(
 export type MultiAnalyseResult =
   | {
       status: "ok";
+      photoType: "ootd" | "screenshot" | "flatlay";
+      outfitTitle: string | null;
       items: DetectedClothingItem[];
       provider: string;
       isMock: boolean;
@@ -227,7 +229,7 @@ export async function analyseMultiClothingImage(
   }
 
   const MAX_ATTEMPTS = 2;
-  let lastMessage = "The AI service couldn't detect garments in this screenshot.";
+  let lastMessage = "The AI service couldn't detect garments in this photo.";
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
@@ -236,7 +238,7 @@ export async function analyseMultiClothingImage(
         kind: "vision",
         system: MULTI_CLOTHING_SYSTEM_PROMPT,
         prompt:
-          "Identify each distinct clothing item or accessory in this order screenshot or photo. Return its bounding box [ymin, xmin, ymax, xmax] (0-1000 scale) and cataloguing attributes.",
+          "Detect whether this is a worn OOTD photo ('ootd'), flatlay ('flatlay'), or order screenshot ('screenshot'). Identify each distinct garment, footwear pair, or accessory on the primary wearer or layout, returning tight [ymin, xmin, ymax, xmax] (0-1000) bounds, worn_on_body, and cataloguing attributes.",
         image,
         jsonSchema: multiClothingAnalysisJsonSchema,
         signal: options.signal,
@@ -246,6 +248,8 @@ export async function analyseMultiClothingImage(
       if (parsed.success) {
         return {
           status: "ok",
+          photoType: parsed.data.photoType,
+          outfitTitle: parsed.data.outfitTitle,
           items: parsed.data.items,
           provider: provider.name,
           isMock: provider.isMock,

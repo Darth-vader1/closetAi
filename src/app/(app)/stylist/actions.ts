@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
 import { formatLocalDate } from "@/lib/utils/format";
+import { isOwnStoragePath } from "@/lib/security/origin";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
@@ -18,6 +19,7 @@ const saveStylistOutfitSchema = z.object({
   styleDescription: z.string().trim().max(400).nullable().optional(),
   explanation: z.string().trim().max(800).nullable().optional(),
   stylingTip: z.string().trim().max(400).nullable().optional(),
+  photoPath: z.string().trim().max(300).nullable().optional(),
 });
 
 export async function saveStylistOutfitAction(input: unknown): Promise<ActionResult<{ id: string }>> {
@@ -25,7 +27,10 @@ export async function saveStylistOutfitAction(input: unknown): Promise<ActionRes
   const parsed = saveStylistOutfitSchema.safeParse(input);
   if (!parsed.success) return fail("Invalid outfit details.");
 
-  const { name, itemIds, occasion, styleDescription, explanation, stylingTip } = parsed.data;
+  const { name, itemIds, occasion, styleDescription, explanation, stylingTip, photoPath } = parsed.data;
+  if (photoPath && !isOwnStoragePath(photoPath, user.id)) {
+    return fail("Invalid outfit photo reference.");
+  }
   const supabase = await createClient();
 
   const { data: outfit, error: outfitErr } = await supabase
@@ -37,6 +42,7 @@ export async function saveStylistOutfitAction(input: unknown): Promise<ActionRes
       style_description: styleDescription || null,
       explanation: explanation || null,
       styling_tip: stylingTip || null,
+      photo_path: photoPath || null,
       source: "AI",
       is_favourite: false,
     })

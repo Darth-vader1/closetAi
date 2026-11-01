@@ -3,16 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, CheckCircle2, CheckSquare, Crop, Globe, ImagePlus, Layers, Loader2, RefreshCw, RotateCcw, RotateCw, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { Camera, CheckCircle2, CheckSquare, Crop, Globe, ImagePlus, Layers, Loader2, RefreshCw, RotateCcw, RotateCw, Sparkles, Trash2, UserCheck, Wand2, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { saveStylistOutfitAction, wearOutfitTodayAction } from "@/app/(app)/stylist/actions";
 import { discardUploadAction, saveItemAction } from "@/app/(app)/wardrobe/actions";
 import type { ClothingSuggestion, DetectedClothingItem } from "@/lib/ai/schemas";
 import { Button } from "@/components/ui/button";
 import { Alert, Card } from "@/components/ui/card";
 import { ImageCropperModal } from "@/components/wardrobe/image-cropper-modal";
 import { emptyItemValues, ItemFieldsForm } from "@/components/wardrobe/item-fields";
-import { MultiItemCard } from "@/components/wardrobe/multi-item-card";
+import {
+  MultiItemCard,
+  type MultiItemExtractOptions,
+} from "@/components/wardrobe/multi-item-card";
 import {
   StoreImportCard,
   type ImportedEntryPayload,
@@ -78,7 +82,20 @@ interface Entry {
   sourceImageSha256?: string | null;
   allowDuplicate?: boolean;
   multiDetectedItems?: DetectedClothingItem[] | null;
+  multiPhotoType?: "ootd" | "screenshot" | "flatlay" | null;
+  multiOutfitTitle?: string | null;
   multiCropping?: boolean;
+  multiLoadingStep?: string | null;
+}
+
+interface PendingOutfitBundle {
+  entryIds: string[];
+  outfitName: string;
+  markWornToday: boolean;
+  ootdPhotoPath: string | null;
+  creating: boolean;
+  savedOutfitId: string | null;
+  error: string | null;
 }
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
@@ -164,9 +181,16 @@ export function WardrobeUploader({
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const multiScreenshotInput = useRef<HTMLInputElement>(null);
+  const multiCameraInput = useRef<HTMLInputElement>(null);
   const storeUrlInputRef = useRef<HTMLInputElement>(null);
   const formSubmittersRef = useRef(new Map<string, () => Promise<boolean>>());
   const [savingAll, setSavingAll] = useState(false);
+  const [outfitBundle, setOutfitBundle] = useState<PendingOutfitBundle | null>(null);
+  const outfitBundleRef = useRef<PendingOutfitBundle | null>(null);
+
+  useEffect(() => {
+    outfitBundleRef.current = outfitBundle;
+  }, [outfitBundle]);
 
   useEffect(() => {
     entriesRef.current = entries;
@@ -220,6 +244,8 @@ export function WardrobeUploader({
                     ...e,
                     analysing: false,
                     multiDetectedItems: result.items,
+                    multiPhotoType: result.photoType ?? "screenshot",
+                    multiOutfitTitle: result.outfitTitle ?? null,
                     isMock: result.isMock,
                     aiNote: null,
                   }
@@ -474,16 +500,29 @@ export function WardrobeUploader({
   }, []);
 
   const importSelectedMultiItems = useCallback(
-    async (parentEntry: Entry, selected: DetectedClothingItem[]) => {
-      patch(parentEntry.id, { multiCropping: true });
+    async (
+      parentEntry: Entry,
+      selected: DetectedClothingItem[],
+      extractOptions: MultiItemExtractOptions,
+    ) => {
+      patch(parentEntry.id, {
+        multiCropping: true,
+        multiLoadingStep: `Cropping ${selected.length} pieces…`,
+      });
       try {
         const croppedEntries: Entry[] = [];
 
-        for (const item of selected) {
+        for (let idx = 0; idx < selected.length; idx++) {
+          const item = selected[idx];
+          patch(parentEntry.id, {
+            multiLoadingStep: `Extracting piece ${idx + 1} of ${selected.length} (${item.suggestion.name})…`,
+          });
+
           const { file: croppedFile, previewUrl } = await cropGarmentFromImage(
             parentEntry.file,
             item.box2d,
             item.suggestion.name,
+            item.wornOnBody ? 0.06 : 0.04,
           );
 
           const controller = new AbortController();
@@ -496,6 +535,71 @@ export function WardrobeUploader({
             onProgress: () => {},
           });
 
+          let finalPath = uploadedPath;
+          let finalPreviewUrl = previewUrl;
+          let beautifiedPath: string | null = null;
+          let beautifiedPreviewUrl: string | undefined;
+          let photoRoomCutoutDataUrl: string | null = null;
+          let beautifyMode: BeautificationMode | null = null;
+          let beautifyProvider: string | null = null;
+          let beautifyModel: string | null = null;
+          let beautifyWarnings: string[] = [];
+          let isCutout = false;
+
+          if (extractOptions.studioExtraction !== "crop-only") {
+            try {
+              const targetMode = extractOptions.studioExtraction;
+              const apiRes = await fetch("/api/ai/beautify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  path: uploadedPath,
+                  mode: targetMode,
+                  category: item.suggestion.category ?? null,
+                }),
+                signal: controller.signal,
+              }).catch(() => null);
+
+              if (apiRes?.ok) {
+                const body = (await apiRes.json()) as {
+                  cutoutDataUrl?: string | null;
+                  provider?: string;
+                  model?: string;
+                };
+                if (body.cutoutDataUrl) {
+                  photoRoomCutoutDataUrl = body.cutoutDataUrl;
+                }
+                beautifyProvider = body.provider ?? "local-studio";
+                beautifyModel = body.model ?? "closetai-cv-v2";
+              }
+
+              const beautified = await beautifyGarmentImage(
+                photoRoomCutoutDataUrl ?? preparedBlob,
+                {
+                  mode: targetMode,
+                  category: item.suggestion.category ?? null,
+                  tolerance: 36,
+                  background: "clean-white",
+                  addShadow: true,
+                  targetCanvasSize: 1024,
+                },
+              );
+
+              beautifiedPath = await uploadPhoto(beautified.blob, {
+                signal: controller.signal,
+                onProgress: () => {},
+              });
+              beautifiedPreviewUrl = URL.createObjectURL(beautified.blob);
+              finalPath = beautifiedPath;
+              finalPreviewUrl = beautifiedPreviewUrl;
+              beautifyMode = beautified.modeUsed;
+              beautifyWarnings = beautified.diagnostics.warnings;
+              isCutout = true;
+            } catch (studioErr) {
+              console.warn("OOTD studio extraction fell back to clean crop:", studioErr);
+            }
+          }
+
           const suggestion: ClothingSuggestion = item.suggestion;
 
           const initialValues = suggestionToValues(
@@ -506,19 +610,21 @@ export function WardrobeUploader({
           croppedEntries.push({
             id: croppedId,
             file: croppedFile,
-            previewUrl,
+            previewUrl: finalPreviewUrl,
             originalPreviewUrl: previewUrl,
+            beautifiedPreviewUrl,
             stage: "review",
             progress: 1,
-            path: uploadedPath,
+            path: finalPath,
             originalPath: uploadedPath,
-            photoRoomCutoutDataUrl: null,
-            beautifiedPath: null,
-            beautifyMode: null,
-            beautifyProvider: null,
-            beautifyModel: null,
-            beautifyWarnings: [],
+            photoRoomCutoutDataUrl,
+            beautifiedPath,
+            beautifyMode,
+            beautifyProvider,
+            beautifyModel,
+            beautifyWarnings,
             beautifyError: null,
+            isCutout,
             suggestion,
             suggestionKey: 1,
             isMock: parentEntry.isMock,
@@ -534,6 +640,21 @@ export function WardrobeUploader({
           });
         }
 
+        const parentStoragePath = parentEntry.originalPath ?? parentEntry.path;
+        if (extractOptions.bundleAsOutfit && croppedEntries.length >= 2) {
+          setOutfitBundle({
+            entryIds: croppedEntries.map((c) => c.id),
+            outfitName: extractOptions.outfitName,
+            markWornToday: extractOptions.markWornToday,
+            ootdPhotoPath: parentStoragePath ?? null,
+            creating: false,
+            savedOutfitId: null,
+            error: null,
+          });
+        } else if (parentStoragePath) {
+          void discardUploadAction(parentStoragePath);
+        }
+
         setEntries((list) => {
           const idx = list.findIndex((e) => e.id === parentEntry.id);
           if (idx === -1) return [...list, ...croppedEntries];
@@ -546,10 +667,11 @@ export function WardrobeUploader({
       } catch (err) {
         patch(parentEntry.id, {
           multiCropping: false,
+          multiLoadingStep: null,
           error:
             err instanceof Error
               ? err.message
-              : "Failed to isolate and crop garments from screenshot.",
+              : "Failed to isolate and crop garments from photo.",
         });
       }
     },
@@ -590,6 +712,69 @@ export function WardrobeUploader({
       setSavingAll(false);
     }
   }, []);
+
+  const maybeFinalizeOutfitBundle = useCallback(
+    async (justSavedEntryId: string, justSavedItemId: string) => {
+      const bundle = outfitBundleRef.current;
+      if (!bundle || bundle.creating || bundle.savedOutfitId || bundle.error) {
+        return;
+      }
+      if (!bundle.entryIds.includes(justSavedEntryId)) {
+        return;
+      }
+
+      const tracked = entriesRef.current.filter((e) => bundle.entryIds.includes(e.id));
+      if (tracked.length < 2) return;
+
+      const savedItemIds: string[] = [];
+      for (const e of tracked) {
+        const sid = e.id === justSavedEntryId ? justSavedItemId : e.savedId;
+        if (!sid) return; // Still waiting on remaining garments
+        savedItemIds.push(sid);
+      }
+
+      const nextCreating = { ...bundle, creating: true };
+      outfitBundleRef.current = nextCreating;
+      setOutfitBundle(nextCreating);
+
+      const outfitRes = await saveStylistOutfitAction({
+        name: bundle.outfitName,
+        itemIds: savedItemIds,
+        occasion: "Daily Wear",
+        styleDescription: "Extracted directly from your OOTD photo.",
+        photoPath: bundle.ootdPhotoPath,
+      });
+
+      if (!outfitRes.ok) {
+        const errState = {
+          ...bundle,
+          creating: false,
+          error: outfitRes.error || "Saved garments, but could not bundle outfit.",
+        };
+        outfitBundleRef.current = errState;
+        setOutfitBundle(errState);
+        return;
+      }
+
+      if (bundle.markWornToday) {
+        await wearOutfitTodayAction({
+          outfitId: outfitRes.id,
+          itemIds: savedItemIds,
+        });
+      }
+
+      const doneState = {
+        ...bundle,
+        creating: false,
+        savedOutfitId: outfitRes.id,
+        error: null,
+      };
+      outfitBundleRef.current = doneState;
+      setOutfitBundle(doneState);
+      router.refresh();
+    },
+    [router],
+  );
 
   const retry = useCallback(
     (entry: Entry) => {
@@ -639,13 +824,18 @@ export function WardrobeUploader({
         // Both originalImagePath and beautifiedImagePath are now referenced by the saved item,
         // so the user can reopen the item later and access both versions.
         patch(id, { stage: "saved", savedId: result.id });
+        // Synchronously reflect savedId on entriesRef so sequential batch saves see it immediately
+        entriesRef.current = entriesRef.current.map((e) =>
+          e.id === id ? { ...e, stage: "saved", savedId: result.id } : e,
+        );
+        await maybeFinalizeOutfitBundle(id, result.id);
         router.refresh();
       } else {
         patch(id, { stage: "review" });
       }
       return result;
     },
-    [patch, router],
+    [maybeFinalizeOutfitBundle, patch, router],
   );
 
   const runBeautifyOnEntry = useCallback(
@@ -678,7 +868,9 @@ export function WardrobeUploader({
               body: JSON.stringify({
                 path: origPath,
                 mode: requestedMode,
-                skipSegmentation: Boolean(cachedCutout),
+                category: entry.suggestion?.category ?? null,
+                skipSegmentation:
+                  Boolean(cachedCutout) && requestedMode !== "catalog-flatlay",
               }),
             });
             if (res.ok) {
@@ -985,8 +1177,8 @@ export function WardrobeUploader({
               : "text-muted hover:text-foreground"
           }`}
         >
-          <Layers className="size-4 text-accent" />
-          <span>Order Screenshot</span>
+          <UserCheck className="size-4 text-accent" />
+          <span>OOTD &amp; Multi-Scan</span>
         </button>
       </div>
 
@@ -1101,28 +1293,47 @@ export function WardrobeUploader({
                 : "border-border-strong bg-surface-muted/50"
             }`}
           >
-            <Layers className="size-8 text-accent" aria-hidden />
+            <UserCheck className="size-8 text-accent" aria-hidden />
             <p className="mt-3 font-semibold text-foreground">
-              Upload multi-garment order screenshot
+              Extract clothes from your OOTD or multi-item screenshot
             </p>
-            <p className="mt-1 max-w-md text-xs text-muted">
-              Upload an order confirmation or shopping cart screenshot (SHEIN, Temu, ASOS, Zara, etc.).
-              ClosetAI identifies each garment, crops it, and prepares separate review cards.
+            <p className="mt-1 max-w-lg text-xs text-muted leading-relaxed">
+              Upload a mirror selfie, full-body OOTD photo, flatlay, or shopping cart screenshot (Zara, ASOS, SHEIN, etc.).
+              ClosetAI detects every piece you&apos;re wearing, strips away body &amp; background into clean studio flat-lays, and can save the whole outfit in one go.
             </p>
-            <div className="mt-5">
+            <div className="mt-5 flex flex-wrap justify-center gap-3">
               <Button
                 type="button"
                 onClick={() => multiScreenshotInput.current?.click()}
               >
-                <Layers className="size-4" aria-hidden /> Choose order screenshot
+                <ImagePlus className="size-4" aria-hidden /> Choose OOTD or Screenshot
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => multiCameraInput.current?.click()}
+              >
+                <Camera className="size-4" aria-hidden /> Snap OOTD Photo
               </Button>
             </div>
             <input
               ref={multiScreenshotInput}
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
               className="sr-only"
-              aria-label="Upload multi-garment order screenshot"
+              aria-label="Upload OOTD photo or multi-garment screenshot"
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files, undefined, true);
+                e.target.value = "";
+              }}
+            />
+            <input
+              ref={multiCameraInput}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="sr-only"
+              aria-label="Take an OOTD photo"
               onChange={(e) => {
                 if (e.target.files) addFiles(e.target.files, undefined, true);
                 e.target.value = "";
@@ -1134,10 +1345,37 @@ export function WardrobeUploader({
       ) : null}
 
       {entries.length > 0 && savedCount === entries.length ? (
-        <Alert tone="success" title={`${savedCount} ${savedCount === 1 ? "garment" : "garments"} saved`}>
-          <Link href="/wardrobe" className="font-medium underline underline-offset-4" onClick={() => setEntries([])}>
-            Back to your wardrobe
-          </Link>
+        <Alert
+          tone="success"
+          title={
+            outfitBundle?.savedOutfitId
+              ? `${savedCount} garments extracted & "${outfitBundle.outfitName}" saved${outfitBundle.markWornToday ? " (logged as worn today)" : ""}!`
+              : `${savedCount} ${savedCount === 1 ? "garment" : "garments"} saved`
+          }
+        >
+          <div className="flex flex-wrap items-center gap-4">
+            <Link
+              href="/wardrobe"
+              className="font-medium underline underline-offset-4"
+              onClick={() => {
+                setEntries([]);
+                setOutfitBundle(null);
+              }}
+            >
+              Back to your wardrobe
+            </Link>
+            {outfitBundle?.savedOutfitId && (
+              <Link
+                href="/studio"
+                className="font-medium text-accent underline underline-offset-4"
+              >
+                View saved OOTD in Outfit Studio →
+              </Link>
+            )}
+          </div>
+          {outfitBundle?.error && (
+            <p className="mt-1 text-xs text-amber-700">{outfitBundle.error}</p>
+          )}
         </Alert>
       ) : null}
 
@@ -1147,7 +1385,9 @@ export function WardrobeUploader({
           <div>
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
               <CheckSquare className="size-4 text-accent" />
-              Batch Save (
+              {outfitBundle && !outfitBundle.savedOutfitId
+                ? `Save All & Create "${outfitBundle.outfitName}" (`
+                : "Batch Save ("}
               {
                 entries.filter(
                   (e) => (e.stage === "review" || e.stage === "saving") && !e.multiDetectedItems,
@@ -1156,16 +1396,20 @@ export function WardrobeUploader({
               garments)
             </h3>
             <p className="text-xs text-muted">
-              Save all reviewed garments to your wardrobe together.
+              {outfitBundle && !outfitBundle.savedOutfitId
+                ? `Saves all extracted garments to your closet and links them into your OOTD outfit${outfitBundle.markWornToday ? " (logged as worn today)" : ""}.`
+                : "Save all reviewed garments to your wardrobe together."}
             </p>
           </div>
           <Button
             type="button"
             onClick={handleSaveAll}
-            loading={savingAll}
-            disabled={savingAll || entries.some((e) => e.stage === "saving")}
+            loading={savingAll || Boolean(outfitBundle?.creating)}
+            disabled={savingAll || Boolean(outfitBundle?.creating) || entries.some((e) => e.stage === "saving")}
           >
-            Save all garments
+            {outfitBundle && !outfitBundle.savedOutfitId
+              ? "Save all & create OOTD"
+              : "Save all garments"}
           </Button>
         </Card>
       ) : null}
@@ -1237,7 +1481,11 @@ function EntryCard({
   onSave: (id: string, values: ItemFields) => Promise<{ ok: boolean; error?: string; fieldErrors?: Record<string, string> }>;
   onAnalyse: (entry: Entry) => void;
   onScanMulti: (entry: Entry) => void;
-  onImportMultiItems: (entry: Entry, selected: DetectedClothingItem[]) => void;
+  onImportMultiItems: (
+    entry: Entry,
+    selected: DetectedClothingItem[],
+    options: MultiItemExtractOptions,
+  ) => void;
   onDismissMulti: (id: string) => void;
   onBeautify: (entry: Entry, mode: BeautificationMode) => void;
   onRotate: (entry: Entry, degrees: 90 | -90) => void;
@@ -1251,8 +1499,11 @@ function EntryCard({
         sourcePreviewUrl={entry.originalPreviewUrl ?? entry.previewUrl}
         sourceFileName={entry.file.name}
         items={entry.multiDetectedItems}
+        photoType={entry.multiPhotoType ?? "screenshot"}
+        outfitTitle={entry.multiOutfitTitle ?? null}
         loading={Boolean(entry.multiCropping)}
-        onConfirm={(selected) => onImportMultiItems(entry, selected)}
+        loadingStep={entry.multiLoadingStep}
+        onConfirm={(selected, options) => onImportMultiItems(entry, selected, options)}
         onDismiss={() => onDismissMulti(entry.id)}
       />
     );
@@ -1278,7 +1529,11 @@ function EntryCard({
           ) : entry.isCutout ? (
             <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-surface/90 px-2 py-0.5 text-[10px] font-medium text-foreground shadow-xs">
               <Sparkles className="size-2.5 text-accent" aria-hidden />
-              {entry.beautifyMode === "ai-enhance" ? "AI Enhanced" : "Clean Cutout"}
+              {entry.beautifyMode === "catalog-flatlay"
+                ? "De-Body Flat-Lay"
+                : entry.beautifyMode === "ai-enhance"
+                  ? "AI Enhanced"
+                  : "Clean Cutout"}
             </span>
           ) : null}
 
@@ -1360,6 +1615,24 @@ function EntryCard({
                     : "AI Enhance"}
                 </Button>
               </div>
+              <Button
+                type="button"
+                variant={
+                  entry.isCutout && entry.beautifyMode === "catalog-flatlay"
+                    ? "primary"
+                    : "outline"
+                }
+                size="sm"
+                className="w-full px-2 text-[11px]"
+                disabled={entry.processingCutout}
+                onClick={() => onBeautify(entry, "catalog-flatlay")}
+                title="Remove body/skin and render a standalone unworn studio flat-lay"
+              >
+                <Layers className="size-3" aria-hidden />
+                {entry.isCutout && entry.beautifyMode === "catalog-flatlay"
+                  ? "Restore Original"
+                  : "De-Body Studio Flat-Lay"}
+              </Button>
               {entry.beautifyError ? (
                 <p className="text-[11px] text-danger">{entry.beautifyError}</p>
               ) : null}
@@ -1553,10 +1826,10 @@ function ReviewForm({
                 disabled={saving || entry.analysing}
                 loading={entry.analysing}
                 onClick={() => onScanMulti(entry)}
-                title="Detect and isolate multiple garments in this photo (e.g. SHEIN or Temu order screenshot)"
+                title="Detect and extract multiple garments from an OOTD photo or order screenshot"
               >
-                <Layers className="size-4 text-accent" aria-hidden />
-                Scan for multiple garments
+                <UserCheck className="size-4 text-accent" aria-hidden />
+                Extract OOTD / Multi-Garments
               </Button>
             </>
           ) : null}

@@ -121,7 +121,14 @@ export async function analysePhoto(path: string, signal: AbortSignal): Promise<A
 }
 
 export type MultiAnalyseResponse =
-  | { status: "ok"; items: DetectedClothingItem[]; provider: string; isMock: boolean }
+  | {
+      status: "ok";
+      photoType?: "ootd" | "screenshot" | "flatlay";
+      outfitTitle?: string | null;
+      items: DetectedClothingItem[];
+      provider: string;
+      isMock: boolean;
+    }
   | { status: "unavailable"; reason: string }
   | { status: "failed"; message: string };
 

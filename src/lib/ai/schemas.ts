@@ -174,6 +174,7 @@ const flexibleStyle = z.preprocess((val) => {
 export const detectedClothingItemSchema = z
   .object({
     box_2d: flexibleBox2d.optional().default([0, 0, 1000, 1000]),
+    worn_on_body: z.boolean().optional().default(false),
     name: z.string().trim().min(1).max(120),
     category: flexibleCategory,
     subcategory: z.string().trim().max(60).optional().nullable().transform((v) => v || ""),
@@ -199,6 +200,7 @@ export const detectedClothingItemSchema = z
   })
   .transform((v) => ({
     box2d: v.box_2d,
+    wornOnBody: v.worn_on_body,
     suggestion: {
       name: v.name,
       category: v.category,
@@ -216,6 +218,16 @@ export const detectedClothingItemSchema = z
     },
   }));
 
+const flexiblePhotoType = z.preprocess((val) => {
+  if (typeof val === "string") {
+    const s = val.toLowerCase().trim();
+    if (s === "ootd" || s === "worn" || s === "person" || s === "selfie") return "ootd";
+    if (s === "flatlay" || s === "flat_lay") return "flatlay";
+    if (s === "screenshot" || s === "order" || s === "cart") return "screenshot";
+  }
+  return "screenshot";
+}, z.enum(["ootd", "screenshot", "flatlay"]));
+
 export const multiClothingAnalysisSchema = z.preprocess((val) => {
   if (Array.isArray(val)) {
     return { items: val };
@@ -223,16 +235,22 @@ export const multiClothingAnalysisSchema = z.preprocess((val) => {
   if (val && typeof val === "object") {
     const obj = val as Record<string, unknown>;
     if (!obj.items) {
-      if (Array.isArray(obj.garments)) return { items: obj.garments };
-      if (Array.isArray(obj.clothing)) return { items: obj.clothing };
-      if (Array.isArray(obj.products)) return { items: obj.products };
-      if (Array.isArray(obj.clothes)) return { items: obj.clothes };
+      if (Array.isArray(obj.garments)) return { ...obj, items: obj.garments };
+      if (Array.isArray(obj.clothing)) return { ...obj, items: obj.clothing };
+      if (Array.isArray(obj.products)) return { ...obj, items: obj.products };
+      if (Array.isArray(obj.clothes)) return { ...obj, items: obj.clothes };
     }
   }
   return val;
 }, z.object({
+  photo_type: flexiblePhotoType.optional().default("screenshot"),
+  outfit_title: z.string().trim().max(90).optional().nullable().default(null),
   items: z.array(detectedClothingItemSchema).max(12),
-}));
+}).transform((v) => ({
+  photoType: v.photo_type === "ootd" || v.items.some((i) => i.wornOnBody) ? ("ootd" as const) : v.photo_type,
+  outfitTitle: v.outfit_title || null,
+  items: v.items,
+})));
 
 export type DetectedClothingItem = z.output<typeof detectedClothingItemSchema>;
 export type MultiClothingSuggestion = z.output<typeof multiClothingAnalysisSchema>;
@@ -240,16 +258,29 @@ export type MultiClothingSuggestion = z.output<typeof multiClothingAnalysisSchem
 export const multiClothingAnalysisJsonSchema = {
   type: "object",
   properties: {
+    photo_type: {
+      type: "string",
+      enum: ["ootd", "screenshot", "flatlay"],
+      description: "'ootd' if a person is wearing an outfit (mirror selfie, street style, portrait); 'screenshot' if an online order/cart screenshot; 'flatlay' if unworn items laid out together.",
+    },
+    outfit_title: {
+      type: "string",
+      description: "Short editorial title if photo_type is 'ootd' or 'flatlay', e.g. 'Relaxed Linen Smart-Casual OOTD'. Empty string for order screenshots.",
+    },
     items: {
       type: "array",
-      description: "List of distinct garments or accessories visible in this screenshot or photo.",
+      description: "List of distinct garments or accessories visible in this OOTD photo, flatlay, or screenshot.",
       items: {
         type: "object",
         properties: {
           box_2d: {
             type: "array",
             items: { type: "number" },
-            description: "Normalized bounding box [ymin, xmin, ymax, xmax] on a scale of 0 to 1000.",
+            description: "Normalized bounding box [ymin, xmin, ymax, xmax] on a scale of 0 to 1000 tightly enclosing this item.",
+          },
+          worn_on_body: {
+            type: "boolean",
+            description: "True if this garment or accessory is currently being worn or held by a person in the photo.",
           },
           name: { type: "string", description: "Short descriptive name, e.g. 'Floral Puff Sleeve Midi Dress'. No brand names." },
           category: { type: "string", enum: [...CATEGORY_VALUES] },
@@ -269,21 +300,26 @@ export const multiClothingAnalysisJsonSchema = {
           uncertain_fields: { type: "array", items: { type: "string", enum: [...UNCERTAIN_FIELDS] } },
         },
         required: [
-          "box_2d", "name", "category", "subcategory", "primary_colour", "secondary_colours",
+          "box_2d", "worn_on_body", "name", "category", "subcategory", "primary_colour", "secondary_colours",
           "pattern", "style", "occasions", "seasons", "care_type", "confidence", "uncertain_fields",
         ],
       },
     },
   },
-  required: ["items"],
+  required: ["photo_type", "outfit_title", "items"],
 } as const;
 
 export const MULTI_CLOTHING_SYSTEM_PROMPT = [
-  "You catalogue multiple distinct clothing items or accessories visible in an image.",
-  "This is commonly an e-commerce order confirmation screenshot (SHEIN, Temu, ASOS, Zara), a shopping cart, or a multi-garment photo.",
-  "For each distinct garment or accessory, identify its bounding box box_2d as [ymin, xmin, ymax, xmax] on a scale of 0 to 1000, enclosing that item.",
-  "Describe only what is visible. Never invent brands or materials.",
-  "For care_type: WASHABLE for regular clothing, WIPE_CLEAN for shoes and leather, NO_WASH for accessories like watches, belts, jewelry, bags, and sunglasses.",
-  "If the image has only 1 garment, return 1 item. If multiple garments are present, return every individual garment (up to 12).",
-  "If no clothing is visible, return an empty items list.",
+  "You extract and catalogue every distinct garment, pair of shoes, or accessory from an image.",
+  "The image may be: (1) an OOTD / mirror selfie / full-body photo of a person wearing an outfit ('ootd'), (2) a flatlay of multiple clothes ('flatlay'), or (3) an e-commerce order/cart screenshot ('screenshot').",
+  "RULES FOR OOTD / WORN PHOTOS:",
+  "- Focus ONLY on the primary foreground person. Ignore bystanders or people in the background.",
+  "- Identify every clearly visible piece worn or carried: outerwear/blazer/jacket, inner shirt/top/knitwear, trousers/jeans/skirt/shorts (or full dress/jumpsuit/agbada/kaftan), footwear, bag, belt, headwear, or sunglasses.",
+  "- For footwear worn on both feet, return ONLY ONE item entry (not two separate left/right shoe entries), with box_2d enclosing both shoes together (or the clearest full shoe if feet are far apart).",
+  "- Set worn_on_body: true and photo_type: 'ootd', and suggest a concise outfit_title (e.g. 'Crisp Monochrome Streetwear OOTD').",
+  "GENERAL RULES:",
+  "- Return tight normalized bounding boxes box_2d as [ymin, xmin, ymax, xmax] (0 to 1000 scale).",
+  "- Describe only what is visible. Never invent brands or materials.",
+  "- For care_type: WASHABLE for regular clothing, WIPE_CLEAN for shoes and leather, NO_WASH for watches, belts, jewelry, bags, hats, and sunglasses.",
+  "- Return up to 12 distinct items. If no clothing is visible, return an empty items list.",
 ].join(" ");

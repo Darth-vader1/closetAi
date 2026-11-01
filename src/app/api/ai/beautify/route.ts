@@ -18,6 +18,7 @@ const requestSchema = z
   .object({
     path: z.string().min(1).max(300).optional(),
     imageDataUrl: z.string().optional(),
+    category: z.string().trim().max(60).nullable().optional(),
     mode: z
       .enum(["clean-cutout", "ai-enhance", "catalog-flatlay"])
       .optional()
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
       return json({ error: "Invalid photo reference." }, 400);
     }
 
-    const { path, imageDataUrl, mode, skipSegmentation } = parsed.data;
+    const { path, imageDataUrl, category, mode, skipSegmentation } = parsed.data;
 
     // Check freemium / premium beautify limits
     const usage = await checkUsageLimit(user.id, "beautify_processing");
@@ -165,6 +166,7 @@ export async function POST(request: NextRequest) {
       mimeType,
       extension,
       mode,
+      category: category ?? null,
       skipSegmentation,
       signal: request.signal,
     });

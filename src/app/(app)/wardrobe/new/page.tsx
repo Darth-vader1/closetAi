@@ -52,16 +52,23 @@ export default async function AddClothesPage({
 
   const tabParam = getParam("tab");
   const initialTab =
-    tabParam === "store" || tabParam === "screenshot" || tabParam === "photo"
-      ? tabParam
-      : (initialImportUrl || initialBookmarkletProduct ? "store" : "photo");
+    tabParam === "store"
+      ? "store"
+      : tabParam === "screenshot" || tabParam === "ootd"
+        ? "screenshot"
+        : initialImportUrl || initialBookmarkletProduct
+          ? "store"
+          : "photo";
 
   return (
     <>
       <Link href="/wardrobe" className="mb-4 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-muted hover:text-foreground">
         <ArrowLeft className="size-4" aria-hidden /> Back to wardrobe
       </Link>
-      <PageHeader title="Add clothes" description="Upload photos, check the details, and save each garment to your wardrobe." />
+      <PageHeader
+        title="Add clothes"
+        description="Upload single garments, extract pieces from an OOTD selfie, or import from any online store."
+      />
       <WardrobeUploader
         aiAvailable={ai.available}
         aiUnavailableReason={reason}

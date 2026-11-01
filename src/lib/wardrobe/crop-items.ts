@@ -49,6 +49,7 @@ export async function cropGarmentFromImage(
   source: File | Blob,
   box2d: [number, number, number, number],
   filename: string,
+  marginFraction = 0.04,
 ): Promise<{ file: File; previewUrl: string }> {
   let bitmap: ImageBitmap;
   try {
@@ -62,6 +63,7 @@ export async function cropGarmentFromImage(
       box2d,
       bitmap.width,
       bitmap.height,
+      marginFraction,
     );
 
     const canvas = document.createElement("canvas");
