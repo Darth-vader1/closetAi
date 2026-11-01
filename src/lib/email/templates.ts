@@ -465,6 +465,8 @@ export interface FeatureAnnouncementItem {
   badge?: string;
   description: string;
   icon?: string;
+  href?: string;
+  ctaLabel?: string;
 }
 
 export interface FeatureAnnouncementEmailProps {
@@ -477,48 +479,63 @@ export interface FeatureAnnouncementEmailProps {
   unsubscribeToken?: string;
 }
 
+export const DEFAULT_ANNOUNCEMENT_SUPER_SUBJECT =
+  "What's new in ClosetAI: Live Stylist Chat, Flatlay Studio, 9 Body Shapes & Store Import ✨";
+
 export const DEFAULT_ANNOUNCEMENT_FEATURES: FeatureAnnouncementItem[] = [
   {
-    icon: "🎨",
-    badge: "New",
-    title: "AI Outfit Flatlay Studio",
-    description:
-      "Compose magazine-worthy flatlay collage boards using your actual wardrobe pieces. Drag, rotate, resize, adjust layers, toggle drop shadows, and switch layout presets (Editorial, Minimal, Streetwear). Export high-res PNG lookbooks or save boards directly into your wardrobe outfits.",
-  },
-  {
     icon: "💬",
-    badge: "Connect",
-    title: "Interactive AI Stylist Chat",
+    badge: "AI Chat",
+    title: "Live @ClosetAI Stylist Chat",
     description:
-      "Chat 1-on-1 with @ClosetAI Stylist anytime in Connect. Share individual garments or full outfits directly into the conversation, ask for styling advice, and get instant, interactive outfit cards assembled straight from your clean clothes.",
+      "Chat 1-on-1 with @ClosetAI Stylist anytime inside Connect. Ask what to wear for your local weather or occasion, attach pieces from your closet, and save complete, sanity-checked outfit cards straight to your library.",
+    href: "/connect/stylist",
+    ctaLabel: "Chat with @ClosetAI Stylist →",
   },
   {
-    icon: "🌤️",
-    badge: "Smart Weather",
-    title: "Automatic Background Location & Weather",
+    icon: "🎨",
+    badge: "Creative",
+    title: "Editorial Flatlay Studio",
     description:
-      "No more manual location updates. ClosetAI now automatically syncs your local weather in the background, matching fabric warmth, layers, and rain suitability to your current forecast the moment you open the app.",
+      "Compose magazine-worthy collage boards from your real clothes. Drag, rotate, resize, toggle studio drop shadows, switch layout presets and linen/limewash backdrops, and export high-res PNG lookbooks in 1:1, 4:5, 9:16, or 16:9.",
+    href: "/studio/flatlay",
+    ctaLabel: "Open Flatlay Studio →",
   },
   {
-    icon: "📅",
-    badge: "Planning",
-    title: "Outfit Calendar & Weekly Schedule",
+    icon: "👗",
+    badge: "Styling Engine",
+    title: "9 Body Shapes, Layering & Modest Styling",
     description:
-      "Plan your looks for the week ahead with our enhanced calendar view. Track daily outfit rotations, browse scheduled pieces, and confirm worn outfits with a single click to keep your wear history and laundry accurate.",
+      "Proportion-aware recommendations tailored across Hourglass, Pear, Apple, Curvy, Athletic, Classic & Tall builds — plus smart 90s/Y2K slip-dress underlayering, modest coverage controls, and traditional Nigerian occasion wear.",
+    href: "/stylist",
+    ctaLabel: "Try AI Stylist →",
   },
   {
     icon: "✨",
-    badge: "AI Studio",
-    title: "Garment Beautification & Auto Cutout",
+    badge: "Wardrobe",
+    title: "Product Studio Beautify, Multi-Crop & Store Import",
     description:
-      "Turn casual floor or hanger photos into crisp catalog cutouts. The Product Studio flattens fabric creases, removes cluttered backgrounds, corrects tilt, and isolates garments cleanly for pristine boards and wardrobe grids.",
+      "Turn casual floor or hanger snaps into clean studio cutouts, automatically split full-outfit photos into individual garments, or import pieces directly from online store URLs.",
+    href: "/wardrobe/new",
+    ctaLabel: "Add or Import Clothes →",
+  },
+  {
+    icon: "🤝",
+    badge: "Connect",
+    title: "ClosetAI Connect & Closet ID Sharing",
+    description:
+      "Share your unique Closet ID tag with friends or personal stylists to collaborate on outfits in real time with granular, revocable wardrobe access (keeping private categories strictly hidden).",
+    href: "/connect",
+    ctaLabel: "Explore Connect →",
   },
   {
     icon: "🧳",
-    badge: "Travel",
-    title: "Smart Trip Packing Planner",
+    badge: "Lifestyle",
+    title: "30-Day Trip Capsules, Smart Calendar & WhatsApp Briefs",
     description:
-      "Heading on a getaway or business trip? Enter your destination, dates, and activities, and ClosetAI will generate an optimized, weather-ready capsule wardrobe with luggage weight estimates so you never overpack.",
+      "Generate weather-backed carry-on packing rotations up to 30 days, schedule your week on the Outfit Calendar, and opt into automated daily outfit & 7-stage laundry briefings via Email or WhatsApp.",
+    href: "/packing",
+    ctaLabel: "Plan a Trip Capsule →",
   },
 ];
 
@@ -526,22 +543,27 @@ export const DEFAULT_ANNOUNCEMENT_FEATURES: FeatureAnnouncementItem[] = [
 export function renderFeatureAnnouncementHtml({
   displayName,
   heading = "What's new in ClosetAI ✨",
-  intro = "We've been hard at work adding new capabilities to make styling, organizing, and planning your outfits more effortless than ever. Here's a look at what's new:",
+  intro = "We've shipped a wave of upgrades to make styling, organizing, and sharing your digital wardrobe smarter and more personal than ever. Here is everything waiting inside your closet today:",
   features = DEFAULT_ANNOUNCEMENT_FEATURES,
   ctaUrl,
-  ctaText = "Explore your closet now →",
+  ctaText = "Open Your ClosetAI Studio →",
   unsubscribeToken,
 }: FeatureAnnouncementEmailProps = {}): string {
   const appUrl = getAppUrl();
-  const targetCtaUrl = ctaUrl || `${appUrl}/wardrobe`;
+  const targetCtaUrl = ctaUrl || `${appUrl}/dashboard`;
   const settingsUrl = `${appUrl}/settings`;
   const unsubscribeUrl = unsubscribeToken
     ? `${appUrl}/api/email/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}&type=announcement`
     : settingsUrl;
 
   const featuresHtml = features
-    .map(
-      (f) => `
+    .map((f) => {
+      const featureLink = f.href
+        ? f.href.startsWith("http")
+          ? f.href
+          : `${appUrl}${f.href}`
+        : null;
+      return `
       <div style="margin-bottom: 18px; padding: 18px 20px; background-color: #fafaf9; border: 1px solid #e7e5e4; border-radius: 12px;">
         <table style="width: 100%; border-collapse: collapse;">
           <tr>
@@ -562,12 +584,21 @@ export function renderFeatureAnnouncementHtml({
               <p style="margin: 0; font-size: 13px; color: #57534e; line-height: 1.55;">
                 ${escapeHtml(f.description)}
               </p>
+              ${
+                featureLink
+                  ? `<div style="margin-top: 8px;">
+                      <a href="${escapeHtml(featureLink)}" style="font-size: 12px; font-weight: 600; color: #9a4a2f; text-decoration: none;">
+                        ${escapeHtml(f.ctaLabel || "Try it now →")}
+                      </a>
+                    </div>`
+                  : ""
+              }
             </td>
           </tr>
         </table>
       </div>
-    `,
-    )
+    `;
+    })
     .join("");
 
   return `
