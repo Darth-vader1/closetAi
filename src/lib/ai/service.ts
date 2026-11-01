@@ -15,6 +15,7 @@ import {
 import { AiProviderError, type AiImage, type AiProvider } from "@/lib/ai/types";
 import { resolveAiConfig } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { readImageDimensions, type ImageDimensions } from "@/lib/security/image-sniff";
 
 export type AiAvailability = { available: true; provider: AiProvider } | { available: false; reason: string };
 
@@ -217,9 +218,149 @@ export type MultiAnalyseResult =
   | { status: "unavailable"; reason: string }
   | { status: "failed"; message: string };
 
+/**
+ * Normalizes vision-model `box_2d` coordinates (`[ymin, xmin, ymax, xmax]`) into the `0..1000`
+ * relative coordinate space expected by the client cropper & bounding-box overlay.
+ *
+ * Handles three common VLM quirks (especially Qwen-VL on non-square portrait photos like 564x1024
+ * where height ≈ 1000 tricks the model into outputting raw pixel coordinates):
+ * 1. Float `[0..1]` coordinates -> multiplied by 1000.
+ * 2. Explicit pixel coordinates (`> 1002`) -> divided by `(height, width) * 1000`.
+ * 3. Sub-1000 portrait/landscape pixel coordinates -> detected when all boxes fit inside `dims`
+ *    and appear shifted into the left/top margin in `0..1000` space while centering naturally in pixel space.
+ */
+export function normalizeRawDetectionCoordinates(
+  raw: unknown,
+  dims: ImageDimensions | null,
+): unknown {
+  if (!raw || (typeof raw !== "object" && !Array.isArray(raw))) return raw;
+
+  let itemsKey: string | null = null;
+  let rawItems: unknown[] | null = null;
+
+  if (Array.isArray(raw)) {
+    rawItems = raw;
+  } else {
+    const obj = raw as Record<string, unknown>;
+    for (const key of ["items", "garments", "clothing", "products", "clothes"]) {
+      if (Array.isArray(obj[key])) {
+        itemsKey = key;
+        rawItems = obj[key] as unknown[];
+        break;
+      }
+    }
+  }
+
+  if (!rawItems || rawItems.length === 0) return raw;
+
+  type ParsedBox = { index: number; coords: [number, number, number, number] };
+  const validBoxes: ParsedBox[] = [];
+
+  rawItems.forEach((entry, index) => {
+    if (!entry || typeof entry !== "object") return;
+    const box = (entry as Record<string, unknown>).box_2d;
+    if (!Array.isArray(box) || box.length < 4) return;
+    const nums = [Number(box[0]), Number(box[1]), Number(box[2]), Number(box[3])] as [
+      number,
+      number,
+      number,
+      number,
+    ];
+    if (nums.every((n) => Number.isFinite(n))) {
+      validBoxes.push({ index, coords: nums });
+    }
+  });
+
+  if (validBoxes.length === 0) return raw;
+
+  const allCoords = validBoxes.flatMap((b) => b.coords);
+  const maxCoord = Math.max(...allCoords);
+
+  let scaleY = 1;
+  let scaleX = 1;
+
+  if (maxCoord > 0 && maxCoord <= 1.0) {
+    scaleY = 1000;
+    scaleX = 1000;
+  } else if (dims && dims.width > 0 && dims.height > 0) {
+    if (maxCoord > 1002) {
+      scaleY = 1000 / dims.height;
+      scaleX = 1000 / dims.width;
+    } else {
+      const obj = !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+      const rawPhotoType = typeof obj?.photo_type === "string" ? obj.photo_type.toLowerCase().trim() : "";
+      const isOotd =
+        rawPhotoType === "ootd" ||
+        rawPhotoType === "worn" ||
+        rawPhotoType === "selfie" ||
+        rawItems.some(
+          (entry) =>
+            Boolean(entry && typeof entry === "object" && (entry as Record<string, unknown>).worn_on_body === true),
+        );
+
+      const minY = Math.min(...validBoxes.map((b) => Math.min(b.coords[0], b.coords[2])));
+      const maxY = Math.max(...validBoxes.map((b) => Math.max(b.coords[0], b.coords[2])));
+      const minX = Math.min(...validBoxes.map((b) => Math.min(b.coords[1], b.coords[3])));
+      const maxX = Math.max(...validBoxes.map((b) => Math.max(b.coords[1], b.coords[3])));
+
+      const fitsWithinPixelBounds = maxY <= dims.height + 16 && maxX <= dims.width + 16;
+
+      // Portrait pixel-coordinate trap (e.g. 564x1024 mirror selfie where pixel x ≈ 215..385 looks like 22%..38% instead of 38%..68%)
+      if (fitsWithinPixelBounds && dims.width < dims.height * 0.82 && dims.width < 900) {
+        const midX = (minX + maxX) / 2;
+        const pixelCenterRatioX = midX / dims.width;
+        const looksShiftedLeftInNormalizedSpace =
+          midX < 395 &&
+          maxX <= dims.width * 0.92 &&
+          (isOotd || (validBoxes.length >= 2 && minX >= dims.width * 0.16));
+        if (looksShiftedLeftInNormalizedSpace && pixelCenterRatioX >= 0.34 && pixelCenterRatioX <= 0.74) {
+          scaleY = 1000 / dims.height;
+          scaleX = 1000 / dims.width;
+        }
+      } else if (fitsWithinPixelBounds && dims.height < dims.width * 0.82 && dims.height < 900) {
+        // Symmetric landscape pixel-coordinate trap (e.g. 1024x576)
+        const midY = (minY + maxY) / 2;
+        const pixelCenterRatioY = midY / dims.height;
+        const looksShiftedUpInNormalizedSpace =
+          midY < 395 &&
+          maxY <= dims.height * 0.92 &&
+          (isOotd || (validBoxes.length >= 2 && minY >= dims.height * 0.16));
+        if (looksShiftedUpInNormalizedSpace && pixelCenterRatioY >= 0.34 && pixelCenterRatioY <= 0.74) {
+          scaleY = 1000 / dims.height;
+          scaleX = 1000 / dims.width;
+        }
+      }
+    }
+  }
+
+  const boxByIndex = new Map(validBoxes.map((b) => [b.index, b.coords]));
+  const normalizedItems = rawItems.map((entry, index) => {
+    const coords = boxByIndex.get(index);
+    if (!coords || !entry || typeof entry !== "object") return entry;
+    const rawY1 = coords[0] * scaleY;
+    const rawX1 = coords[1] * scaleX;
+    const rawY2 = coords[2] * scaleY;
+    const rawX2 = coords[3] * scaleX;
+    const ymin = Math.max(0, Math.min(1000, Math.round(Math.min(rawY1, rawY2))));
+    const xmin = Math.max(0, Math.min(1000, Math.round(Math.min(rawX1, rawX2))));
+    const ymax = Math.max(0, Math.min(1000, Math.round(Math.max(rawY1, rawY2))));
+    const xmax = Math.max(0, Math.min(1000, Math.round(Math.max(rawX1, rawX2))));
+    return {
+      ...(entry as Record<string, unknown>),
+      box_2d: [ymin, xmin, ymax, xmax],
+    };
+  });
+
+  if (Array.isArray(raw)) return normalizedItems;
+  return {
+    ...(raw as Record<string, unknown>),
+    [itemsKey!]: normalizedItems,
+  };
+}
+
 export async function analyseMultiClothingImage(
   image: AiImage,
-  options: { provider?: AiProvider; signal?: AbortSignal } = {},
+  options: { provider?: AiProvider; signal?: AbortSignal; dimensions?: ImageDimensions | null } = {},
 ): Promise<MultiAnalyseResult> {
   let provider = options.provider;
   if (!provider) {
@@ -227,6 +368,12 @@ export async function analyseMultiClothingImage(
     if (!availability.available) return { status: "unavailable", reason: availability.reason };
     provider = availability.provider;
   }
+
+  const dims = options.dimensions === undefined ? readImageDimensions(image.bytes) : options.dimensions;
+  const dimensionHint =
+    dims && dims.width > 0 && dims.height > 0
+      ? ` Image resolution is ${dims.width}x${dims.height}px — normalize EVERY box_2d [ymin, xmin, ymax, xmax] strictly to 0..1000 across the full ${dims.width}px width and ${dims.height}px height (divide pixel y by ${dims.height} * 1000 and pixel x by ${dims.width} * 1000; horizontal center x=${Math.round(dims.width / 2)}px MUST be 500, NOT ${Math.round(dims.width / 2)}).`
+      : " Normalize EVERY box_2d [ymin, xmin, ymax, xmax] strictly to 0..1000 across the full image width and height (horizontal center is x=500).";
 
   const MAX_ATTEMPTS = 2;
   let lastMessage = "The AI service couldn't detect garments in this photo.";
@@ -238,13 +385,15 @@ export async function analyseMultiClothingImage(
         kind: "vision",
         system: MULTI_CLOTHING_SYSTEM_PROMPT,
         prompt:
-          "Detect whether this is a worn OOTD/mirror selfie ('ootd'), flatlay ('flatlay'), or order screenshot ('screenshot'). Focus strictly on the primary foreground person (ignore background bystanders). Identify each distinct garment, neckwear/scarf, footwear pair (clogs vs slides vs sneakers), or accessory, returning tight [ymin, xmin, ymax, xmax] (0-1000) bounds, worn_on_body, a rich standalone visual_description of each garment's exact colors/trims/fabric/pattern/silhouette, and cataloguing attributes.",
+          "Detect whether this is a worn OOTD/mirror selfie ('ootd'), flatlay ('flatlay'), or order screenshot ('screenshot'). Focus strictly on the primary foreground person (ignore background bystanders). Identify each distinct garment, neckwear/scarf, footwear pair (clogs vs slides vs sneakers), belt, tie, and accessory — AND perform a dedicated micro-scan of the neck and center chest (especially between open scarf ends, collars, or layered over a t-shirt/top) so pendant/cross necklaces, chains, watches, bracelets, and eyewear are NEVER missed! Return worn_on_body, a rich standalone visual_description of each item's exact colors/trims/fabric/pendant/silhouette (excluding overlapping pieces), and cataloguing attributes." +
+          dimensionHint,
         image,
         jsonSchema: multiClothingAnalysisJsonSchema,
         signal: options.signal,
       });
 
-      const parsed = multiClothingAnalysisSchema.safeParse(raw);
+      const normalizedRaw = normalizeRawDetectionCoordinates(raw, dims);
+      const parsed = multiClothingAnalysisSchema.safeParse(normalizedRaw);
       if (parsed.success) {
         return {
           status: "ok",

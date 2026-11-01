@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { multiClothingAnalysisSchema } from "@/lib/ai/schemas";
-import { analyseMultiClothingImage } from "@/lib/ai/service";
+import { MULTI_CLOTHING_SYSTEM_PROMPT, multiClothingAnalysisSchema } from "@/lib/ai/schemas";
+import { analyseMultiClothingImage, normalizeRawDetectionCoordinates } from "@/lib/ai/service";
 import {
   buildGroundedPromptFromHints,
   classifyFlatLayFamily,
   craftCatalogPromptWithVision,
 } from "@/lib/ai/studio-flatlay-generator";
 import type { AiProvider } from "@/lib/ai/types";
+import { readImageDimensions } from "@/lib/security/image-sniff";
 
 const mockImage = {
   bytes: new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
@@ -520,5 +521,194 @@ describe("OOTD & Multi-Item Outfit Extractor Schema", () => {
     });
     expect(clogsPrompt.prompt).toContain("dominant color MUST be blue");
     expect(clogsPrompt.prompt).toContain("camouflage / marbled pattern");
+  });
+
+  it("reads JPEG/PNG dimensions, detects layered black cross pendant necklaces, and auto-fixes 564x1024 portrait pixel boxes", async () => {
+    // 1. Minimal valid JPEG with APP0 + SOF0 header encoding 564 x 1024 (0x0234 x 0x0400)
+    const jpeg564x1024 = new Uint8Array([
+      0xff, 0xd8, // SOI
+      0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, // APP0 (len 4)
+      0xff, 0xc0, 0x00, 0x0b, 0x08, 0x04, 0x00, 0x02, 0x34, 0x01, 0x01, 0x11, 0x00, // SOF0: height=1024 (0x0400), width=564 (0x0234)
+      0xff, 0xd9, // EOI
+    ]);
+    expect(readImageDimensions(jpeg564x1024)).toEqual({ width: 564, height: 1024 });
+
+    // Minimal valid PNG with IHDR encoding 564 x 1024
+    const png564x1024 = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      0x00, 0x00, 0x02, 0x34, // width = 564
+      0x00, 0x00, 0x04, 0x00, // height = 1024
+    ]);
+    expect(readImageDimensions(png564x1024)).toEqual({ width: 564, height: 1024 });
+
+    // 2. Verify system prompt mandates neck/chest cross & pendant scan
+    expect(MULTI_CLOTHING_SYSTEM_PROMPT).toContain("MANDATORY NECK, CHEST & MICRO-ACCESSORY SCAN");
+    expect(MULTI_CLOTHING_SYSTEM_PROMPT).toContain("cross pendants");
+
+    let capturedPrompt = "";
+    const qwenPortraitProvider: AiProvider = {
+      name: "groq",
+      isMock: false,
+      async generateJson(req) {
+        capturedPrompt = req.prompt;
+        // Simulates Qwen-VL returning raw pixel coordinates on a 564x1024 mirror selfie + black cross necklace
+        return {
+          photo_type: "ootd",
+          outfit_title: "Sky-Blue Ringer Tee, Plaid Scarf & Cross Pendant OOTD",
+          items: [
+            {
+              box_2d: [440, 215, 640, 385],
+              worn_on_body: true,
+              visual_description:
+                "Sky-blue cotton crew-neck ringer t-shirt with narrow black contrast sleeve cuff bands and clean plain chest.",
+              name: "Sky Blue Black-Trim Ringer T-Shirt",
+              category: "t-shirts",
+              subcategory: "Ringer T-shirt",
+              primary_colour: "blue",
+              secondary_colours: ["black"],
+              pattern: "solid",
+              style: "streetwear",
+              occasions: ["everyday"],
+              seasons: ["summer", "all_year"],
+              care_type: "WASHABLE",
+              confidence: 0.95,
+              uncertain_fields: [],
+            },
+            {
+              box_2d: [430, 235, 720, 370],
+              worn_on_body: true,
+              visual_description:
+                "Woven beige and taupe plaid rectangular scarf with cream windowpane grid lines and short twisted fringe ends.",
+              name: "Beige & Taupe Plaid Fringed Scarf",
+              category: "scarves",
+              subcategory: "Fringed Scarf",
+              primary_colour: "beige",
+              secondary_colours: ["brown", "cream"],
+              pattern: "plaid",
+              style: "casual",
+              occasions: ["everyday"],
+              seasons: ["autumn", "winter"],
+              care_type: "WASHABLE",
+              confidence: 0.94,
+              uncertain_fields: [],
+            },
+            {
+              box_2d: [515, 295, 575, 322],
+              worn_on_body: true,
+              visual_description:
+                "Matte black Latin cross pendant suspended from a thin black cord chain necklace with clean rectangular arms.",
+              name: "Matte Black Cross Pendant Necklace",
+              category: "jewellery",
+              subcategory: "Cross Necklace",
+              primary_colour: "black",
+              secondary_colours: [],
+              pattern: "solid",
+              style: "streetwear",
+              occasions: ["everyday"],
+              seasons: ["all_year"],
+              care_type: "NO_WASH",
+              confidence: 0.91,
+              uncertain_fields: [],
+            },
+            {
+              box_2d: [635, 215, 905, 375],
+              worn_on_body: true,
+              visual_description:
+                "Heather grey wide-leg cotton-fleece sweatpants with gathered elastic waistband and cream drawstring cord.",
+              name: "Heather Grey Wide-Leg Sweatpants",
+              category: "trousers",
+              subcategory: "Wide-leg Sweatpants",
+              primary_colour: "grey",
+              secondary_colours: ["cream"],
+              pattern: "solid",
+              style: "streetwear",
+              occasions: ["everyday"],
+              seasons: ["all_year"],
+              care_type: "WASHABLE",
+              confidence: 0.95,
+              uncertain_fields: [],
+            },
+            {
+              box_2d: [880, 235, 965, 380],
+              worn_on_body: true,
+              visual_description:
+                "Royal-blue, navy, and white marbled camouflage perforated EVA foam clogs with rounded closed toes.",
+              name: "Blue Camo Perforated Foam Clogs",
+              category: "shoes",
+              subcategory: "Clogs",
+              primary_colour: "blue",
+              secondary_colours: ["navy", "white"],
+              pattern: "camouflage",
+              style: "casual",
+              occasions: ["everyday"],
+              seasons: ["summer", "all_year"],
+              care_type: "WIPE_CLEAN",
+              confidence: 0.93,
+              uncertain_fields: [],
+            },
+          ],
+        };
+      },
+    };
+
+    const res = await analyseMultiClothingImage(
+      { bytes: jpeg564x1024, mimeType: "image/jpeg" },
+      { provider: qwenPortraitProvider },
+    );
+
+    expect(capturedPrompt).toContain("564x1024px");
+    expect(capturedPrompt).toContain("pendant/cross necklaces");
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+
+    expect(res.items).toHaveLength(5);
+
+    // Shirt pixel box [440, 215, 640, 385] -> centered 0..1000 box [430, 381, 625, 683]
+    expect(res.items[0].box2d).toEqual([430, 381, 625, 683]);
+
+    // Black cross necklace detected & centered over chest [503, 523, 562, 571]
+    const necklace = res.items[2];
+    expect(necklace.suggestion.category).toBe("jewellery");
+    expect(necklace.suggestion.subcategory).toBe("Cross Necklace");
+    expect(necklace.suggestion.primaryColour).toBe("black");
+    expect(necklace.suggestion.careType).toBe("NO_WASH");
+    expect(necklace.box2d).toEqual([503, 523, 562, 571]);
+
+    // Studio flat-lay prompt for cross pendant isolates necklace from underlying shirt/scarf
+    expect(classifyFlatLayFamily("jewellery", "Cross Necklace")).toBe("jewellery_watches");
+    const necklaceFlatlay = buildGroundedPromptFromHints("jewellery_watches", "jewellery", {
+      name: necklace.suggestion.name,
+      subcategory: necklace.suggestion.subcategory,
+      primaryColour: necklace.suggestion.primaryColour,
+      secondaryColours: necklace.suggestion.secondaryColours,
+      pattern: necklace.suggestion.pattern,
+      visualDescription: necklace.visualDescription,
+    });
+    expect(necklaceFlatlay).toContain("dominant color MUST be black");
+    expect(necklaceFlatlay).toContain("NO underlying shirt or scarf fabric");
+
+    // 3. Already-normalized 0..1000 OOTD boxes & 2-column order screenshot left-column cards remain untouched
+    const alreadyNormalizedOotd = {
+      photo_type: "ootd",
+      items: [
+        { box_2d: [430, 381, 625, 683], worn_on_body: true },
+        { box_2d: [620, 381, 884, 665], worn_on_body: true },
+      ],
+    };
+    expect(normalizeRawDetectionCoordinates(alreadyNormalizedOotd, { width: 564, height: 1024 })).toEqual(
+      alreadyNormalizedOotd,
+    );
+
+    const leftColumnOrderScreenshot = {
+      photo_type: "screenshot",
+      items: [
+        { box_2d: [60, 40, 440, 480], worn_on_body: false },
+        { box_2d: [500, 40, 880, 480], worn_on_body: false },
+      ],
+    };
+    expect(normalizeRawDetectionCoordinates(leftColumnOrderScreenshot, { width: 564, height: 1024 })).toEqual(
+      leftColumnOrderScreenshot,
+    );
   });
 });

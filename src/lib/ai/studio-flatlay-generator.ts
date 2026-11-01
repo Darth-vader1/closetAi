@@ -177,6 +177,12 @@ export function classifyFlatLayFamily(
       "jewellery",
       "jewelry",
       "necklace",
+      "pendant",
+      "cross",
+      "locket",
+      "medallion",
+      "choker",
+      "chain",
       "earring",
       "bracelet",
       "bangle",
@@ -266,9 +272,9 @@ function getFamilyFramingRules(family: GarmentFamily): {
       };
     case "jewellery_watches":
       return {
-        defaultSubject: "luxury watch, jewellery, or eyewear",
+        defaultSubject: "luxury watch, pendant necklace, jewellery, or eyewear",
         framingRule:
-          "macro commercial luxury product photograph centered symmetrically on a seamless pure white background (#FFFFFF), tack-sharp metallic, bead, gemstone, dial, or lens details and clasp/frame geometry, soft diffused reflection shadow, absolutely NO human wrist, NO neck, NO ears, NO fingers, NO face, NO skin.",
+          "macro commercial luxury product photograph laid out symmetrically on a seamless pure white background (#FFFFFF), full necklace chain/cord loop and pendant/cross geometry or watch dial/gemstone/frame details tack-sharp, soft diffused reflection shadow, absolutely NO human neck, NO chest, NO wrist, NO ears, NO fingers, NO face, NO skin, NO underlying shirt or scarf fabric.",
       };
     case "bags":
       return {
