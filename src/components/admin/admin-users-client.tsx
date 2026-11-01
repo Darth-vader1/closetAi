@@ -185,6 +185,8 @@ export function AdminUsersClient({
             <option value="all">All Members</option>
             <option value="active">Active Subscribers</option>
             <option value="free">Free / Incomplete</option>
+            <option value="verified">Verified Accounts</option>
+            <option value="unverified">Unverified / Abandoned</option>
             <option value="admin">Administrators</option>
           </select>
 
@@ -257,6 +259,19 @@ export function AdminUsersClient({
                           <p className="text-[11px] text-muted truncate max-w-[220px]" title={u.email || u.id}>
                             {u.email ? u.email : `${u.id.slice(0, 8)}…`}
                           </p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {u.emailConfirmedAt ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
+                                <span className="size-1.5 rounded-full bg-emerald-500" />
+                                <span>Verified</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 font-medium">
+                                <span className="size-1.5 rounded-full bg-amber-500" />
+                                <span>Unverified</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>

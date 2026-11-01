@@ -889,6 +889,7 @@ export interface AdminNewUserAlertProps {
   displayName?: string | null;
   userId?: string | null;
   createdAt?: string | null;
+  status?: "initiated" | "verified";
 }
 
 export function renderAdminNewUserAlertHtml({
@@ -896,12 +897,27 @@ export function renderAdminNewUserAlertHtml({
   displayName,
   userId,
   createdAt,
+  status = "initiated",
 }: AdminNewUserAlertProps): string {
+  const isVerified = status === "verified";
   const appUrl = getAppUrl();
   const adminUrl = `${appUrl}/admin/users`;
   const formattedDate = createdAt
     ? new Date(createdAt).toUTCString()
     : new Date().toUTCString();
+
+  const badgeText = isVerified
+    ? "✦ CLOSET·AI ACCOUNT VERIFIED ✦"
+    : "✦ CLOSET·AI SIGNUP INITIATED ✦";
+  const headingText = isVerified
+    ? "User Account Verified & Active"
+    : "New User Signed Up (Pending Verification)";
+  const descriptionText = isVerified
+    ? "A member has clicked their verification link and activated their ClosetAI account."
+    : "A new user has submitted the signup form and received a verification email. Track this to monitor onboarding completion or abandoned signups.";
+  const statusBadge = isVerified
+    ? `<span style="display: inline-block; background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 6px; font-weight: 600; font-size: 11px;">✅ Verified &amp; Active</span>`
+    : `<span style="display: inline-block; background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 6px; font-weight: 600; font-size: 11px;">⏳ Pending Email Verification</span>`;
 
   return `
 <!DOCTYPE html>
@@ -909,29 +925,43 @@ export function renderAdminNewUserAlertHtml({
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New User Registration: ${escapeHtml(displayName || email)}</title>
+  <title>${isVerified ? "Account Verified" : "New Signup Initiated"}: ${escapeHtml(displayName || email)}</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1c1917; line-height: 1.5;">
   <div style="max-width: 580px; margin: 40px auto; background-color: #ffffff; border: 1px solid #e7e5e4; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
     
     <!-- Header -->
-    <div style="background-color: #1c1917; padding: 32px 36px; text-align: left;">
-      <span style="display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #d6d3d1; margin-bottom: 8px;">CLOSET·AI ADMIN NOTIFICATION</span>
-      <h1 style="margin: 0; font-family: Georgia, serif; font-size: 26px; font-weight: normal; color: #f5f5f4;">New User Signed Up</h1>
-      <p style="margin: 8px 0 0 0; font-size: 13px; color: #a8a29e;">A new member has joined ClosetAI.</p>
+    <div style="background-color: #1c1917; padding: 32px 36px; text-align: left; border-bottom: 2px solid ${isVerified ? "#10b981" : "#f59e0b"};">
+      <span style="display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: ${isVerified ? "#a7f3d0" : "#fde68a"}; margin-bottom: 8px; font-weight: 600;">${badgeText}</span>
+      <h1 style="margin: 0; font-family: Georgia, serif; font-size: 24px; font-weight: normal; color: #f5f5f4;">${headingText}</h1>
+      <p style="margin: 8px 0 0 0; font-size: 13px; color: #d6d3d1; line-height: 1.5;">${descriptionText}</p>
     </div>
 
     <!-- Body -->
     <div style="padding: 36px;">
-      <p style="margin: 0 0 24px 0; font-size: 15px; color: #44403c; line-height: 1.6;">
-        Here are the registration details for the new user:
-      </p>
+      
+      <!-- Callout Status Info -->
+      ${isVerified ? `
+      <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; margin-bottom: 24px; font-size: 13px; color: #166534; line-height: 1.5;">
+        <strong>Active Member:</strong> This user has confirmed their email address and can now access their digital wardrobe, calendar, and AI stylist.
+      </div>
+      ` : `
+      <div style="background-color: #fefce8; border: 1px solid #fef08a; border-radius: 8px; padding: 12px 16px; margin-bottom: 24px; font-size: 13px; color: #713f12; line-height: 1.5;">
+        <strong>Tracking Tip:</strong> You will receive a follow-up <em>"Signup Verified"</em> alert when they click the link in their email. If no confirmation arrives within 48 hours, this signup can be considered abandoned.
+      </div>
+      `}
 
       <!-- User Details Card -->
       <table style="width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #e7e5e4; border-radius: 12px; background-color: #fafaf9; margin-bottom: 28px; overflow: hidden;">
         <tbody>
           <tr style="border-bottom: 1px solid #e7e5e4;">
-            <td style="padding: 14px 18px; font-size: 13px; font-weight: 600; color: #78716c; width: 120px; border-bottom: 1px solid #e7e5e4;">Name</td>
+            <td style="padding: 14px 18px; font-size: 13px; font-weight: 600; color: #78716c; width: 130px; border-bottom: 1px solid #e7e5e4;">Verification</td>
+            <td style="padding: 14px 18px; font-size: 14px; border-bottom: 1px solid #e7e5e4;">
+              ${statusBadge}
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e7e5e4;">
+            <td style="padding: 14px 18px; font-size: 13px; font-weight: 600; color: #78716c; border-bottom: 1px solid #e7e5e4;">Name</td>
             <td style="padding: 14px 18px; font-size: 14px; font-weight: 500; color: #1c1917; border-bottom: 1px solid #e7e5e4;">
               ${escapeHtml(displayName || "Not specified")}
             </td>
@@ -968,11 +998,11 @@ export function renderAdminNewUserAlertHtml({
       <!-- CTA -->
       <div style="text-align: center; margin: 32px 0 16px 0;">
         <a href="${escapeHtml(adminUrl)}" style="display: inline-block; background-color: #1c1917; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 30px; font-size: 14px; font-weight: 500; letter-spacing: 0.3px;">
-          View Users in Admin Dashboard →
+          View Members in Admin Directory →
         </a>
       </div>
       <p style="text-align: center; font-size: 12px; color: #78716c; margin: 0;">
-        Manage roles, monitor feature usage, and view subscriber records.
+        Manage roles, review closet inventories, and inspect subscription statuses.
       </p>
     </div>
 

@@ -52,6 +52,14 @@ export async function GET(request: NextRequest) {
               email: userData.user.email,
               displayName: (userData.user.user_metadata?.display_name as string) || null,
             });
+
+            const { notifyAdminsOfSignupVerified } = await import("@/lib/admin/notifications");
+            await notifyAdminsOfSignupVerified({
+              userId: userData.user.id,
+              email: userData.user.email,
+              displayName: (userData.user.user_metadata?.display_name as string) || null,
+              createdAt: userData.user.created_at,
+            });
           }
         } catch (welcomeErr) {
           logger.warn("auth.confirm_token_hash_welcome_email_failed", { error: welcomeErr });
@@ -81,6 +89,14 @@ export async function GET(request: NextRequest) {
               userId: userData.user.id,
               email: userData.user.email,
               displayName: (userData.user.user_metadata?.display_name as string) || null,
+            });
+
+            const { notifyAdminsOfSignupVerified } = await import("@/lib/admin/notifications");
+            await notifyAdminsOfSignupVerified({
+              userId: userData.user.id,
+              email: userData.user.email,
+              displayName: (userData.user.user_metadata?.display_name as string) || null,
+              createdAt: userData.user.created_at,
             });
           }
         } catch (welcomeErr) {
@@ -148,6 +164,14 @@ export async function POST(request: NextRequest) {
           userId: data.user.id,
           email: data.user.email,
           displayName: (data.user.user_metadata?.display_name as string) || null,
+        });
+
+        const { notifyAdminsOfSignupVerified } = await import("@/lib/admin/notifications");
+        await notifyAdminsOfSignupVerified({
+          userId: data.user.id,
+          email: data.user.email,
+          displayName: (data.user.user_metadata?.display_name as string) || null,
+          createdAt: data.user.created_at,
         });
       } catch (welcomeErr) {
         logger.warn("auth.confirm_otp_welcome_email_failed", { error: welcomeErr });

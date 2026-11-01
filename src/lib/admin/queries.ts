@@ -18,6 +18,7 @@ export interface AdminMetrics {
 export interface AdminUserRow {
   id: string;
   email: string | null;
+  emailConfirmedAt?: string | null;
   displayName: string | null;
   location: string | null;
   timezone: string;
@@ -56,21 +57,36 @@ export interface AdminTransactionRow {
   createdAt: string;
 }
 
-async function getUserEmailMap(): Promise<Map<string, string>> {
+interface AuthUserInfo {
+  email: string | null;
+  emailConfirmedAt: string | null;
+}
+
+async function getUserAuthMap(): Promise<Map<string, AuthUserInfo>> {
   try {
     const adminClient = createAdminClient();
     const { data } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
-    const map = new Map<string, string>();
+    const map = new Map<string, AuthUserInfo>();
     for (const u of data?.users ?? []) {
-      if (u.email) {
-        map.set(u.id, u.email);
-      }
+      map.set(u.id, {
+        email: u.email || null,
+        emailConfirmedAt: u.email_confirmed_at || null,
+      });
     }
     return map;
   } catch (err) {
-    console.error("Failed to fetch admin users email map:", err);
+    console.error("Failed to fetch admin users auth map:", err);
     return new Map();
   }
+}
+
+async function getUserEmailMap(): Promise<Map<string, string>> {
+  const authMap = await getUserAuthMap();
+  const emailMap = new Map<string, string>();
+  for (const [id, info] of authMap.entries()) {
+    if (info.email) emailMap.set(id, info.email);
+  }
+  return emailMap;
 }
 
 export async function getAdminMetrics(): Promise<AdminMetrics> {
@@ -191,8 +207,12 @@ export async function listAdminUsers(options: {
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
-  // Hydrate emails from auth.admin
-  const emailMap = await getUserEmailMap();
+  // Hydrate emails and verification status from auth.admin
+  const authMap = await getUserAuthMap();
+  const emailMap = new Map<string, string>();
+  for (const [id, info] of authMap.entries()) {
+    if (info.email) emailMap.set(id, info.email);
+  }
 
   let q = adminClient
     .from("profiles")
@@ -208,6 +228,16 @@ export async function listAdminUsers(options: {
       q = q.neq("subscription_status", "active").neq("subscription_status", "trialing");
     } else if (options.status === "admin") {
       q = q.in("role", ["admin", "superadmin"]);
+    } else if (options.status === "verified") {
+      const verifiedIds = Array.from(authMap.entries())
+        .filter(([, info]) => Boolean(info.emailConfirmedAt))
+        .map(([id]) => id);
+      q = q.in("id", verifiedIds.length > 0 ? verifiedIds : ["00000000-0000-0000-0000-000000000000"]);
+    } else if (options.status === "unverified") {
+      const unverifiedIds = Array.from(authMap.entries())
+        .filter(([, info]) => !info.emailConfirmedAt)
+        .map(([id]) => id);
+      q = q.in("id", unverifiedIds.length > 0 ? unverifiedIds : ["00000000-0000-0000-0000-000000000000"]);
     }
   }
 
@@ -294,20 +324,24 @@ export async function listAdminUsers(options: {
     outfitCounts.set(row.user_id, (outfitCounts.get(row.user_id) || 0) + 1);
   }
 
-  const users: AdminUserRow[] = profiles.map((p) => ({
-    id: p.id,
-    email: emailMap.get(p.id) || null,
-    displayName: p.display_name,
-    location: p.location,
-    timezone: p.timezone,
-    role: (p as { role?: string }).role || "user",
-    subscriptionStatus: (p as { subscription_status?: string }).subscription_status || "free",
-    subscriptionPlan: (p as { subscription_plan?: string }).subscription_plan || null,
-    subscriptionProvider: (p as { subscription_provider?: string }).subscription_provider || null,
-    createdAt: p.created_at,
-    garmentCount: garmentCounts.get(p.id) || 0,
-    outfitCount: outfitCounts.get(p.id) || 0,
-  }));
+  const users: AdminUserRow[] = profiles.map((p) => {
+    const authInfo = authMap.get(p.id);
+    return {
+      id: p.id,
+      email: authInfo?.email || null,
+      emailConfirmedAt: authInfo?.emailConfirmedAt || null,
+      displayName: p.display_name,
+      location: p.location,
+      timezone: p.timezone,
+      role: (p as { role?: string }).role || "user",
+      subscriptionStatus: (p as { subscription_status?: string }).subscription_status || "free",
+      subscriptionPlan: (p as { subscription_plan?: string }).subscription_plan || null,
+      subscriptionProvider: (p as { subscription_provider?: string }).subscription_provider || null,
+      createdAt: p.created_at,
+      garmentCount: garmentCounts.get(p.id) || 0,
+      outfitCount: outfitCounts.get(p.id) || 0,
+    };
+  });
 
   return { users, totalCount: count ?? users.length };
 }

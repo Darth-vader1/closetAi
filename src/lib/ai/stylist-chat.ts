@@ -150,7 +150,6 @@ function sanitizeProposedOutfits(
   inventory: ChatInventoryItem[],
   validItemIds: Set<string>,
 ): ChatProposedOutfit[] {
-  const inventoryMap = new Map(inventory.map((i) => [i.id, i]));
   const wardrobeItemsMap = new Map<string, WardrobeItem>(
     inventory.map((i) => [
       i.id,

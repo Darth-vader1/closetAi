@@ -112,6 +112,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
           email: parsed.data.email,
           displayName: parsed.data.displayName,
           createdAt: linkData?.user?.created_at ?? new Date().toISOString(),
+          status: "initiated",
         });
 
         return {
@@ -141,6 +142,7 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
       email: parsed.data.email,
       displayName: parsed.data.displayName,
       createdAt: data.user?.created_at ?? new Date().toISOString(),
+      status: "initiated",
     });
 
     // When email confirmation is disabled in Supabase, a session is returned immediately.
@@ -151,6 +153,14 @@ export async function signUpAction(input: unknown): Promise<AuthActionResult> {
           userId: data.user.id,
           email: parsed.data.email,
           displayName: parsed.data.displayName,
+        });
+
+        const { notifyAdminsOfSignupVerified } = await import("@/lib/admin/notifications");
+        await notifyAdminsOfSignupVerified({
+          userId: data.user.id,
+          email: parsed.data.email,
+          displayName: parsed.data.displayName,
+          createdAt: data.user.created_at,
         });
       }
       redirect("/onboarding");

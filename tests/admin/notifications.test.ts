@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderAdminNewUserAlertHtml } from "@/lib/email/templates";
 import { getAdminEmails } from "@/lib/auth/admin";
-import { notifyAdminsOfNewSignup } from "@/lib/admin/notifications";
+import { notifyAdminsOfNewSignup, notifyAdminsOfSignupVerified } from "@/lib/admin/notifications";
 import * as emailService from "@/lib/email/service";
 
 describe("Admin New User Signup Notifications", () => {
@@ -18,12 +18,13 @@ describe("Admin New User Signup Notifications", () => {
   });
 
   describe("renderAdminNewUserAlertHtml", () => {
-    it("renders user registration details in the HTML email", () => {
+    it("renders user registration details in the HTML email for initiated signup", () => {
       const html = renderAdminNewUserAlertHtml({
         email: "sarah.connor@example.com",
         displayName: "Sarah Connor",
         userId: "usr_12345678-abcd",
         createdAt: "2026-10-30T12:00:00Z",
+        status: "initiated",
       });
 
       expect(html).toContain("New User Signed Up");
@@ -31,7 +32,24 @@ describe("Admin New User Signup Notifications", () => {
       expect(html).toContain("sarah.connor@example.com");
       expect(html).toContain("usr_12345678-abcd");
       expect(html).toContain("Free Tier (Freemium)");
+      expect(html).toContain("Pending Email Verification");
       expect(html).toContain("/admin/users");
+    });
+
+    it("renders verified account details when status is verified", () => {
+      const html = renderAdminNewUserAlertHtml({
+        email: "john.reese@example.com",
+        displayName: "John Reese",
+        userId: "usr_87654321-efgh",
+        createdAt: "2026-10-30T12:00:00Z",
+        status: "verified",
+      });
+
+      expect(html).toContain("User Account Verified & Active");
+      expect(html).toContain("John Reese");
+      expect(html).toContain("john.reese@example.com");
+      expect(html).toContain("Verified &amp; Active");
+      expect(html).toContain("Active Member");
     });
 
     it("handles missing displayName and userId gracefully", () => {
@@ -90,6 +108,33 @@ describe("Admin New User Signup Notifications", () => {
       expect(result.sentCount).toBeGreaterThanOrEqual(2);
       expect(sendEmailSpy).toHaveBeenCalled();
       expect(sendEmailSpy.mock.calls[0][0].subject).toContain("newuser@example.com");
+      expect(sendEmailSpy.mock.calls[0][0].subject).toContain("Pending Verification");
+    });
+
+    it("sends verified notification when notifyAdminsOfSignupVerified is called", async () => {
+      vi.spyOn(emailService, "getResendClient").mockReturnValue({
+        provider: "gmail_smtp",
+        user: "test@gmail.com",
+        appPassword: "secretpassword",
+        from: "ClosetAI <test@gmail.com>",
+      });
+
+      const sendEmailSpy = vi.spyOn(emailService, "sendEmail").mockResolvedValue({
+        success: true,
+        id: "msg_mock_456",
+      });
+
+      const result = await notifyAdminsOfSignupVerified({
+        email: "verified@example.com",
+        displayName: "Verified User",
+        userId: "uuid-ver-456",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.sentCount).toBeGreaterThanOrEqual(2);
+      expect(sendEmailSpy).toHaveBeenCalled();
+      expect(sendEmailSpy.mock.calls[0][0].subject).toContain("Signup Verified");
+      expect(sendEmailSpy.mock.calls[0][0].subject).toContain("Active");
     });
 
     it("skips notifications if ADMIN_SIGNUP_NOTIFICATIONS_ENABLED is false", async () => {
