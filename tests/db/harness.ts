@@ -38,7 +38,9 @@ const SUPABASE_STUBS = `
   create table storage.objects (
     id uuid primary key default gen_random_uuid(),
     bucket_id text not null references storage.buckets (id),
-    name text not null
+    name text not null,
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
   );
   alter table storage.objects enable row level security;
   create function storage.foldername(name text) returns text[] language plpgsql as $$
