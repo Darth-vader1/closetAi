@@ -196,7 +196,10 @@ export async function sendTestWhatsAppMessage(): Promise<SendTestMessageResult> 
     if (!subCheck.active) {
       return { success: false, error: subCheck.error || 'Active subscription required' };
     }
-    const quota = await takeAiQuota(supabase, user.id, 'CHAT');
+    const quota = await takeAiQuota(supabase, user.id, 'CHAT', {
+      subOperation: 'BRIEFING_PREVIEW',
+      metadata: { channel: 'whatsapp' },
+    });
     if (!quota.allowed) {
       return { success: false, error: 'Too many test messages sent recently. Please try again later.' };
     }

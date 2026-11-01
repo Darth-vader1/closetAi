@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { takeAiQuota } from "@/lib/ai/rate-limit";
+import { recordAiQuotaOutcome, takeAiQuota, type AiSubOperation } from "@/lib/ai/rate-limit";
 import { getSessionUser } from "@/lib/auth/session";
 import { assertActiveSubscription, checkUsageLimit, consumeUsage } from "@/lib/billing/entitlements";
 import { ConfigError } from "@/lib/env";
@@ -106,8 +106,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const beautifySubOp: AiSubOperation =
+      mode === "catalog-flatlay"
+        ? "BEAUTIFY_FLATLAY"
+        : mode === "ai-enhance"
+          ? "BEAUTIFY_ENHANCE"
+          : "BEAUTIFY_CUTOUT";
+
     const supabase = await createClient();
-    const quota = await takeAiQuota(supabase, user.id, "ANALYSE_IMAGE");
+    const quota = await takeAiQuota(supabase, user.id, "ANALYSE_IMAGE", {
+      subOperation: beautifySubOp,
+      metadata: {
+        mode,
+        category: category ?? null,
+      },
+    });
     if (!quota.allowed) {
       return json({
         status: "fallback",
@@ -192,6 +205,17 @@ export async function POST(request: NextRequest) {
     if (serviceResult.status === "ok") {
       await consumeUsage(user.id, "beautify_processing");
     }
+
+    await recordAiQuotaOutcome(supabase, quota.eventId, user.id, {
+      subOperation: beautifySubOp,
+      provider: serviceResult.provider,
+      model: serviceResult.model,
+      metadata: {
+        mode,
+        status: serviceResult.status,
+        category: category ?? null,
+      },
+    });
 
     return json({
       status: serviceResult.status,

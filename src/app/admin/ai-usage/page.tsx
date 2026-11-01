@@ -6,13 +6,24 @@ import {
   Camera,
   Cpu,
   Image as ImageIcon,
+  Layers,
   MessageSquare,
+  ScanLine,
+  Scissors,
   Sparkles,
+  UserCheck,
   Users,
+  Wand2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { getAdminAiUsageAnalytics } from "@/lib/admin/system-and-usage";
-import { AI_HOURLY_LIMITS, type AiOperation } from "@/lib/ai/rate-limit";
+import {
+  AI_HOURLY_LIMITS,
+  AI_METHOD_META,
+  IMAGE_ANALYSIS_METHODS,
+  type AiOperation,
+  type ImageAnalysisMethod,
+} from "@/lib/ai/rate-limit";
 import { AdminAiUsageClient } from "@/components/admin/admin-ai-usage-client";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +72,51 @@ const OPERATION_META: Record<
   },
 };
 
+const IMAGE_METHOD_VISUALS: Record<
+  ImageAnalysisMethod,
+  {
+    barCls: string;
+    iconCls: string;
+    Icon: typeof Camera;
+  }
+> = {
+  SINGLE_GARMENT_SCAN: {
+    barCls: "bg-sky-500",
+    iconCls: "text-sky-600 dark:text-sky-400",
+    Icon: Camera,
+  },
+  OOTD_EXTRACT: {
+    barCls: "bg-indigo-500",
+    iconCls: "text-indigo-600 dark:text-indigo-400",
+    Icon: UserCheck,
+  },
+  SCREENSHOT_DETECT: {
+    barCls: "bg-cyan-500",
+    iconCls: "text-cyan-600 dark:text-cyan-400",
+    Icon: ScanLine,
+  },
+  FLATLAY_DETECT: {
+    barCls: "bg-teal-500",
+    iconCls: "text-teal-600 dark:text-teal-400",
+    Icon: Layers,
+  },
+  BEAUTIFY_FLATLAY: {
+    barCls: "bg-rose-500",
+    iconCls: "text-rose-600 dark:text-rose-400",
+    Icon: Wand2,
+  },
+  BEAUTIFY_CUTOUT: {
+    barCls: "bg-fuchsia-500",
+    iconCls: "text-fuchsia-600 dark:text-fuchsia-400",
+    Icon: Scissors,
+  },
+  BEAUTIFY_ENHANCE: {
+    barCls: "bg-violet-500",
+    iconCls: "text-violet-600 dark:text-violet-400",
+    Icon: Sparkles,
+  },
+};
+
 export default async function AdminAiUsagePage() {
   const report = await getAdminAiUsageAnalytics();
   const maxDaily = Math.max(1, ...report.dailyTrend14d.map((d) => d.total));
@@ -68,6 +124,12 @@ export default async function AdminAiUsagePage() {
     1,
     Object.values(report.byOperation30d).reduce((acc, v) => acc + v, 0),
   );
+  const totalImage30d = Math.max(
+    1,
+    Object.values(report.byImageMethod30d).reduce((acc, v) => acc + v, 0),
+  );
+  const legacyImage30d = report.byImageMethod30d.VISION_LEGACY || 0;
+  const legacyImage7d = report.byImageMethod7d.VISION_LEGACY || 0;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -279,58 +341,101 @@ export default async function AdminAiUsagePage() {
         </Card>
       </div>
 
-      {/* Per-User AI Leaderboard & Quota Table */}
-      <AdminAiUsageClient rows={report.userLeaderboard} />
-
-      {/* Live Recent AI Stream */}
+      {/* Granular Image Analysis Method Breakdown */}
       <Card className="p-5 bg-surface border-border space-y-4">
-        <div>
-          <h2 className="font-serif text-base font-medium text-foreground">
-            Recent Live AI Activity Stream
-          </h2>
-          <p className="text-[11px] text-muted mt-0.5">
-            Latest 25 AI invocations across all members in chronological order.
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="font-serif text-base font-medium text-foreground">
+              How Images Were Analyzed (30d Breakdown)
+            </h2>
+            <p className="text-[11px] text-muted mt-0.5">
+              Splits <code className="text-[10px]">ANALYSE_IMAGE</code> into exact scan &amp; studio modes across single garment photos, OOTD extraction, screenshots, and beautification.
+            </p>
+          </div>
+          <span className="text-[11px] font-medium text-muted shrink-0">
+            {(report.byOperation30d.ANALYSE_IMAGE || 0).toLocaleString()} total image calls (30d)
+          </span>
         </div>
 
-        <div className="divide-y divide-border/60">
-          {report.recentEvents.map((ev) => {
-            const meta = OPERATION_META[ev.operation] ?? OPERATION_META.CHAT;
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {IMAGE_ANALYSIS_METHODS.map((methodKey) => {
+            const meta = AI_METHOD_META[methodKey];
+            const vis = IMAGE_METHOD_VISUALS[methodKey];
+            const Icon = vis.Icon;
+            const count30d = report.byImageMethod30d[methodKey] || 0;
+            const count7d = report.byImageMethod7d[methodKey] || 0;
+            const sharePct = Math.round((count30d / totalImage30d) * 100);
+
             return (
               <div
-                key={ev.id}
-                className="py-2.5 flex items-center justify-between gap-3 text-xs"
+                key={methodKey}
+                className="rounded-xl border border-border/80 bg-background/40 p-3.5 flex flex-col justify-between gap-2.5"
               >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span
-                    className={`rounded-md px-2 py-0.5 text-[10px] font-semibold shrink-0 ${meta.badgeCls}`}
-                  >
-                    {ev.operation}
-                  </span>
-                  <span className="font-medium text-foreground truncate">
-                    {ev.userName || ev.userEmail || `${ev.userId.slice(0, 8)}…`}
-                  </span>
-                  {ev.userName && ev.userEmail && (
-                    <span className="text-[11px] text-muted truncate hidden sm:inline">
-                      ({ev.userEmail})
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                      <Icon className={`size-3.5 shrink-0 ${vis.iconCls}`} />
+                      <span className="truncate">{meta.label}</span>
                     </span>
-                  )}
+                    <span className="font-serif text-lg font-medium text-foreground shrink-0">
+                      {count30d.toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted leading-relaxed">
+                    {meta.description}
+                  </p>
                 </div>
 
-                <span className="text-[11px] text-muted shrink-0">
-                  {new Date(ev.createdAt).toLocaleString()}
-                </span>
+                <div className="space-y-1.5">
+                  <div className="h-1.5 w-full rounded-full bg-surface-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${vis.barCls}`}
+                      style={{ width: `${Math.max(count30d > 0 ? 5 : 0, sharePct)}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-muted">
+                    <code className="truncate">{meta.route}</code>
+                    <span className="shrink-0">
+                      {count7d} in 7d · {sharePct}%
+                    </span>
+                  </div>
+                </div>
               </div>
             );
           })}
 
-          {report.recentEvents.length === 0 && (
-            <div className="py-8 text-center text-xs text-muted">
-              No AI usage events recorded in the last 30 days.
+          {legacyImage30d > 0 && (
+            <div className="rounded-xl border border-dashed border-border bg-surface-muted/30 p-3.5 flex flex-col justify-between gap-2.5">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted">
+                    <Camera className="size-3.5 shrink-0 text-muted" />
+                    <span className="truncate">Pre-Tracking Vision</span>
+                  </span>
+                  <span className="font-serif text-lg font-medium text-muted shrink-0">
+                    {legacyImage30d.toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-[10px] text-muted leading-relaxed">
+                  Historical image calls recorded before granular method telemetry was enabled.
+                </p>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-muted pt-1 border-t border-border/50">
+                <span>Unlinked historical logs</span>
+                <span>
+                  {legacyImage7d} in 7d · {Math.round((legacyImage30d / totalImage30d) * 100)}%
+                </span>
+              </div>
             </div>
           )}
         </div>
       </Card>
+
+      {/* Per-User AI Leaderboard, Quota Table & Filterable Live Activity Stream */}
+      <AdminAiUsageClient
+        rows={report.userLeaderboard}
+        recentEvents={report.recentEvents}
+      />
     </div>
   );
 }

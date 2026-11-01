@@ -244,7 +244,10 @@ export async function sendTestWhatsAppAction(phoneNumber: string): Promise<Actio
   const supabase = await createClient();
 
   // Rate limit test dispatches per user
-  const quota = await takeAiQuota(supabase, user.id, "CHAT");
+  const quota = await takeAiQuota(supabase, user.id, "CHAT", {
+    subOperation: "BRIEFING_PREVIEW",
+    metadata: { channel: "whatsapp" },
+  });
   if (!quota.allowed) {
     return fail("Too many test messages sent recently. Please try again later.");
   }

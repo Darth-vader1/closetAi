@@ -155,10 +155,11 @@ describe("Admin System Health & AI Usage Telemetry", () => {
     });
 
     const sampleEvents = [
-      { id: "e1", user_id: "u-free", operation: "CHAT", created_at: "2026-11-01T11:30:00Z" },
-      { id: "e2", user_id: "u-free", operation: "STYLE_OUTFITS", created_at: "2026-11-01T10:00:00Z" },
-      { id: "e3", user_id: "u-free", operation: "ANALYSE_IMAGE", created_at: "2026-10-29T09:00:00Z" },
-      { id: "e4", user_id: "u-pro", operation: "GENERATE_PHOTO", created_at: "2026-11-01T08:00:00Z" },
+      { id: "e1", user_id: "u-free", operation: "CHAT", sub_operation: "STYLIST_CHAT", provider: "groq", created_at: "2026-11-01T11:30:00Z" },
+      { id: "e2", user_id: "u-free", operation: "STYLE_OUTFITS", sub_operation: "STYLIST_OUTFITS", provider: "groq", created_at: "2026-11-01T10:00:00Z" },
+      { id: "e3", user_id: "u-free", operation: "ANALYSE_IMAGE", sub_operation: "OOTD_EXTRACT", provider: "gemini", metadata: { itemCount: 5 }, created_at: "2026-10-29T09:00:00Z" },
+      { id: "e3b", user_id: "u-free", operation: "ANALYSE_IMAGE", sub_operation: "BEAUTIFY_FLATLAY", provider: "gemini-image", model: "gemini-2.5-flash-image", created_at: "2026-10-29T09:01:00Z" },
+      { id: "e4", user_id: "u-pro", operation: "GENERATE_PHOTO", sub_operation: "LOOKBOOK_PHOTO", created_at: "2026-11-01T08:00:00Z" },
     ];
 
     mockFrom.mockImplementation((table: string) => {
@@ -238,20 +239,30 @@ describe("Admin System Health & AI Usage Telemetry", () => {
 
     expect(analytics.activeUsers30d).toBe(2);
     expect(analytics.byOperation30d).toEqual({
-      ANALYSE_IMAGE: 1,
+      ANALYSE_IMAGE: 2,
       STYLE_OUTFITS: 1,
       CHAT: 1,
       GENERATE_PHOTO: 1,
     });
+    expect(analytics.byImageMethod30d.OOTD_EXTRACT).toBe(1);
+    expect(analytics.byImageMethod30d.BEAUTIFY_FLATLAY).toBe(1);
+    expect(analytics.byImageMethod30d.SINGLE_GARMENT_SCAN).toBe(0);
     expect(analytics.quotaExhaustedUsersCount).toBe(1);
     expect(analytics.dailyTrend14d).toHaveLength(14);
 
     const topUser = analytics.userLeaderboard[0];
     expect(topUser.userId).toBe("u-free");
-    expect(topUser.calls30d).toBe(3);
+    expect(topUser.calls30d).toBe(4);
+    expect(topUser.imageBreakdown30d.OOTD_EXTRACT).toBe(1);
+    expect(topUser.imageBreakdown30d.BEAUTIFY_FLATLAY).toBe(1);
     expect(topUser.isQuotaExhausted).toBe(true);
     expect(topUser.outfitQuotaUsed).toBe(5);
     expect(topUser.outfitQuotaLimit).toBe(5);
+
+    const ootdEvent = analytics.recentEvents.find((e) => e.id === "e3");
+    expect(ootdEvent?.methodLabel).toBe("OOTD Outfit Extraction");
+    expect(ootdEvent?.detailLabel).toBe("5 pieces");
+    expect(ootdEvent?.provider).toBe("gemini");
   });
 
   it("POST /api/admin/system/probe rejects cross-origin requests with 403", async () => {

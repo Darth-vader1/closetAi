@@ -150,7 +150,10 @@ export async function POST(request: NextRequest) {
     const profile = await getProfile();
 
     // Per-user AI quota (counted even if we end up using the deterministic fallback).
-    const quota = await takeAiQuota(supabase, user.id, "STYLE_OUTFITS");
+    const quota = await takeAiQuota(supabase, user.id, "STYLE_OUTFITS", {
+      subOperation: "TRIP_PACKING",
+      metadata: { purpose: req.purpose, days: req.days },
+    });
     if (!quota.allowed) {
       return json({ error: "You have reached your AI styling limit for this hour. Please try again later." }, 429);
     }

@@ -76,7 +76,10 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     // Enforce dedicated per-user AI photoshoot rate limit (10/hour)
-    const quota = await takeAiQuota(supabase, user.id, "GENERATE_PHOTO");
+    const quota = await takeAiQuota(supabase, user.id, "GENERATE_PHOTO", {
+      subOperation: "LOOKBOOK_PHOTO",
+      metadata: { itemCount: parsed.data.items.length },
+    });
     if (!quota.allowed) {
       return json({ error: "You have reached your photoshoot generation limit for this hour. Please try again later." }, 429);
     }

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { takeAiQuota } from "@/lib/ai/rate-limit";
+import { recordAiQuotaOutcome, takeAiQuota } from "@/lib/ai/rate-limit";
 import { analyseClothingImage, getAiProvider } from "@/lib/ai/service";
 import { getSessionUser } from "@/lib/auth/session";
 import { assertActiveSubscription } from "@/lib/billing/entitlements";
@@ -46,7 +46,9 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const quota = await takeAiQuota(supabase, user.id, "ANALYSE_IMAGE");
+    const quota = await takeAiQuota(supabase, user.id, "ANALYSE_IMAGE", {
+      subOperation: "SINGLE_GARMENT_SCAN",
+    });
     if (!quota.allowed) {
       return json({ error: "You've reached the hourly limit for photo analysis. You can still enter details by hand." }, 429);
     }
@@ -60,6 +62,17 @@ export async function POST(request: NextRequest) {
 
     const result = await analyseClothingImage({ bytes, mimeType: kind.mimeType }, { provider: availability.provider, signal: request.signal });
     if (result.status === "failed") return json({ status: "failed", message: result.message });
+
+    if (result.status === "ok") {
+      await recordAiQuotaOutcome(supabase, quota.eventId, user.id, {
+        subOperation: "SINGLE_GARMENT_SCAN",
+        provider: result.provider,
+        metadata: {
+          category: result.suggestion.category,
+          isMock: result.isMock,
+        },
+      });
+    }
     return json(result);
   } catch (err) {
     if (err instanceof ConfigError) return json({ status: "unavailable", reason: "Services aren't configured yet." });

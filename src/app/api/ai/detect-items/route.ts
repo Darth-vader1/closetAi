@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { takeAiQuota } from "@/lib/ai/rate-limit";
+import { recordAiQuotaOutcome, takeAiQuota, type AiSubOperation } from "@/lib/ai/rate-limit";
 import { analyseMultiClothingImage, getSpatialAiProvider } from "@/lib/ai/service";
 import { getSessionUser } from "@/lib/auth/session";
 import { assertActiveSubscription } from "@/lib/billing/entitlements";
@@ -50,7 +50,9 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const quota = await takeAiQuota(supabase, user.id, "ANALYSE_IMAGE");
+    const quota = await takeAiQuota(supabase, user.id, "ANALYSE_IMAGE", {
+      subOperation: "OOTD_EXTRACT",
+    });
     if (!quota.allowed) {
       return json(
         {
@@ -77,6 +79,25 @@ export async function POST(request: NextRequest) {
 
     if (result.status === "failed") {
       return json({ status: "failed", message: result.message });
+    }
+
+    if (result.status === "ok") {
+      const resolvedSubOp: AiSubOperation =
+        result.photoType === "ootd"
+          ? "OOTD_EXTRACT"
+          : result.photoType === "flatlay"
+            ? "FLATLAY_DETECT"
+            : "SCREENSHOT_DETECT";
+
+      await recordAiQuotaOutcome(supabase, quota.eventId, user.id, {
+        subOperation: resolvedSubOp,
+        provider: result.provider,
+        metadata: {
+          photoType: result.photoType,
+          itemCount: result.items.length,
+          isMock: result.isMock,
+        },
+      });
     }
 
     return json(result);

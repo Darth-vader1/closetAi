@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { takeAiQuota } from "@/lib/ai/rate-limit";
+import { recordAiQuotaOutcome, takeAiQuota } from "@/lib/ai/rate-limit";
 import { getAiProvider } from "@/lib/ai/service";
 import { generateStylistRecommendations } from "@/lib/ai/stylist";
 import { getProfile, getSessionUser } from "@/lib/auth/session";
@@ -68,7 +68,10 @@ export async function POST(request: NextRequest) {
     const profile = await getProfile();
 
     // Check rate limit quota
-    const quota = await takeAiQuota(supabase, user.id, "STYLE_OUTFITS");
+    const quota = await takeAiQuota(supabase, user.id, "STYLE_OUTFITS", {
+      subOperation: "STYLIST_OUTFITS",
+      metadata: { occasion: parsed.data.occasion ?? null },
+    });
     if (!quota.allowed) {
       return json({ error: "You have reached your styling limit for this hour. Please try again later." }, 429);
     }
@@ -232,6 +235,15 @@ export async function POST(request: NextRequest) {
 
     // Only consume recommendation usage upon verified successful completion
     await consumeUsage(user.id, "outfit_recommendations");
+
+    await recordAiQuotaOutcome(supabase, quota.eventId, user.id, {
+      subOperation: "STYLIST_OUTFITS",
+      provider: result.provider,
+      metadata: {
+        occasion: parsed.data.occasion ?? null,
+        outfitCount: result.data.outfits.length,
+      },
+    });
 
     // Map item IDs back to full wardrobe items with signed image URLs
     const itemMap = new Map<string, WardrobeItem>(cleanItems.map((i) => [i.id, i]));

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { takeAiQuota } from "@/lib/ai/rate-limit";
+import { recordAiQuotaOutcome, takeAiQuota } from "@/lib/ai/rate-limit";
 import { getAiProvider } from "@/lib/ai/service";
 import { generateStylistChatReply } from "@/lib/ai/stylist-chat";
 import { getProfile, getSessionUser } from "@/lib/auth/session";
@@ -78,7 +78,9 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     // Check rate limit quota using the dedicated CHAT bucket (60/hr)
-    const quota = await takeAiQuota(supabase, user.id, "CHAT");
+    const quota = await takeAiQuota(supabase, user.id, "CHAT", {
+      subOperation: "STYLIST_CHAT",
+    });
     if (!quota.allowed) {
       return json(
         {
@@ -314,6 +316,11 @@ export async function POST(request: NextRequest) {
       proposedOutfits,
       quickReplies,
     };
+
+    await recordAiQuotaOutcome(supabase, quota.eventId, user.id, {
+      subOperation: "STYLIST_CHAT",
+      provider: aiResult.provider,
+    });
 
     return json({
       status: "ok",

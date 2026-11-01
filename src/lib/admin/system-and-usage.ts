@@ -10,7 +10,17 @@ import {
 } from "@/lib/env";
 import { getResendClient } from "@/lib/email/service";
 import { getWhatsAppConfig } from "@/lib/whatsapp/service";
-import { AI_HOURLY_LIMITS, type AiOperation } from "@/lib/ai/rate-limit";
+import {
+  AI_HOURLY_LIMITS,
+  AI_METHOD_META,
+  AI_SUB_OPERATIONS,
+  VISION_METHOD_KEYS,
+  lookupInMemoryAiTelemetry,
+  type AiOperation,
+  type AiSubOperation,
+  type AnyAiMethodKey,
+  type VisionMethodKey,
+} from "@/lib/ai/rate-limit";
 import { getPlanLimits } from "@/lib/billing/plans";
 
 export type HealthState = "healthy" | "warning" | "degraded" | "unconfigured";
@@ -76,6 +86,7 @@ export interface AdminAiUserUsageRow {
   calls7d: number;
   calls30d: number;
   analyseImage30d: number;
+  imageBreakdown30d: Record<VisionMethodKey, number>;
   styleOutfits30d: number;
   chat30d: number;
   generatePhoto30d: number;
@@ -94,6 +105,12 @@ export interface AdminAiRecentEvent {
   userEmail: string | null;
   userName: string | null;
   operation: AiOperation;
+  methodKey: AnyAiMethodKey;
+  methodLabel: string;
+  routeLabel: string;
+  provider: string | null;
+  model: string | null;
+  detailLabel: string | null;
   createdAt: string;
 }
 
@@ -110,6 +127,8 @@ export interface AdminAiUsageReport {
   quotaExhaustedUsersCount: number;
   byOperation30d: Record<AiOperation, number>;
   byOperation7d: Record<AiOperation, number>;
+  byImageMethod30d: Record<VisionMethodKey, number>;
+  byImageMethod7d: Record<VisionMethodKey, number>;
   dailyTrend14d: DailyAiPoint[];
   userLeaderboard: AdminAiUserUsageRow[];
   recentEvents: AdminAiRecentEvent[];
@@ -704,35 +723,149 @@ export async function getAdminAiUsageAnalytics(
     adminClient.auth.admin.listUsers({ perPage: 1000 }).catch(() => ({ data: { users: [] } })),
   ]);
 
-  // 2. Paginate 30-day ai_usage_events (up to 5 pages x 1000 = 5,000 events) so per-user & 14d charts don't truncate at 1,000
-  const events30d: Array<{
+  // 2. Paginate 30-day ai_usage_events (up to 5 pages x 1000 = 5,000 events) so per-user & 14d charts don't truncate at 1,000.
+  // Automatically falls back to legacy columns if the granular telemetry migration hasn't been applied yet.
+  interface RawAiUsageEventRow {
     id: string;
     user_id: string;
     operation: AiOperation;
+    sub_operation?: string | null;
+    provider?: string | null;
+    model?: string | null;
+    metadata?: Record<string, unknown> | null;
     created_at: string;
-  }> = [];
+  }
+
+  const events30d: RawAiUsageEventRow[] = [];
+  let selectCols = "id, user_id, operation, sub_operation, provider, model, metadata, created_at";
 
   const PAGE_SIZE = 1000;
   for (let page = 0; page < 5; page++) {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
-    const { data, error } = await adminClient
+    let { data, error } = await adminClient
       .from("ai_usage_events")
-      .select("id, user_id, operation, created_at")
+      .select(selectCols)
       .gte("created_at", thirtyDaysAgoIso)
       .order("created_at", { ascending: false })
       .range(from, to);
 
+    if (error && selectCols.includes("sub_operation")) {
+      selectCols = "id, user_id, operation, created_at";
+      const retry = await adminClient
+        .from("ai_usage_events")
+        .select(selectCols)
+        .gte("created_at", thirtyDaysAgoIso)
+        .order("created_at", { ascending: false })
+        .range(from, to);
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error || !data || data.length === 0) break;
-    events30d.push(
-      ...(data as Array<{
-        id: string;
-        user_id: string;
-        operation: AiOperation;
-        created_at: string;
-      }>),
-    );
+    events30d.push(...(data as unknown as RawAiUsageEventRow[]));
     if (data.length < PAGE_SIZE) break;
+  }
+
+  // Optional 30-day correlation signals for pre-telemetry historical ANALYSE_IMAGE rows
+  interface HistoricalWardrobeSignal {
+    id: string;
+    user_id: string;
+    category: string | null;
+    created_at: string;
+    createdAtMs: number;
+    ai_analysed: boolean | null;
+    beautified_at: string | null;
+    beautifiedAtMs: number | null;
+    beautification_mode: string | null;
+    beautification_provider: string | null;
+    beautification_model: string | null;
+  }
+  interface HistoricalOutfitSignal {
+    id: string;
+    user_id: string;
+    photo_path: string | null;
+    created_at: string;
+    createdAtMs: number;
+  }
+
+  const wardrobeSignalsByUser = new Map<string, HistoricalWardrobeSignal[]>();
+  const outfitSignalsByUser = new Map<string, HistoricalOutfitSignal[]>();
+
+  const hasLegacyImageEvents = events30d.some(
+    (ev) => ev.operation === "ANALYSE_IMAGE" && !ev.sub_operation,
+  );
+
+  if (hasLegacyImageEvents) {
+    try {
+      const itemsQuery = adminClient
+        .from("wardrobe_items")
+        .select(
+          "id, user_id, category, created_at, ai_analysed, beautified_at, beautification_mode, beautification_provider, beautification_model",
+        );
+      if (itemsQuery && typeof (itemsQuery as { gte?: unknown }).gte === "function") {
+        const { data: itemRows } = await itemsQuery
+          .gte("created_at", thirtyDaysAgoIso)
+          .order("created_at", { ascending: false })
+          .limit(1000);
+        for (const r of (itemRows ?? []) as Array<Record<string, unknown>>) {
+          const userId = String(r.user_id ?? "");
+          if (!userId) continue;
+          const createdAt = String(r.created_at ?? "");
+          const beautifiedAt = typeof r.beautified_at === "string" ? r.beautified_at : null;
+          const entry: HistoricalWardrobeSignal = {
+            id: String(r.id ?? ""),
+            user_id: userId,
+            category: typeof r.category === "string" ? r.category : null,
+            created_at: createdAt,
+            createdAtMs: Date.parse(createdAt),
+            ai_analysed: typeof r.ai_analysed === "boolean" ? r.ai_analysed : null,
+            beautified_at: beautifiedAt,
+            beautifiedAtMs: beautifiedAt ? Date.parse(beautifiedAt) : null,
+            beautification_mode:
+              typeof r.beautification_mode === "string" ? r.beautification_mode : null,
+            beautification_provider:
+              typeof r.beautification_provider === "string" ? r.beautification_provider : null,
+            beautification_model:
+              typeof r.beautification_model === "string" ? r.beautification_model : null,
+          };
+          const bucket = wardrobeSignalsByUser.get(userId) ?? [];
+          bucket.push(entry);
+          wardrobeSignalsByUser.set(userId, bucket);
+        }
+      }
+    } catch {
+      // Optional correlation signal only
+    }
+
+    try {
+      const outfitsQuery = adminClient
+        .from("outfits")
+        .select("id, user_id, photo_path, created_at");
+      if (outfitsQuery && typeof (outfitsQuery as { gte?: unknown }).gte === "function") {
+        const { data: outfitRows } = await outfitsQuery
+          .gte("created_at", thirtyDaysAgoIso)
+          .order("created_at", { ascending: false })
+          .limit(500);
+        for (const r of (outfitRows ?? []) as Array<Record<string, unknown>>) {
+          const userId = String(r.user_id ?? "");
+          const photoPath = typeof r.photo_path === "string" ? r.photo_path : null;
+          if (!userId || !photoPath) continue;
+          const createdAt = String(r.created_at ?? "");
+          const bucket = outfitSignalsByUser.get(userId) ?? [];
+          bucket.push({
+            id: String(r.id ?? ""),
+            user_id: userId,
+            photo_path: photoPath,
+            created_at: createdAt,
+            createdAtMs: Date.parse(createdAt),
+          });
+          outfitSignalsByUser.set(userId, bucket);
+        }
+      }
+    } catch {
+      // Optional correlation signal only
+    }
   }
 
   // Hydrate email map
@@ -797,6 +930,15 @@ export async function getAdminAiUsageAnalytics(
     });
   }
 
+  const createEmptyVisionMap = (): Record<VisionMethodKey, number> => {
+    const map = {} as Record<VisionMethodKey, number>;
+    for (const k of VISION_METHOD_KEYS) map[k] = 0;
+    return map;
+  };
+
+  const validSubOpSet = new Set<string>(AI_SUB_OPERATIONS);
+  const validVisionSet = new Set<string>(VISION_METHOD_KEYS);
+
   const byOperation30d: Record<AiOperation, number> = {
     ANALYSE_IMAGE: 0,
     STYLE_OUTFITS: 0,
@@ -809,6 +951,152 @@ export async function getAdminAiUsageAnalytics(
     CHAT: 0,
     GENERATE_PHOTO: 0,
   };
+  const byImageMethod30d = createEmptyVisionMap();
+  const byImageMethod7d = createEmptyVisionMap();
+
+  const claimedBeautifyIds = new Set<string>();
+  const claimedScanItemIds = new Set<string>();
+  const claimedOutfitIds = new Set<string>();
+
+  const formatDetailFromMetadata = (meta: Record<string, unknown> | null | undefined): string | null => {
+    if (!meta) return null;
+    if (typeof meta.itemCount === "number") {
+      return `${meta.itemCount} piece${meta.itemCount === 1 ? "" : "s"}`;
+    }
+    if (typeof meta.outfitCount === "number") {
+      return `${meta.outfitCount} outfit${meta.outfitCount === 1 ? "" : "s"}`;
+    }
+    if (typeof meta.days === "number") {
+      return `${meta.days}-day plan`;
+    }
+    if (typeof meta.category === "string" && meta.category.trim()) {
+      return meta.category.trim();
+    }
+    return null;
+  };
+
+  const resolveEventTelemetry = (
+    ev: RawAiUsageEventRow,
+    op: AiOperation,
+    ts: number,
+  ): {
+    methodKey: AnyAiMethodKey;
+    provider: string | null;
+    model: string | null;
+    detailLabel: string | null;
+  } => {
+    const mem = lookupInMemoryAiTelemetry(ev.id, ev.user_id, op, ev.created_at);
+    const rawSubOp =
+      typeof ev.sub_operation === "string" && validSubOpSet.has(ev.sub_operation)
+        ? (ev.sub_operation as AiSubOperation)
+        : mem?.subOperation;
+
+    const provider = ev.provider ?? mem?.provider ?? null;
+    const model = ev.model ?? mem?.model ?? null;
+    const metadata = (ev.metadata ?? mem?.metadata ?? null) as Record<string, unknown> | null;
+
+    if (rawSubOp) {
+      return {
+        methodKey: rawSubOp,
+        provider,
+        model,
+        detailLabel: formatDetailFromMetadata(metadata),
+      };
+    }
+
+    if (op === "ANALYSE_IMAGE") {
+      const userItems = wardrobeSignalsByUser.get(ev.user_id) ?? [];
+      // 1. Check 1-to-1 match against saved Beautify provenance ([-60s, +10m] window)
+      let bestBeautify: HistoricalWardrobeSignal | null = null;
+      let bestBeautifyDelta = Number.POSITIVE_INFINITY;
+      for (const item of userItems) {
+        if (!item.beautifiedAtMs || claimedBeautifyIds.has(item.id)) continue;
+        const delta = item.beautifiedAtMs - ts;
+        if (delta >= -60_000 && delta <= 10 * 60_000 && Math.abs(delta) < bestBeautifyDelta) {
+          bestBeautifyDelta = Math.abs(delta);
+          bestBeautify = item;
+        }
+      }
+      if (bestBeautify) {
+        claimedBeautifyIds.add(bestBeautify.id);
+        const methodKey: VisionMethodKey =
+          bestBeautify.beautification_mode === "catalog-flatlay"
+            ? "BEAUTIFY_FLATLAY"
+            : bestBeautify.beautification_mode === "ai-enhance"
+              ? "BEAUTIFY_ENHANCE"
+              : "BEAUTIFY_CUTOUT";
+        return {
+          methodKey,
+          provider: bestBeautify.beautification_provider ?? provider,
+          model: bestBeautify.beautification_model ?? model,
+          detailLabel: bestBeautify.category ?? null,
+        };
+      }
+
+      // 2. Check 1-to-1 match against OOTD outfit saved with photo_path ([0, +12m] window)
+      const userOutfits = outfitSignalsByUser.get(ev.user_id) ?? [];
+      for (const outfit of userOutfits) {
+        if (claimedOutfitIds.has(outfit.id)) continue;
+        const delta = outfit.createdAtMs - ts;
+        if (delta >= -15_000 && delta <= 12 * 60_000) {
+          claimedOutfitIds.add(outfit.id);
+          return {
+            methodKey: "OOTD_EXTRACT",
+            provider,
+            model,
+            detailLabel: "Saved OOTD outfit",
+          };
+        }
+      }
+
+      // 3. Check 1-to-1 match against single AI-analysed wardrobe item ([0, +10m] window)
+      for (const item of userItems) {
+        if (!item.ai_analysed || claimedScanItemIds.has(item.id)) continue;
+        const delta = item.createdAtMs - ts;
+        if (delta >= -15_000 && delta <= 10 * 60_000) {
+          claimedScanItemIds.add(item.id);
+          return {
+            methodKey: "SINGLE_GARMENT_SCAN",
+            provider,
+            model,
+            detailLabel: item.category ?? null,
+          };
+        }
+      }
+
+      return {
+        methodKey: "VISION_LEGACY",
+        provider,
+        model,
+        detailLabel: null,
+      };
+    }
+
+    if (op === "GENERATE_PHOTO") {
+      return {
+        methodKey: "LOOKBOOK_PHOTO",
+        provider,
+        model,
+        detailLabel: formatDetailFromMetadata(metadata),
+      };
+    }
+
+    if (op === "STYLE_OUTFITS") {
+      return {
+        methodKey: "STYLE_LEGACY",
+        provider,
+        model,
+        detailLabel: formatDetailFromMetadata(metadata),
+      };
+    }
+
+    return {
+      methodKey: "CHAT_LEGACY",
+      provider,
+      model,
+      detailLabel: formatDetailFromMetadata(metadata),
+    };
+  };
 
   const users24h = new Set<string>();
   const users7d = new Set<string>();
@@ -820,6 +1108,7 @@ export async function getAdminAiUsageAnalytics(
     calls7d: number;
     calls30d: number;
     analyseImage30d: number;
+    imageBreakdown30d: Record<VisionMethodKey, number>;
     styleOutfits30d: number;
     chat30d: number;
     generatePhoto30d: number;
@@ -837,6 +1126,7 @@ export async function getAdminAiUsageAnalytics(
         calls7d: 0,
         calls30d: 0,
         analyseImage30d: 0,
+        imageBreakdown30d: createEmptyVisionMap(),
         styleOutfits30d: 0,
         chat30d: 0,
         generatePhoto30d: 0,
@@ -853,9 +1143,13 @@ export async function getAdminAiUsageAnalytics(
     return agg;
   };
 
-  for (const ev of events30d) {
+  const recentEvents: AdminAiRecentEvent[] = [];
+
+  for (let idx = 0; idx < events30d.length; idx++) {
+    const ev = events30d[idx];
     const op = ev.operation in byOperation30d ? ev.operation : "CHAT";
     const ts = Date.parse(ev.created_at);
+    const resolved = resolveEventTelemetry(ev, op, ts);
 
     byOperation30d[op]++;
     users30d.add(ev.user_id);
@@ -866,8 +1160,17 @@ export async function getAdminAiUsageAnalytics(
       agg.lastAiAt = ev.created_at;
     }
 
-    if (op === "ANALYSE_IMAGE") agg.analyseImage30d++;
-    else if (op === "STYLE_OUTFITS") agg.styleOutfits30d++;
+    if (op === "ANALYSE_IMAGE") {
+      agg.analyseImage30d++;
+      const visionKey: VisionMethodKey = validVisionSet.has(resolved.methodKey)
+        ? (resolved.methodKey as VisionMethodKey)
+        : "VISION_LEGACY";
+      byImageMethod30d[visionKey]++;
+      agg.imageBreakdown30d[visionKey]++;
+      if (ts >= sevenDaysMs) {
+        byImageMethod7d[visionKey]++;
+      }
+    } else if (op === "STYLE_OUTFITS") agg.styleOutfits30d++;
     else if (op === "CHAT") agg.chat30d++;
     else if (op === "GENERATE_PHOTO") agg.generatePhoto30d++;
 
@@ -892,6 +1195,24 @@ export async function getAdminAiUsageAnalytics(
       else if (op === "STYLE_OUTFITS") bucket.styleOutfits++;
       else if (op === "CHAT") bucket.chat++;
       else if (op === "GENERATE_PHOTO") bucket.generatePhoto++;
+    }
+
+    if (idx < 35) {
+      const meta = AI_METHOD_META[resolved.methodKey];
+      recentEvents.push({
+        id: ev.id,
+        userId: ev.user_id,
+        userEmail: emailMap.get(ev.user_id) || null,
+        userName: profileMap.get(ev.user_id)?.displayName || null,
+        operation: op,
+        methodKey: resolved.methodKey,
+        methodLabel: meta.label,
+        routeLabel: meta.route,
+        provider: resolved.provider,
+        model: resolved.model,
+        detailLabel: resolved.detailLabel,
+        createdAt: ev.created_at,
+      });
     }
   }
 
@@ -947,6 +1268,7 @@ export async function getAdminAiUsageAnalytics(
       calls7d: agg.calls7d,
       calls30d: agg.calls30d,
       analyseImage30d: agg.analyseImage30d,
+      imageBreakdown30d: agg.imageBreakdown30d,
       styleOutfits30d: agg.styleOutfits30d,
       chat30d: agg.chat30d,
       generatePhoto30d: agg.generatePhoto30d,
@@ -966,15 +1288,6 @@ export async function getAdminAiUsageAnalytics(
     return (b.lastAiAt || "").localeCompare(a.lastAiAt || "");
   });
 
-  const recentEvents: AdminAiRecentEvent[] = events30d.slice(0, 25).map((ev) => ({
-    id: ev.id,
-    userId: ev.user_id,
-    userEmail: emailMap.get(ev.user_id) || null,
-    userName: profileMap.get(ev.user_id)?.displayName || null,
-    operation: ev.operation,
-    createdAt: ev.created_at,
-  }));
-
   return {
     generatedAt: now.toISOString(),
     calls24h: calls24hRes.count ?? events30d.filter((e) => Date.parse(e.created_at) >= oneDayMs).length,
@@ -988,6 +1301,8 @@ export async function getAdminAiUsageAnalytics(
     quotaExhaustedUsersCount,
     byOperation30d,
     byOperation7d,
+    byImageMethod30d,
+    byImageMethod7d,
     dailyTrend14d: Array.from(dayBuckets.values()),
     userLeaderboard,
     recentEvents,
