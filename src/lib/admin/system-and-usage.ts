@@ -1197,7 +1197,7 @@ export async function getAdminAiUsageAnalytics(
       else if (op === "GENERATE_PHOTO") bucket.generatePhoto++;
     }
 
-    if (idx < 35) {
+    if (idx < 150) {
       const meta = AI_METHOD_META[resolved.methodKey];
       recentEvents.push({
         id: ev.id,

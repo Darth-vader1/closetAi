@@ -76,15 +76,39 @@ export function AdminAiUsageClient({
     });
   }, [rows, query, tab]);
 
-  const filteredEvents = useMemo(() => {
-    if (streamFilter === "all") return recentEvents;
-    return recentEvents.filter((ev) => {
+  const streamCounts = useMemo(() => {
+    let singleScan = 0;
+    let multiDetect = 0;
+    let studioBeautify = 0;
+    let stylistChat = 0;
+    for (const ev of recentEvents) {
       const cat = AI_METHOD_META[ev.methodKey]?.category;
-      if (streamFilter === "single_scan") return cat === "single_scan";
-      if (streamFilter === "multi_detect") return cat === "multi_detect";
-      if (streamFilter === "studio_beautify") return cat === "studio_beautify";
-      return cat === "stylist" || cat === "chat" || cat === "photo";
-    });
+      if (cat === "single_scan") singleScan++;
+      else if (cat === "multi_detect") multiDetect++;
+      else if (cat === "studio_beautify") studioBeautify++;
+      else if (cat === "stylist" || cat === "chat" || cat === "photo") stylistChat++;
+    }
+    return {
+      all: recentEvents.length,
+      single_scan: singleScan,
+      multi_detect: multiDetect,
+      studio_beautify: studioBeautify,
+      stylist_chat: stylistChat,
+    };
+  }, [recentEvents]);
+
+  const filteredEvents = useMemo(() => {
+    const matched =
+      streamFilter === "all"
+        ? recentEvents
+        : recentEvents.filter((ev) => {
+            const cat = AI_METHOD_META[ev.methodKey]?.category;
+            if (streamFilter === "single_scan") return cat === "single_scan";
+            if (streamFilter === "multi_detect") return cat === "multi_detect";
+            if (streamFilter === "studio_beautify") return cat === "studio_beautify";
+            return cat === "stylist" || cat === "chat" || cat === "photo";
+          });
+    return matched.slice(0, 25);
   }, [recentEvents, streamFilter]);
 
   const exhaustedCount = useMemo(
@@ -345,11 +369,11 @@ export function AdminAiUsageClient({
           <div className="flex flex-wrap items-center gap-1.5">
             {(
               [
-                { id: "all", label: "All Activity" },
-                { id: "single_scan", label: "Single Photo" },
-                { id: "multi_detect", label: "OOTD & Multi-Detect" },
-                { id: "studio_beautify", label: "Studio Beautify" },
-                { id: "stylist_chat", label: "Stylist & Chat" },
+                { id: "all", label: `All Activity (${Math.min(25, streamCounts.all)})` },
+                { id: "single_scan", label: `Single Photo (${streamCounts.single_scan})` },
+                { id: "multi_detect", label: `OOTD & Multi-Detect (${streamCounts.multi_detect})` },
+                { id: "studio_beautify", label: `Studio Beautify (${streamCounts.studio_beautify})` },
+                { id: "stylist_chat", label: `Stylist & Chat (${streamCounts.stylist_chat})` },
               ] as const
             ).map((f) => (
               <button
