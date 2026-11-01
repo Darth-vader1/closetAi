@@ -175,14 +175,25 @@ describe("OOTD & Multi-Item Outfit Extractor Schema", () => {
 
   it("classifies garment categories into de-bodied studio flat-lay families accurately", async () => {
     expect(classifyFlatLayFamily("shirts")).toBe("tops");
+    expect(classifyFlatLayFamily("blouses")).toBe("tops");
     expect(classifyFlatLayFamily("jackets")).toBe("tops");
     expect(classifyFlatLayFamily("trousers", "Wide-leg Sweatpants")).toBe("bottoms");
     expect(classifyFlatLayFamily("skirts")).toBe("bottoms");
+    expect(classifyFlatLayFamily("leggings")).toBe("bottoms");
     expect(classifyFlatLayFamily("dresses")).toBe("onepiece");
-    expect(classifyFlatLayFamily("agbada")).toBe("onepiece");
+    expect(classifyFlatLayFamily("jumpsuits")).toBe("onepiece");
+    expect(classifyFlatLayFamily("traditional", "Agbada")).toBe("traditional");
+    expect(classifyFlatLayFamily("traditional", "Aso-Ebi Lace Gown")).toBe("traditional");
     expect(classifyFlatLayFamily("shoes", "Clogs")).toBe("footwear");
+    expect(classifyFlatLayFamily("heels", "Stilettos")).toBe("footwear");
+    expect(classifyFlatLayFamily("belts")).toBe("belts");
+    expect(classifyFlatLayFamily("ties", "Silk Necktie")).toBe("ties");
     expect(classifyFlatLayFamily("scarves")).toBe("textiles");
-    expect(classifyFlatLayFamily("bags")).toBe("accessories");
+    expect(classifyFlatLayFamily("headwraps", "Gele")).toBe("headwear");
+    expect(classifyFlatLayFamily("hats", "Fila Cap")).toBe("headwear");
+    expect(classifyFlatLayFamily("jewellery", "Coral Beads")).toBe("jewellery_watches");
+    expect(classifyFlatLayFamily("watches")).toBe("jewellery_watches");
+    expect(classifyFlatLayFamily("bags", "Clutch")).toBe("bags");
 
     // Verify fallback flat-lay prompt when AI isn't configured uses category-appropriate de-body framing
     const prevProvider = process.env.AI_PROVIDER;
@@ -206,6 +217,170 @@ describe("OOTD & Multi-Item Outfit Extractor Schema", () => {
     } finally {
       process.env.AI_PROVIDER = prevProvider;
     }
+  });
+
+  it("recognizes belts, ties, African traditional attire, ladies' wear, and accessories", () => {
+    const rawRichOotd = {
+      photo_type: "ootd",
+      outfit_title: "Owambe Aso-Ebi & Formal Accessories OOTD",
+      items: [
+        {
+          box_2d: [120, 260, 880, 720],
+          worn_on_body: true,
+          visual_description:
+            "Emerald-green corseted Aso-Ebi floral lace floor-length gown with beaded illusion sweetheart bodice andmermaid hem.",
+          name: "Emerald Beaded Aso-Ebi Lace Gown",
+          category: "aso-ebi",
+          subcategory: "Aso-Ebi Gown",
+          primary_colour: "green",
+          secondary_colours: ["beige"],
+          pattern: "floral",
+          style: "traditional",
+          occasions: ["traditional_event", "party"],
+          seasons: ["all_year"],
+          care_type: "WASHABLE",
+          confidence: 0.96,
+          uncertain_fields: [],
+        },
+        {
+          box_2d: [20, 310, 210, 660],
+          worn_on_body: true,
+          visual_description:
+            "Sculptural multi-pleated metallic champagne-gold Aso-Oke Gele headtie arranged in layered fan folds.",
+          name: "Champagne Pleated Aso-Oke Gele",
+          category: "gele",
+          subcategory: "Gele",
+          primary_colour: "beige",
+          secondary_colours: [],
+          pattern: "solid",
+          style: "traditional",
+          occasions: ["traditional_event"],
+          seasons: ["all_year"],
+          care_type: "NO_WASH",
+          confidence: 0.95,
+          uncertain_fields: [],
+        },
+        {
+          box_2d: [220, 390, 340, 580],
+          worn_on_body: true,
+          visual_description:
+            "Multi-strand cylindrical red coral bead necklace with gold clasp.",
+          name: "Red Coral Bead Necklace",
+          category: "jewelry",
+          subcategory: "Coral Beads",
+          primary_colour: "red",
+          secondary_colours: [],
+          pattern: "solid",
+          style: "traditional",
+          occasions: ["traditional_event"],
+          seasons: ["all_year"],
+          care_type: "NO_WASH",
+          confidence: 0.94,
+          uncertain_fields: [],
+        },
+        {
+          box_2d: [440, 340, 495, 630],
+          worn_on_body: true,
+          visual_description:
+            "Smooth black full-grain calfskin waist belt with polished rectangular gold-tone buckle.",
+          name: "Black Leather Gold-Buckle Belt",
+          category: "belt",
+          subcategory: "Leather Belt",
+          primary_colour: "black",
+          secondary_colours: ["yellow"],
+          pattern: "solid",
+          style: "formal",
+          occasions: ["work", "formal_event"],
+          seasons: ["all_year"],
+          care_type: "NO_WASH",
+          confidence: 0.93,
+          uncertain_fields: [],
+        },
+        {
+          box_2d: [200, 440, 480, 520],
+          worn_on_body: true,
+          visual_description:
+            "Burgundy woven silk jacquard necktie with diagonal navy stripes and pointed blade.",
+          name: "Burgundy Striped Silk Necktie",
+          category: "necktie",
+          subcategory: "Necktie",
+          primary_colour: "burgundy",
+          secondary_colours: ["navy"],
+          pattern: "striped",
+          style: "formal",
+          occasions: ["work", "formal_event"],
+          seasons: ["all_year"],
+          care_type: "NO_WASH",
+          confidence: 0.95,
+          uncertain_fields: [],
+        },
+        {
+          box_2d: [880, 360, 980, 640],
+          worn_on_body: true,
+          visual_description:
+            "Pair of strappy metallic gold stiletto sandals with slender ankle straps and pointed open toes.",
+          name: "Gold Strappy Stiletto Heels",
+          category: "stilettos",
+          subcategory: "Stiletto Heels",
+          primary_colour: "beige",
+          secondary_colours: [],
+          pattern: "solid",
+          style: "formal",
+          occasions: ["party", "formal_event"],
+          seasons: ["all_year"],
+          care_type: "WIPE_CLEAN",
+          confidence: 0.94,
+          uncertain_fields: [],
+        },
+        {
+          box_2d: [510, 620, 640, 790],
+          worn_on_body: true,
+          visual_description:
+            "Structured ivory satin box clutch with crystal clasp hardware.",
+          name: "Ivory Satin Box Clutch",
+          category: "clutch",
+          subcategory: "Clutch",
+          primary_colour: "cream",
+          secondary_colours: [],
+          pattern: "solid",
+          style: "formal",
+          occasions: ["party", "formal_event"],
+          seasons: ["all_year"],
+          care_type: "NO_WASH",
+          confidence: 0.95,
+          uncertain_fields: [],
+        },
+      ],
+    };
+
+    const parsed = multiClothingAnalysisSchema.safeParse(rawRichOotd);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    const [gown, gele, beads, belt, tie, heels, clutch] = parsed.data.items;
+    expect(gown.suggestion.category).toBe("traditional");
+    expect(gele.suggestion.category).toBe("headwraps");
+    expect(beads.suggestion.category).toBe("jewellery");
+    expect(belt.suggestion.category).toBe("belts");
+    expect(tie.suggestion.category).toBe("ties");
+    expect(heels.suggestion.category).toBe("heels");
+    expect(clutch.suggestion.category).toBe("bags");
+
+    const beltPrompt = buildGroundedPromptFromHints("belts", "belts", {
+      name: belt.suggestion.name,
+      primaryColour: belt.suggestion.primaryColour,
+      visualDescription: belt.visualDescription,
+    });
+    expect(beltPrompt).toContain("buckle hardware");
+    expect(beltPrompt).toContain("NO belt loops");
+
+    const tiePrompt = buildGroundedPromptFromHints("ties", "ties", {
+      name: tie.suggestion.name,
+      primaryColour: tie.suggestion.primaryColour,
+      visualDescription: tie.visualDescription,
+    });
+    expect(tiePrompt).toContain("pointed blade");
+    expect(tiePrompt).toContain("NO shirt collar");
   });
 
   it("locks garment color, pattern, and silhouette for mirror-selfie streetwear OOTD pieces", async () => {

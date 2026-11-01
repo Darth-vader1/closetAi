@@ -106,15 +106,20 @@ describe("escapeLike", () => {
 
 describe("categories", () => {
   it("covers every category in the spec and has unique values", () => {
-    expect(CATEGORIES).toHaveLength(34); // Updated: 23 original + 7 accessories + jorts + windbreakers + capri-pants + wigs
+    expect(CATEGORIES).toHaveLength(43); // Includes ladies' wear (blouses, crop-tops, tank-tops, cardigans, leggings, jumpsuits, heels, flats) + headwraps/Gele
     expect(new Set(CATEGORIES.map((c) => c.value)).size).toBe(CATEGORIES.length);
   });
 
   it("maps categories to outfit groups", () => {
     expect(categoryGroup("jeans")).toBe("bottom");
+    expect(categoryGroup("leggings")).toBe("bottom");
+    expect(categoryGroup("blouses")).toBe("top");
     expect(categoryGroup("sneakers")).toBe("footwear");
+    expect(categoryGroup("heels")).toBe("footwear");
     expect(categoryGroup("dresses")).toBe("fullbody");
+    expect(categoryGroup("jumpsuits")).toBe("fullbody");
     expect(categoryGroup("wigs")).toBe("accessory");
+    expect(categoryGroup("headwraps")).toBe("accessory");
     expect(categoryGroup("traditional")).toBe("traditional");
     expect(categoryGroup("not-a-category")).toBe("other");
   });

@@ -35,7 +35,13 @@ export type GarmentFamily =
   | "footwear"
   | "bottoms"
   | "onepiece"
+  | "traditional"
+  | "belts"
+  | "ties"
   | "textiles"
+  | "headwear"
+  | "jewellery_watches"
+  | "bags"
   | "accessories"
   | "tops";
 
@@ -50,9 +56,14 @@ export function classifyFlatLayFamily(
       "sneakers",
       "boots",
       "heels",
+      "stiletto",
+      "pumps",
+      "wedges",
+      "slingback",
       "sandals",
       "loafers",
       "flats",
+      "ballet",
       "slippers",
       "clogs",
       "clog",
@@ -62,6 +73,44 @@ export function classifyFlatLayFamily(
     ].some((k) => combined.includes(k))
   ) {
     return "footwear";
+  }
+  if (
+    [
+      "traditional",
+      "kaftan",
+      "caftan",
+      "agbada",
+      "aso-ebi",
+      "aso-oke",
+      "senator",
+      "ankara",
+      "boubou",
+      "bubu",
+      "iro",
+      "dashiki",
+      "danshiki",
+      "isiagu",
+      "abaya",
+      "jalabiya",
+      "kente",
+      "adire",
+    ].some((k) => combined.includes(k))
+  ) {
+    return "traditional";
+  }
+  if (
+    [
+      "dresses",
+      "jumpsuits",
+      "jumpsuit",
+      "rompers",
+      "romper",
+      "playsuit",
+      "gown",
+      "suit",
+    ].some((k) => combined.includes(k))
+  ) {
+    return "onepiece";
   }
   if (
     [
@@ -76,53 +125,87 @@ export function classifyFlatLayFamily(
       "joggers",
       "jorts",
       "capri",
+      "palazzo",
+      "culottes",
     ].some((k) => combined.includes(k))
   ) {
     return "bottoms";
   }
-  if (
-    [
-      "dresses",
-      "jumpsuits",
-      "rompers",
-      "kaftan",
-      "agbada",
-      "aso-ebi",
-      "senator",
-      "gown",
-      "suit",
-    ].some((k) => combined.includes(k))
-  ) {
-    return "onepiece";
+  if (["belts", "belt"].some((k) => combined.includes(k))) {
+    return "belts";
   }
   if (
-    [
-      "scarves",
-      "scarf",
-      "ties",
-      "tie",
-      "shawl",
-      "gele",
-      "headwrap",
-      "bandana",
-    ].some((k) => combined.includes(k))
+    ["ties", "necktie", "bow tie", "bowtie", "cravat"].some((k) =>
+      combined.includes(k),
+    ) ||
+    /\btie\b/.test(combined)
+  ) {
+    return "ties";
+  }
+  if (
+    ["scarves", "scarf", "shawl", "stole", "bandana"].some((k) =>
+      combined.includes(k),
+    )
   ) {
     return "textiles";
   }
   if (
     [
-      "bags",
-      "belts",
+      "headwraps",
+      "headwrap",
+      "headtie",
+      "gele",
+      "turban",
       "hats",
       "caps",
-      "sunglasses",
-      "watches",
-      "jewel",
-      "handbag",
-      "purse",
-      "accessories",
+      "fila",
+      "kufi",
+      "abeti",
+      "beret",
+      "fedora",
+      "fascinator",
+      "wigs",
+      "wig",
     ].some((k) => combined.includes(k))
   ) {
+    return "headwear";
+  }
+  if (
+    [
+      "watches",
+      "watch",
+      "jewellery",
+      "jewelry",
+      "necklace",
+      "earring",
+      "bracelet",
+      "bangle",
+      "ring",
+      "beads",
+      "brooch",
+      "cufflink",
+      "sunglasses",
+      "glasses",
+      "eyewear",
+    ].some((k) => combined.includes(k))
+  ) {
+    return "jewellery_watches";
+  }
+  if (
+    [
+      "bags",
+      "handbag",
+      "clutch",
+      "purse",
+      "tote",
+      "crossbody",
+      "backpack",
+      "satchel",
+    ].some((k) => combined.includes(k))
+  ) {
+    return "bags";
+  }
+  if (combined.includes("accessories") || combined.includes("accessory")) {
     return "accessories";
   }
   return "tops";
@@ -137,25 +220,61 @@ function getFamilyFramingRules(family: GarmentFamily): {
       return {
         defaultSubject: "pair of shoes",
         framingRule:
-          "clean top-down 45-degree commercial footwear catalog shot of the matching pair placed neatly on a seamless pure white studio background (#FFFFFF), pristine empty interior insole lining, soft diffused contact shadow, absolutely NO human feet, NO ankles, NO socks, NO legs, NO hands.",
+          "clean top-down 45-degree commercial footwear catalog shot of the matching pair placed neatly on a seamless pure white studio background (#FFFFFF), pristine empty interior insole lining and heel/strap silhouette clearly visible, soft diffused contact shadow, absolutely NO human feet, NO ankles, NO socks, NO legs, NO hands.",
       };
-    case "bottoms":
+    case "traditional":
       return {
-        defaultSubject: "pair of trousers",
+        defaultSubject: "traditional African attire",
         framingRule:
-          "crisp top-down 90-degree full-length studio flat-lay laid completely flat from waistband to hem on a seamless pure white background (#FFFFFF), clean empty inner waistband visible, natural fabric drape smoothed neatly, soft contact shadow, absolutely NO human waist, NO hips, NO legs, NO skin, NO shoes, NO tucked-in shirt.",
+          "top-down 90-degree full-length luxury studio flat-lay of the standalone unworn traditional African garment arranged symmetrically from neckline to hem on a seamless pure white background (#FFFFFF), faithfully showcasing intricate chest/neckline embroidery, Ankara/Aso-Oke/lace/Adire textile motifs, wide sleeves, and matching drape, soft contact shadow, absolutely NO human body, NO head, NO neck, NO arms, NO hands, NO legs, NO mannequin.",
       };
     case "onepiece":
       return {
-        defaultSubject: "full-length garment",
+        defaultSubject: "full-length dress or jumpsuit",
         framingRule:
-          "top-down 90-degree full-length studio flat-lay arranged symmetrically from neckline to hem on a seamless pure white background (#FFFFFF), clean empty interior neckline, sleeves arranged naturally, soft contact shadow, absolutely NO human torso, NO neck, NO arms, NO legs, NO mannequin.",
+          "top-down 90-degree full-length studio flat-lay arranged symmetrically from neckline/bodice to hem on a seamless pure white background (#FFFFFF), clean empty interior neckline, straps/sleeves and skirt/legs arranged naturally, soft contact shadow, absolutely NO human torso, NO neck, NO arms, NO legs, NO mannequin.",
+      };
+    case "bottoms":
+      return {
+        defaultSubject: "pair of trousers or skirt",
+        framingRule:
+          "crisp top-down 90-degree full-length studio flat-lay laid completely flat from waistband to hem on a seamless pure white background (#FFFFFF), clean empty inner waistband visible, natural fabric/pleat drape smoothed neatly, soft contact shadow, absolutely NO human waist, NO hips, NO legs, NO skin, NO belt, NO shoes, NO tucked-in top.",
+      };
+    case "belts":
+      return {
+        defaultSubject: "fashion waist belt",
+        framingRule:
+          "commercial luxury e-commerce product photograph of the standalone unworn belt neatly coiled in a clean spiral or laid horizontally on a seamless pure white background (#FFFFFF), clearly showcasing the leather/woven/chain strap texture, stitching, keeper loop, and metal buckle hardware, soft contact shadow, absolutely NO human waist, NO hips, NO trousers, NO belt loops.",
+      };
+    case "ties":
+      return {
+        defaultSubject: "silk necktie or bow tie",
+        framingRule:
+          "crisp top-down 90-degree studio flat-lay of the standalone unworn necktie (laid flat vertically showing pointed blade and tail) or bow tie (centered symmetrically) on a seamless pure white background (#FFFFFF), showcasing exact silk/jacquard weave and pattern, soft contact shadow, absolutely NO shirt collar, NO human neck, NO suit jacket.",
       };
     case "textiles":
       return {
         defaultSubject: "woven fashion scarf",
         framingRule:
-          "top-down 90-degree studio flat-lay of the rectangular scarf or neckwear unfolded neatly flat on a seamless pure white background (#FFFFFF), clearly showing its full intersecting weave/pattern geometry and fringed or hemmed ends, soft contact shadow, absolutely NO human neck, NO shoulders, NO chest, NO overlapping shirt.",
+          "top-down 90-degree studio flat-lay of the rectangular scarf or shawl unfolded neatly flat on a seamless pure white background (#FFFFFF), clearly showing its full intersecting weave/pattern geometry and fringed or hemmed ends, soft contact shadow, absolutely NO human neck, NO shoulders, NO chest, NO overlapping shirt.",
+      };
+    case "headwear":
+      return {
+        defaultSubject: "structured headwear or Gele headtie",
+        framingRule:
+          "standalone 3/4-angle luxury catalog studio product photograph centered on a seamless pure white background (#FFFFFF), preserving exact crown structure, brim, Fila embroidery, or sculptural pleated Gele headtie folds, soft contact shadow, absolutely NO human head, NO face, NO skin, NO mannequin bust.",
+      };
+    case "jewellery_watches":
+      return {
+        defaultSubject: "luxury watch, jewellery, or eyewear",
+        framingRule:
+          "macro commercial luxury product photograph centered symmetrically on a seamless pure white background (#FFFFFF), tack-sharp metallic, bead, gemstone, dial, or lens details and clasp/frame geometry, soft diffused reflection shadow, absolutely NO human wrist, NO neck, NO ears, NO fingers, NO face, NO skin.",
+      };
+    case "bags":
+      return {
+        defaultSubject: "standalone handbag or clutch",
+        framingRule:
+          "upright 3/4-front luxury e-commerce studio product photograph of the standalone bag or clutch centered on a seamless pure white background (#FFFFFF), handles/straps, clasp, and hardware styled neatly, soft studio contact shadow, absolutely NO human hands, NO arm, NO shoulder, NO body.",
       };
     case "accessories":
       return {
@@ -166,9 +285,9 @@ function getFamilyFramingRules(family: GarmentFamily): {
     case "tops":
     default:
       return {
-        defaultSubject: "unworn top",
+        defaultSubject: "unworn top or blouse",
         framingRule:
-          "crisp top-down 90-degree unworn studio flat-lay on a seamless pure white background (#FFFFFF) with sleeves angled cleanly outward and clean empty inside collar/neckline visible, smoothed fabric, soft contact shadow, absolutely NO human neck, NO skin, NO arms, NO hands, NO smartphone, NO overlapping scarf, necklace, or trousers.",
+          "crisp top-down 90-degree unworn studio flat-lay on a seamless pure white background (#FFFFFF) with sleeves or straps angled cleanly and clean empty inside neckline/collar visible, smoothed fabric, soft contact shadow, absolutely NO human neck, NO skin, NO arms, NO hands, NO smartphone, NO overlapping scarf, tie, necklace, or bottoms.",
       };
   }
 }
