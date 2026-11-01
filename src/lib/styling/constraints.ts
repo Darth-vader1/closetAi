@@ -183,6 +183,7 @@ const STYLE_WORDS: Array<[string, RegExp]> = [
   ["streetwear", /\b(street ?wear|street style|urban)\b/],
   ["smart_casual", /\bsmart[- ]casual\b/],
   ["business_casual", /\bbusiness[- ]casual\b/],
+  ["chic", /\b(chic|parisian|french chic|effortless chic)\b/],
   ["minimalist", /\b(minimalist|minimalism|minimal)\b/],
   ["sporty", /\b(sporty|athleisure|athletic[- ]inspired|gym ?wear|sportswear|athletic)\b/],
   ["formal", /\b(formal|tailored|suited|dressy)\b/],

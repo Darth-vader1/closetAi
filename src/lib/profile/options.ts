@@ -2,6 +2,7 @@ export const STYLE_OPTIONS = [
   { value: "casual", label: "Casual" },
   { value: "smart_casual", label: "Smart casual" },
   { value: "formal", label: "Formal" },
+  { value: "chic", label: "Chic" },
   { value: "minimalist", label: "Minimalist" },
   { value: "streetwear", label: "Streetwear" },
   { value: "sporty", label: "Sporty" },
