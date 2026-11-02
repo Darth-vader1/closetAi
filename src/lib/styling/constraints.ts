@@ -150,7 +150,7 @@ const OCCASION_RULES: OccasionRule[] = [
   { re: /\b(interview|office|work|meeting|business|presentation|internship|corporate|client)\b/, occasion: "work", dressCode: "business" },
   { re: /\b(owambe|aso[- ]?ebi|traditional|native wear|engagement|naming ceremony|cultural)\b/, occasion: "traditional_event", dressCode: "traditional" },
   { re: /\b(church|worship|mosque|thanksgiving|sunday best|jumu'?ah|service)\b/, occasion: "worship", dressCode: "worship" },
-  { re: /\b(gym|workout|work out|training|exercise|run(?:ning)?\b|jog(?:ging)?|football|basketball|yoga|pilates|sport session|playing sports?)\b/, occasion: "sport", dressCode: "athletic" },
+  { re: /\b(gym|workout|work out|training|exercise|run(?:ning)?\b(?! (?:some |a few |my |the |small )?errands?)|jog(?:ging)?|football|basketball|yoga|pilates|sport session|playing sports?)\b/, occasion: "sport", dressCode: "athletic" },
   { re: /\b(date|dinner|party|night out|club|lounge|birthday|brunch)\b/, occasion: "date", dressCode: "smart_casual" },
   { re: /\b(school|campus|class|lecture|university|uni)\b/, occasion: "school", dressCode: "casual" },
   { re: /\b(travel|trip|flight|airport|road trip)\b/, occasion: "travel", dressCode: "casual" },
@@ -522,7 +522,7 @@ export function parseConstraints(prompt: string, owned: GarmentProfile[], option
 /** Builds a WeatherContext from the weather string the UI sends (live summary or a preset) plus request hints. */
 export function parseWeather(summary: string | null | undefined, c: StylingConstraints): WeatherContext | null {
   const s = (summary ?? "").toLowerCase();
-  const tempMatch = s.match(/(-?\d{1,2})\s*°\s*c/) ?? s.match(/around\s+(-?\d{1,2})\b/);
+  const tempMatch = s.match(/(-?\d{1,2})\s*°\s*c/) ?? s.match(/(-?\d{1,2})\s*(?:°|degrees?|c)\b/) ?? s.match(/around\s+(-?\d{1,2})\b/);
   let temperatureC = tempMatch ? Number(tempMatch[1]) : null;
   const rainy = /\b(rain|shower|drizzle|storm|thunder|wet)\b/.test(s) || (c.coolHint && /\brain|wet\b/.test(c.effectivePrompt.toLowerCase()));
   if (temperatureC === null) {

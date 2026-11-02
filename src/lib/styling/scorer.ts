@@ -279,7 +279,10 @@ export function scoreOutfit(
   // 7. Footwear & accessory coordination (0..5)
   let footwearAccessories = shoe ? 3 : 1;
   const belt = accessories.find((a) => a.type === "belt");
-  if (shoe && belt && shoe.colour && belt.colour) {
+  // Open casual footwear (slides/sandals) is a weaker daytime default: no belt-match bonus, and a penalty when it is not hot.
+  const openShoe = shoe && ["slides", "sandals"].includes(shoe.type);
+  if (openShoe && (ctx.weather?.temperatureC ?? 30) < 26) footwearAccessories -= 2;
+  if (shoe && belt && shoe.colour && belt.colour && !openShoe) {
     if (shoe.colour === belt.colour) footwearAccessories += 2;
     else if (colourInfo(shoe.colour)?.neutral && colourInfo(belt.colour)?.neutral) footwearAccessories += 1;
   } else if (accessories.length === 1 || accessories.length === 2) {

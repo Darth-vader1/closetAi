@@ -94,11 +94,16 @@ export const TYPE_DEFS: Record<GarmentType, TypeDef> = {
 
 /** Ordered text rules. First match wins, so specific phrases come before generic ones. */
 const TEXT_RULES: Array<[GarmentType, RegExp]> = [
+  ["athletic_top", /\b(?:gym|running|sports?|training|basketball) singlets?\b/],
   ["underwear", /\b(underwear|boxers?|briefs?|panties|bras?|lingerie|singlet)\b/],
   ["socks", /\bsocks?\b/],
   ["athletic_shorts", /\b(gym|athletic|running|training|sport|basketball|football|workout|track|sweat|drawstring|elastic[- ]?waist) (?:shorts?|jorts?)\b/],
-  ["jorts", /\bjorts?\b|\bdenim shorts?\b/],
-  ["shorts", /\bcargo shorts?\b/],
+  ["jorts", /\bjorts?\b|\b(?:denim|jeans?) shorts?\b/],
+  // Any other "<word> shorts" is shorts (e.g. "khaki shorts", "chino shorts"); this must come before the
+  // chinos / jeans / cargo rules, which would otherwise read the colour or fabric word as the garment.
+  ["shorts", /\bshorts\b|\bbermudas?\b/],
+  // Matching two-piece traditional outfits: "skirt and blouse", "wrapper and blouse", "up and down", "co-ord set".
+  ["traditional_set", /\b(?:skirt|wrapper|iro|trousers?|pants?) (?:and|&|\+) (?:blouse|top|buba|shirt|jacket)\b|\bup (?:and|&) down\b|\b(?:two|2)[- ]?piece\b|\bco-?ord(?:inate)?s?\b/],
   ["dress_shirt", /\b(dress|formal|button[- ]?(?:up|down)|oxford|tuxedo) shirts?\b|\bbutton[- ]?(?:up|down)\b/],
   ["dress_shoes", /\b(dress shoes?|oxfords?|derbys?|brogues?|monk straps?|formal shoes?)\b/],
   ["track_jacket", /\b(track|training|bomber track) jackets?\b/],
@@ -125,10 +130,10 @@ const TEXT_RULES: Array<[GarmentType, RegExp]> = [
   ["heels", /\b(heels?|pumps?|stilettos?|wedges?|platforms?)\b/],
   ["flats", /\b(flats?|ballet|ballerinas?|mules?)\b/],
   ["boots", /\bboots?\b|\bchelsea\b|\btimberland/],
-  ["slides", /\bslides?\b|\bflip[- ]?flops?\b|\bslippers?\b|\bpalm slippers?\b/],
+  ["slides", /\bslides?\b|\bflip[- ]?flops?\b|\bslippers?\b|\bpalm slippers?\b|\bcrocs?\b/],
   ["sandals", /\bsandals?\b/],
   ["sneakers", /\b(sneakers?|trainers?|kicks|running shoes?|air force|jordans?|runners?|tennis shoes?)\b/],
-  ["hoodie", /\bhood(?:ie|y|ies)\b|\bsweatshirts?\b|\bpullover\b/],
+  ["hoodie", /\bhood(?:ie|y|ies)\b|\bsweat ?shirts?\b|\bpullover\b/],
   ["cardigan", /\bcardigans?\b/],
   ["sweater", /\b(sweaters?|jumpers?|knit(?:wear)?|turtleneck|pullovers?)\b/],
   ["polo", /\bpolo\b/],
@@ -142,7 +147,7 @@ const TEXT_RULES: Array<[GarmentType, RegExp]> = [
   ["watch", /\bwatch(?:es)?\b/],
   ["bag", /\b(bags?|backpacks?|handbags?|clutch|tote|satchel|crossbody|purse|briefcase)\b/],
   ["cap", /\b(caps?|snapback|beanie|fila|kufi|abeti[- ]?aja)\b/],
-  ["hat", /\b(hats?|bucket|fedora|beret|fascinator|gele|headwrap|headtie|turban)\b/],
+  ["hat", /\b(hats?|bucket|fedora|beret|fascinator|gele|head ?wrap|head ?ties?|turban)\b/],
   ["sunglasses", /\b(sunglasses|shades|glasses)\b/],
   ["jewellery", /\b(necklace|bracelet|ring|earrings?|chain|pendant|jewel+ery|anklet|bangle|beads?|brooch|cufflinks?)\b/],
   ["tie", /\b(necktie|bow ?tie|tie)\b/],

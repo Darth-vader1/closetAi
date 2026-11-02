@@ -273,8 +273,24 @@ export function validateOutfit(
     );
   }
 
+  // Casual footwear with tailored / dress pieces (e.g. slides with a dress shirt and suit trousers).
+  if (shoe?.type === "slides" && profiles.some((p) => ["tailored_trousers", "dress_shirt", "blazer"].includes(p.type))) {
+    hardViolations.push(
+      hard("SLIDES_WITH_FORMAL_PIECES", `Slides "${shoe.item.name}" don't work with tailored or dress pieces.`, [shoe.id]),
+    );
+  }
+
   // 6. Dress-code alignment
   const dc = ctx.constraints.dressCode;
+  if (["business", "formal", "worship"].includes(dc)) {
+    for (const p of profiles) {
+      if (p.length === "short" && (p.role === "bottom" || p.role === "onepiece") && !["shorts", "jorts", "athletic_shorts"].includes(p.type)) {
+        hardViolations.push(
+          hard("SHORT_HEM_DRESS_CODE_VIOLATION", `"${p.item.name}" is too short for a ${dc} dress code.`, [p.id]),
+        );
+      }
+    }
+  }
   const wantsSporty = dc === "athletic" || (ctx.constraints.styles.includes("sporty") && !ctx.constraints.styles.includes("smart_casual"));
 
   if (dc === "formal") {
@@ -300,7 +316,7 @@ export function validateOutfit(
     }
   } else if (dc === "worship") {
     for (const p of profiles) {
-      if (["athletic_shorts", "jorts", "shorts", "crop_top", "tank_top", "slides"].includes(p.type)) {
+      if (["athletic_shorts", "jorts", "shorts", "crop_top", "tank_top", "slides", "joggers", "leggings", "athletic_top", "track_jacket", "windbreaker"].includes(p.type)) {
         hardViolations.push(
           hard("WORSHIP_DRESS_CODE_VIOLATION", `"${p.item.name}" is too casual for worship/service.`, [p.id]),
         );
