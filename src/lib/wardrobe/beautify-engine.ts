@@ -216,11 +216,28 @@ function hasMeaningfulTransparency(
   let borderTransparent = 0;
   let borderTotal = 0;
 
+  // Center core box: [25%, 75%] x [28%, 72%]
+  const minCx = Math.floor(width * 0.25);
+  const maxCx = Math.floor(width * 0.75);
+  const minCy = Math.floor(height * 0.28);
+  const maxCy = Math.floor(height * 0.72);
+  let centerOpaque = 0;
+  let centerTotal = 0;
+
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const a = rgba[(y * width + x) * 4 + 3];
       if (a < 24) transparentCount++;
-      else if (a > 200) opaqueCount++;
+      else if (a > 64) {
+        opaqueCount++;
+        if (x >= minCx && x <= maxCx && y >= minCy && y <= maxCy) {
+          centerOpaque++;
+        }
+      }
+
+      if (x >= minCx && x <= maxCx && y >= minCy && y <= maxCy) {
+        centerTotal++;
+      }
 
       if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
         borderTotal++;
@@ -229,11 +246,15 @@ function hasMeaningfulTransparency(
     }
   }
 
+  // Reject hollow-center masks where the garment body was cut away
+  const isHollowCenter = centerTotal > 0 && centerOpaque / centerTotal < 0.035;
+
   return (
     borderTotal > 0 &&
     borderTransparent / borderTotal >= 0.45 &&
     transparentCount / total >= 0.08 &&
-    opaqueCount / total >= 0.02
+    opaqueCount / total >= 0.04 &&
+    !isHollowCenter
   );
 }
 

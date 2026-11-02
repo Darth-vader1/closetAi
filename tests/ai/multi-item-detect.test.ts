@@ -693,7 +693,7 @@ describe("OOTD & Multi-Item Outfit Extractor Schema", () => {
       pattern: necklace.suggestion.pattern,
       visualDescription: necklace.visualDescription,
     });
-    expect(necklaceFlatlay).toContain("dominant color MUST be black");
+    expect(necklaceFlatlay).toContain("dominant garment color MUST be solid pitch black");
     expect(necklaceFlatlay).toContain("NO underlying shirt or scarf fabric");
 
     // 3. Already-normalized 0..1000 OOTD boxes & 2-column order screenshot left-column cards remain untouched

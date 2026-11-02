@@ -13,6 +13,7 @@ import {
 } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { sniffImage } from "@/lib/security/image-sniff";
+import { validateCutoutAlphaSanity } from "@/lib/wardrobe/cutout-validator";
 import type {
   AiEnhancementParams,
   BeautificationMode,
@@ -676,18 +677,30 @@ export async function runGarmentEnhancementService(
         { parentSignal: req.signal },
       );
       if (rbgResult.ok) {
-        cutoutDataUrl = `data:image/png;base64,${Buffer.from(
-          rbgResult.pngBytes,
-        ).toString("base64")}`;
-        activeSegmentationProvider = "removebg";
-        segmentationModel = rbgResult.modelUsed;
-        fallbackReason = null; // Clean neural cutout succeeded via Remove.bg!
-      } else {
+        const sanity = validateCutoutAlphaSanity(rbgResult.pngBytes, req.category);
+        if (sanity.valid) {
+          cutoutDataUrl = `data:image/png;base64,${Buffer.from(
+            rbgResult.pngBytes,
+          ).toString("base64")}`;
+          activeSegmentationProvider = "removebg";
+          segmentationModel = rbgResult.modelUsed;
+          fallbackReason = null;
+        } else {
+          logger.warn("removebg.cutout_sanity_failed", {
+            category: req.category,
+            coverage: sanity.coverage,
+            centerCoverage: sanity.centerCoverage,
+            zone3Coverage: sanity.zone3Coverage,
+            reason: sanity.reason,
+          });
+          fallbackReason = `Remove.bg produced an incomplete garment mask (${sanity.reason}); cascading down.`;
+        }
+      } else if (!fallbackReason) {
         fallbackReason = rbgResult.reason;
       }
     }
 
-    // Tier 2: Try ClearBackdrop if Remove.bg was unconfigured or failed
+    // Tier 2: Try ClearBackdrop if Remove.bg was unconfigured, failed, or produced hollow mask
     if (!cutoutDataUrl) {
       const clearBackdropKey = getClearBackdropApiKey();
       if (clearBackdropKey) {
@@ -699,19 +712,31 @@ export async function runGarmentEnhancementService(
           { parentSignal: req.signal },
         );
         if (cbResult.ok) {
-          cutoutDataUrl = `data:image/png;base64,${Buffer.from(
-            cbResult.pngBytes,
-          ).toString("base64")}`;
-          activeSegmentationProvider = "clearbackdrop";
-          segmentationModel = cbResult.modelUsed;
-          fallbackReason = null; // Clean neural cutout succeeded via ClearBackdrop!
+          const sanity = validateCutoutAlphaSanity(cbResult.pngBytes, req.category);
+          if (sanity.valid) {
+            cutoutDataUrl = `data:image/png;base64,${Buffer.from(
+              cbResult.pngBytes,
+            ).toString("base64")}`;
+            activeSegmentationProvider = "clearbackdrop";
+            segmentationModel = cbResult.modelUsed;
+            fallbackReason = null;
+          } else {
+            logger.warn("clearbackdrop.cutout_sanity_failed", {
+              category: req.category,
+              coverage: sanity.coverage,
+              centerCoverage: sanity.centerCoverage,
+              zone3Coverage: sanity.zone3Coverage,
+              reason: sanity.reason,
+            });
+            fallbackReason = `ClearBackdrop produced an incomplete garment mask (${sanity.reason}); cascading down.`;
+          }
         } else if (!fallbackReason) {
           fallbackReason = cbResult.reason;
         }
       }
     }
 
-    // Tier 3: Try PhotoRoom as secondary neural fallback
+    // Tier 3: Try PhotoRoom if previous tiers were unconfigured, failed, or produced hollow masks
     if (!cutoutDataUrl) {
       const photoRoomKey = getPhotoRoomApiKey();
       if (photoRoomKey) {
@@ -726,19 +751,31 @@ export async function runGarmentEnhancementService(
           },
         );
         if (segResult.ok) {
-          cutoutDataUrl = `data:image/png;base64,${Buffer.from(
-            segResult.pngBytes,
-          ).toString("base64")}`;
-          activeSegmentationProvider = "photoroom";
-          segmentationModel = segResult.modelUsed;
-          fallbackReason = null;
+          const sanity = validateCutoutAlphaSanity(segResult.pngBytes, req.category);
+          if (sanity.valid) {
+            cutoutDataUrl = `data:image/png;base64,${Buffer.from(
+              segResult.pngBytes,
+            ).toString("base64")}`;
+            activeSegmentationProvider = "photoroom";
+            segmentationModel = segResult.modelUsed;
+            fallbackReason = null;
+          } else {
+            logger.warn("photoroom.cutout_sanity_failed", {
+              category: req.category,
+              coverage: sanity.coverage,
+              centerCoverage: sanity.centerCoverage,
+              zone3Coverage: sanity.zone3Coverage,
+              reason: sanity.reason,
+            });
+            fallbackReason = `PhotoRoom produced an incomplete garment mask (${sanity.reason}); cascading down.`;
+          }
         } else if (!fallbackReason) {
           fallbackReason = segResult.reason;
         }
       }
     }
 
-    // Tier 4: Try ClipDrop (Jasper) if previous providers were missing or exhausted quota
+    // Tier 4: Try ClipDrop (Jasper) if previous providers were missing, exhausted quota, or failed sanity
     if (!cutoutDataUrl) {
       const clipDropKey = getClipDropApiKey();
       if (clipDropKey) {
@@ -750,12 +787,24 @@ export async function runGarmentEnhancementService(
           { parentSignal: req.signal },
         );
         if (cdResult.ok) {
-          cutoutDataUrl = `data:image/png;base64,${Buffer.from(
-            cdResult.pngBytes,
-          ).toString("base64")}`;
-          activeSegmentationProvider = "clipdrop";
-          segmentationModel = cdResult.modelUsed;
-          fallbackReason = null; // Clean neural cutout succeeded via ClipDrop!
+          const sanity = validateCutoutAlphaSanity(cdResult.pngBytes, req.category);
+          if (sanity.valid) {
+            cutoutDataUrl = `data:image/png;base64,${Buffer.from(
+              cdResult.pngBytes,
+            ).toString("base64")}`;
+            activeSegmentationProvider = "clipdrop";
+            segmentationModel = cdResult.modelUsed;
+            fallbackReason = null;
+          } else {
+            logger.warn("clipdrop.cutout_sanity_failed", {
+              category: req.category,
+              coverage: sanity.coverage,
+              centerCoverage: sanity.centerCoverage,
+              zone3Coverage: sanity.zone3Coverage,
+              reason: sanity.reason,
+            });
+            fallbackReason = `ClipDrop produced an incomplete garment mask (${sanity.reason}); cascading down.`;
+          }
         } else if (!fallbackReason) {
           fallbackReason = cdResult.reason;
         }

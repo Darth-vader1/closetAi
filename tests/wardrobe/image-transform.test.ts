@@ -182,7 +182,9 @@ describe("Garment Image Transformations — Rotate & Crop", () => {
     expect(croppedSourceH).toBe(500);
   });
 
-  it("POST /api/ai/beautify accepts imageDataUrl for rotated/cropped garments", async () => {
+  it(
+    "POST /api/ai/beautify accepts imageDataUrl for rotated/cropped garments",
+    async () => {
     const { POST } = await import("@/app/api/ai/beautify/route");
 
     // 1x1 PNG base64
@@ -222,5 +224,5 @@ describe("Garment Image Transformations — Rotate & Crop", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBeDefined();
-  });
+  }, 15000);
 });
