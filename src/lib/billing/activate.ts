@@ -61,6 +61,25 @@ export async function findUserIdByCustomerCode(
 }
 
 /**
+ * Finds a user id by their auth email address.
+ */
+export async function findUserIdByEmail(email: string): Promise<string | null> {
+  if (!email) return null;
+  const adminClient = createAdminClient();
+  try {
+    const { data, error } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    if (error || !data?.users) return null;
+    const match = data.users.find(
+      (u) => u.email?.toLowerCase().trim() === email.toLowerCase().trim()
+    );
+    return match?.id || null;
+  } catch (err) {
+    logger.error("billing.find_user_by_email_failed", { email, error: err });
+    return null;
+  }
+}
+
+/**
  * Extends the subscription period end for renewal events (e.g. invoice.paid).
  */
 export async function extendUserSubscriptionExpiry(

@@ -3,6 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/admin";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { PAYSTACK_SECRET_KEY } from "@/lib/billing/plans";
+import {
+  activateUserSubscription,
+  findUserIdByCustomerCode,
+  findUserIdByEmail,
+} from "@/lib/billing/activate";
 import { logger } from "@/lib/logger";
 
 export async function updateUserRoleAction(
@@ -158,4 +164,113 @@ export async function grantVipSubscriptionAction(
   revalidatePath("/admin/subscriptions");
   revalidatePath("/admin");
   return { ok: true };
+}
+
+export async function reconcileGatewayPaymentsAction(): Promise<{
+  ok: boolean;
+  reconciledCount?: number;
+  message?: string;
+  error?: string;
+}> {
+  const admin = await requireAdmin();
+  const adminClient = createAdminClient();
+
+  const secretKey = process.env.PAYSTACK_SECRET_KEY || PAYSTACK_SECRET_KEY;
+  if (!secretKey) {
+    return { ok: false, error: "Paystack secret key is not configured." };
+  }
+
+  let reconciledCount = 0;
+
+  try {
+    const res = await fetch("https://api.paystack.co/transaction?perPage=50&status=success", {
+      headers: {
+        Authorization: `Bearer ${secretKey}`,
+      },
+    });
+
+    if (!res.ok) {
+      return { ok: false, error: "Failed to communicate with Paystack API." };
+    }
+
+    const payload = (await res.json()) as {
+      status: boolean;
+      data?: Array<{
+        id: number;
+        status: string;
+        reference: string;
+        amount: number;
+        currency: string;
+        customer?: { customer_code: string; email: string };
+        metadata?: { userId?: string; planId?: string };
+      }>;
+    };
+
+    const transactions = payload.data ?? [];
+
+    for (const tx of transactions) {
+      if (tx.status !== "success") continue;
+
+      // Check if reference already exists in payment_transactions
+      const { data: existingTx } = await adminClient
+        .from("payment_transactions")
+        .select("id")
+        .eq("reference", tx.reference)
+        .maybeSingle();
+
+      if (existingTx) continue;
+
+      let userId = tx.metadata?.userId;
+      const customerCode = tx.customer?.customer_code;
+      const customerEmail = tx.customer?.email;
+
+      if (!userId && customerCode) {
+        userId = (await findUserIdByCustomerCode("paystack", customerCode)) ?? undefined;
+      }
+      if (!userId && customerEmail) {
+        userId = (await findUserIdByEmail(customerEmail)) ?? undefined;
+      }
+
+      if (userId) {
+        const rawPlan = tx.metadata?.planId || (tx.amount >= 900000 ? "annual" : "monthly");
+        const planId = rawPlan === "annual" ? "annual" : "monthly";
+
+        const actRes = await activateUserSubscription(userId, {
+          planId,
+          provider: "paystack",
+          customerId: customerCode,
+          subscriptionId: tx.reference,
+          reference: tx.reference,
+          amount: tx.amount,
+          currency: tx.currency || "NGN",
+        });
+
+        if (actRes.ok) {
+          reconciledCount++;
+          logger.info("admin.reconciled_payment", {
+            adminId: admin.id,
+            userId,
+            reference: tx.reference,
+            amount: tx.amount,
+          });
+        }
+      }
+    }
+
+    revalidatePath("/admin/subscriptions");
+    revalidatePath("/admin/users");
+    revalidatePath("/admin");
+
+    return {
+      ok: true,
+      reconciledCount,
+      message:
+        reconciledCount > 0
+          ? `Successfully reconciled ${reconciledCount} missing transaction${reconciledCount === 1 ? "" : "s"}.`
+          : "All gateway payments are already fully synchronized.",
+    };
+  } catch (err) {
+    logger.error("admin.reconcile_payments_exception", { error: err });
+    return { ok: false, error: err instanceof Error ? err.message : "Reconciliation failed" };
+  }
 }

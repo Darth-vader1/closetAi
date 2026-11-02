@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { CreditCard, DollarSign, CheckCircle2, AlertCircle, ArrowUpRight, Receipt, Users } from "lucide-react";
 import { getAdminMetrics, listAdminSubscribers, listAdminTransactions } from "@/lib/admin/queries";
+import { ReconcileGatewayButton } from "./reconcile-button";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -18,13 +19,16 @@ export default async function AdminSubscriptionsPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
-      <div>
-        <h1 className="font-serif text-2xl sm:text-3xl font-medium tracking-tight text-foreground">
-          Subscriptions & Revenue
-        </h1>
-        <p className="text-xs text-muted mt-1">
-          Real-time member subscriptions, live payment ledger, and gateway configurations.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="font-serif text-2xl sm:text-3xl font-medium tracking-tight text-foreground">
+            Subscriptions & Revenue
+          </h1>
+          <p className="text-xs text-muted mt-1">
+            Real-time member subscriptions, live payment ledger, and gateway configurations.
+          </p>
+        </div>
+        <ReconcileGatewayButton />
       </div>
 
       {/* Financial Overview Cards */}

@@ -5,6 +5,7 @@ import {
   activateUserSubscription,
   revokeUserSubscription,
   findUserIdByCustomerCode,
+  findUserIdByEmail,
 } from "@/lib/billing/activate";
 import { logger } from "@/lib/logger";
 
@@ -30,10 +31,14 @@ export async function POST(req: Request) {
         const data = event.data;
         let userId: string | null | undefined = data.metadata?.userId;
         const customerCode = data.customer?.customer_code;
+        const customerEmail = data.customer?.email;
 
-        // If metadata.userId is missing (e.g. automated renewal charge), look up by customer_code
+        // If metadata.userId is missing (e.g. automated renewal charge or external flow), look up by customer_code, then by customer email
         if (!userId && customerCode) {
           userId = await findUserIdByCustomerCode("paystack", customerCode);
+        }
+        if (!userId && customerEmail) {
+          userId = await findUserIdByEmail(customerEmail);
         }
 
         const rawPlan = data.metadata?.planId || (data.amount >= 900000 ? "annual" : "monthly");
@@ -51,7 +56,70 @@ export async function POST(req: Request) {
           });
           logger.info("webhook.paystack.charge_success_activated", { userId, planId, ref: data.reference });
         } else {
-          logger.warn("webhook.paystack.charge_success_no_user", { customerCode, ref: data.reference });
+          logger.warn("webhook.paystack.charge_success_no_user", { customerCode, customerEmail, ref: data.reference });
+        }
+        break;
+      }
+
+      case "subscription.create": {
+        const data = event.data;
+        let userId: string | null | undefined = data.metadata?.userId;
+        const customerCode = data.customer?.customer_code;
+        const customerEmail = data.customer?.email;
+
+        if (!userId && customerCode) {
+          userId = await findUserIdByCustomerCode("paystack", customerCode);
+        }
+        if (!userId && customerEmail) {
+          userId = await findUserIdByEmail(customerEmail);
+        }
+
+        if (userId) {
+          const rawPlan = data.plan?.plan_code || data.metadata?.planId || "monthly";
+          const planId = rawPlan === "annual" ? "annual" : "monthly";
+          const ref = data.subscription_code || `sub_${data.id || Date.now()}`;
+          await activateUserSubscription(userId, {
+            planId,
+            provider: "paystack",
+            customerId: customerCode,
+            subscriptionId: data.subscription_code || ref,
+            reference: ref,
+            amount: data.amount || 99900,
+            currency: "NGN",
+          });
+          logger.info("webhook.paystack.subscription_create_activated", { userId, planId, ref });
+        }
+        break;
+      }
+
+      case "invoice.update": {
+        const data = event.data;
+        if (data.status === "success" || data.paid) {
+          let userId: string | null | undefined = data.metadata?.userId;
+          const customerCode = data.customer?.customer_code;
+          const customerEmail = data.customer?.email;
+
+          if (!userId && customerCode) {
+            userId = await findUserIdByCustomerCode("paystack", customerCode);
+          }
+          if (!userId && customerEmail) {
+            userId = await findUserIdByEmail(customerEmail);
+          }
+
+          if (userId) {
+            const rawPlan = data.metadata?.planId || (data.amount >= 900000 ? "annual" : "monthly");
+            const planId = rawPlan === "annual" ? "annual" : "monthly";
+            await activateUserSubscription(userId, {
+              planId,
+              provider: "paystack",
+              customerId: customerCode,
+              subscriptionId: data.transaction?.reference || data.subscription?.subscription_code || `inv_${data.id}`,
+              reference: data.transaction?.reference || `inv_${data.id}`,
+              amount: data.amount || 99900,
+              currency: "NGN",
+            });
+            logger.info("webhook.paystack.invoice_update_activated", { userId, planId, ref: data.transaction?.reference });
+          }
         }
         break;
       }
@@ -59,17 +127,21 @@ export async function POST(req: Request) {
       case "subscription.disable": {
         const data = event.data;
         const customerCode = data.customer?.customer_code;
+        const customerEmail = data.customer?.email;
         let userId: string | null | undefined = data.metadata?.userId;
 
         if (!userId && customerCode) {
           userId = await findUserIdByCustomerCode("paystack", customerCode);
+        }
+        if (!userId && customerEmail) {
+          userId = await findUserIdByEmail(customerEmail);
         }
 
         if (userId) {
           await revokeUserSubscription(userId, "canceled");
           logger.info("webhook.paystack.subscription_disabled_revoked", { userId });
         } else {
-          logger.warn("webhook.paystack.subscription_disable_no_user", { customerCode });
+          logger.warn("webhook.paystack.subscription_disable_no_user", { customerCode, customerEmail });
         }
         break;
       }
