@@ -17,6 +17,11 @@ import type {
 import { logger } from "@/lib/logger";
 import { isSameOrigin } from "@/lib/security/origin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  extractLocationFromPrompt,
+  getLiveWeather,
+  getLiveWeatherByCoords,
+} from "@/lib/weather/service";
 
 const historyTurnSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -217,6 +222,55 @@ export async function POST(request: NextRequest) {
       })),
     }));
 
+    // Resolve weather:
+    // 1. Check if the user's message mentions a specific destination/city (e.g. "in Abuja", "flying to London")
+    // 2. Otherwise use client-provided weather, falling back to edge geo headers or profile.location on the server
+    const promptLocation = extractLocationFromPrompt(effectiveUserBody);
+    const promptWeather = promptLocation
+      ? await getLiveWeather(promptLocation)
+      : null;
+
+    let baseWeatherSummary = parsed.data.weather?.trim() || null;
+    if (!baseWeatherSummary) {
+      const edgeLat = Number(request.headers.get("x-vercel-ip-latitude"));
+      const edgeLon = Number(request.headers.get("x-vercel-ip-longitude"));
+      const edgeCity =
+        request.headers.get("x-vercel-ip-city") ||
+        request.headers.get("cf-ipcity");
+      if (
+        Number.isFinite(edgeLat) &&
+        Number.isFinite(edgeLon) &&
+        (edgeLat !== 0 || edgeLon !== 0)
+      ) {
+        const w = await getLiveWeatherByCoords(
+          edgeLat,
+          edgeLon,
+          edgeCity ? decodeURIComponent(edgeCity) : null,
+        );
+        baseWeatherSummary = w?.summary ?? null;
+      } else if (edgeCity) {
+        const w = await getLiveWeather(decodeURIComponent(edgeCity));
+        baseWeatherSummary = w?.summary ?? null;
+      } else if (profile?.location) {
+        const w = await getLiveWeather(profile.location);
+        baseWeatherSummary = w?.summary ?? null;
+      }
+    }
+
+    const effectiveWeather =
+      promptWeather &&
+      baseWeatherSummary &&
+      !baseWeatherSummary
+        .toLowerCase()
+        .startsWith(promptWeather.city.toLowerCase())
+        ? `${promptWeather.summary} (Requested destination: ${promptWeather.city} | User home weather: ${baseWeatherSummary})`
+        : (promptWeather?.summary ?? baseWeatherSummary);
+
+    const effectiveLocation =
+      promptWeather?.city ??
+      profile?.location ??
+      (baseWeatherSummary ? baseWeatherSummary.split(":")[0]?.trim() : null);
+
     const aiResult = await generateStylistChatReply(
       {
         userMessage: effectiveUserBody,
@@ -224,7 +278,8 @@ export async function POST(request: NextRequest) {
         sharedItems: sharedItemsContext,
         sharedOutfits: sharedOutfitsContext,
         inventory,
-        weather: parsed.data.weather || null,
+        weather: effectiveWeather,
+        userLocation: effectiveLocation,
         stylePreferences,
         gender: profile?.gender ?? null,
       },
@@ -327,6 +382,7 @@ export async function POST(request: NextRequest) {
       userMessage,
       assistantMessage,
       provider: aiResult.provider,
+      weatherSummary: baseWeatherSummary ?? promptWeather?.summary ?? null,
     });
   } catch (err) {
     logger.error("stylist_chat.api_error", { err });

@@ -275,6 +275,10 @@ export function StylistChatThread({
 }: StylistChatThreadProps) {
   const storageKey = `closetai_stylist_chat_v1_${currentUserId}`;
   const [messages, setMessages] = useState<StylistChatMessage[]>(initialMessages);
+  const [clientWeatherSummary, setClientWeatherSummary] = useState<string | null>(
+    null,
+  );
+  const liveWeatherSummary = clientWeatherSummary ?? weatherSummary;
   const [body, setBody] = useState("");
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [selectedOutfitIds, setSelectedOutfitIds] = useState<string[]>([]);
@@ -298,6 +302,58 @@ export function StylistChatThread({
     () => new Map(shareableOutfits.map((o) => [o.id, o])),
     [shareableOutfits],
   );
+
+  // Automatically detect the user's live location & weather in the background on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    const applyWeatherSummary = (summary?: string | null) => {
+      if (cancelled || !summary) return;
+      setClientWeatherSummary(summary);
+    };
+
+    const fallbackToIpWeather = async () => {
+      try {
+        const res = await fetch("/api/weather");
+        const data = await res.json();
+        if (res.ok && data.weather?.summary) {
+          applyWeatherSummary(data.weather.summary);
+        }
+      } catch {
+        // silent background fallback
+      }
+    };
+
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const res = await fetch(
+              `/api/weather?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`,
+            );
+            const data = await res.json();
+            if (res.ok && data.weather?.summary) {
+              applyWeatherSummary(data.weather.summary);
+            } else {
+              await fallbackToIpWeather();
+            }
+          } catch {
+            await fallbackToIpWeather();
+          }
+        },
+        () => {
+          void fallbackToIpWeather();
+        },
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 600000 },
+      );
+    } else {
+      void fallbackToIpWeather();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Hydrate from localStorage if DB returned empty (e.g. before migration is applied)
   useEffect(() => {
@@ -483,13 +539,17 @@ export function StylistChatThread({
           itemIds: itemIdsToSend,
           outfitIds: outfitIdsToSend,
           history: historyPayload,
-          weather: weatherSummary ?? undefined,
+          weather: liveWeatherSummary ?? undefined,
         }),
       });
 
       const data = await res.json();
       if (!res.ok || data.status !== "ok") {
         throw new Error(data.error || data.reason || "Could not reach @ClosetAI Stylist.");
+      }
+
+      if (typeof data.weatherSummary === "string" && data.weatherSummary.trim()) {
+        setClientWeatherSummary((curr) => curr ?? data.weatherSummary);
       }
 
       const confirmedUser = data.userMessage as StylistChatMessage;
@@ -587,7 +647,7 @@ export function StylistChatThread({
             </div>
             <p className="truncate text-[0.7rem] text-muted">
               Knows your {cleanCount} clean {cleanCount === 1 ? "piece" : "pieces"}
-              {weatherSummary ? ` · ${weatherSummary}` : " · Share clothes & outfits anytime"}
+              {liveWeatherSummary ? ` · ${liveWeatherSummary}` : " · Share clothes & outfits anytime"}
             </p>
           </div>
         </div>
@@ -641,10 +701,10 @@ export function StylistChatThread({
                   specific clothes or saved outfits, or let me build a complete look from
                   your real wardrobe.
                 </p>
-                {weatherSummary && (
+                {liveWeatherSummary && (
                   <p className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-[0.7rem] font-medium text-foreground">
                     <CloudSun className="size-3.5 text-accent" aria-hidden />
-                    <span>{weatherSummary}</span>
+                    <span>{liveWeatherSummary}</span>
                   </p>
                 )}
               </div>

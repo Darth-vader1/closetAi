@@ -112,6 +112,10 @@ const TEXT_RULES: Array<[GarmentType, RegExp]> = [
   ["overshirt", /\bovershirts?\b|\bshackets?\b/],
   ["coat", /\b(coats?|trench|parka|overcoat|puffer)\b/],
   ["jacket", /\b(jackets?|bomber|varsity|denim jacket)\b/],
+  // Headwear & bags must precede fabric/cultural terms like "aso-oke" or "ankara" so "Aso-Oke Fila cap" or "Ankara clutch" are accessories, not full-body sets.
+  ["cap", /\b(caps?|snapback|beanie|fila|kufi|abeti[- ]?aja)\b/],
+  ["hat", /\b(hats?|bucket|fedora|beret|fascinator|gele|head ?wrap|head ?ties?|turban)\b/],
+  ["bag", /\b(bags?|backpacks?|handbags?|clutch|tote|satchel|crossbody|purse|briefcase)\b/],
   ["traditional_set", /\b(agbada|aso[- ]?oke|aso[- ]?ebi|kaftan|caftan|senator|ankara|dashiki|buba|danshiki|boubou|bubu|isiagu|adire|abaya|jalabiya|kente|iro)\b/],
   ["tailored_trousers", /\b(tailored|dress|formal|suit|pleated|slacks?|office) (pants|trousers)\b|\bslacks\b/],
   ["jumpsuit", /\bjumpsuits?\b/],

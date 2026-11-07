@@ -83,9 +83,10 @@ export const STYLIST_CHAT_SYSTEM_PROMPT = [
   "5. USE 'proposed_outfits' FOR OUTFIT IDEAS: Whenever you suggest 1 to 3 outfit combinations in your reply, you MUST populate 'proposed_outfits' with those complete looks (each containing the exact item_ids for the top, bottom, footwear, and accessories from the inventory) so the user can view and save each look as a card. Only use 'referenced_item_ids' for standalone single items that are NOT already part of 'proposed_outfits'.",
   "6. SHARED ITEMS & OUTFITS: When the user attaches specific clothing items or saved outfits, inspect them closely (colour, fabric, category, style) and build your advice or outfits around them.",
   "7. LAUNDRY AWARENESS: Prefer CLEAN items when building outfits to wear right now. If a key item is WORN or DIRTY, you may still mention it with a quick heads-up that it needs a wash.",
-  "8. CULTURAL & TRADITIONAL STYLING: For Nigerian/African celebrations (Owambe, Aso-Ebi, Senator, Ankara, Agbada, Lace, Kaftan, Church Thanksgiving), honor cultural aesthetics and accessories (Gele, Fila, coral beads).",
-  "9. NEVER invent or hallucinate UUIDs in 'referenced_item_ids' or 'proposed_outfits[].item_ids'. Only use exact IDs from the provided inventory.",
+  "8. CULTURAL & TRADITIONAL STYLING: For Nigerian/African celebrations (Owambe, Aso-Ebi, Senator, Ankara, Agbada, Lace, Kaftan, Church Thanksgiving), honor cultural aesthetics and accessories (Gele, Fila, coral beads). Note that a Senator set, Agbada, Kaftan, or Dress is already a complete top-and-bottom ensemble—do NOT pair a Senator set with separate trousers or layer it over a T-shirt.",
+  "9. NEVER invent or hallucinate UUIDs in 'referenced_item_ids' or 'proposed_outfits[].item_ids'. Only use exact IDs from the provided inventory, and NEVER write raw item IDs or UUIDs inside the conversational 'reply' text.",
   "10. Always include 2 to 4 helpful 'quick_replies' tailored to the conversation so the user can keep iterating effortlessly.",
+  "11. WEATHER & LOCATION ACCURACY: Always pay close attention to 'Current Local Weather' and 'User Location' in the context. When the user asks about the weather, temperature, their location, or what to wear today/in a specific city, explicitly cite the exact city name, temperature (°C), and sky condition from the provided weather context in your reply, and tailor fabric weight, layering, and footwear (e.g. rain-safe shoes vs breathable linen/cotton) directly to those conditions.",
 ].join(" ");
 
 export interface ChatTurnInput {
@@ -131,6 +132,7 @@ export interface GenerateStylistChatInput {
   sharedOutfits: ChatSharedOutfitContext[];
   inventory: ChatInventoryItem[];
   weather?: string | null;
+  userLocation?: string | null;
   stylePreferences?: string[];
   gender?: string | null;
 }
@@ -199,9 +201,31 @@ function sanitizeProposedOutfits(
       profiles = items.map((it) => profileGarment(it));
     }
 
-    // 2. Deduplicate competing base tops (e.g. polo over long-sleeve henley)
-    const tops = profiles.filter((p) => p.role === "top");
+    // 2. If outfit includes a full one-piece (e.g. Senator set, Agbada, Dress, Jumpsuit),
+    // drop any competing separate bottoms or non-layering base tops.
+    const onePieces = profiles.filter((p) => p.role === "onepiece");
     let droppedTopName: string | null = null;
+    if (onePieces.length > 0) {
+      const extraOnePieceIds = new Set(onePieces.slice(1).map((op) => op.id));
+      const redundantWithOnePieceIds = new Set(
+        profiles
+          .filter(
+            (p) =>
+              extraOnePieceIds.has(p.id) ||
+              p.role === "bottom" ||
+              (p.role === "top" && !p.layering),
+          )
+          .map((p) => p.id),
+      );
+      if (redundantWithOnePieceIds.size > 0) {
+        itemIds = itemIds.filter((id) => !redundantWithOnePieceIds.has(id));
+        items = itemIds.map((id) => wardrobeItemsMap.get(id)!).filter(Boolean);
+        profiles = items.map((it) => profileGarment(it));
+      }
+    }
+
+    // 3. Deduplicate competing base tops (e.g. polo over long-sleeve henley)
+    const tops = profiles.filter((p) => p.role === "top");
     if (tops.length > 1) {
       const nonLayeringTops = tops.filter((t) => !t.layering);
       if (nonLayeringTops.length > 1) {
@@ -343,6 +367,7 @@ export async function generateStylistChatReply(
       : null;
 
   const prompt = [
+    input.userLocation ? `User Location: ${input.userLocation}` : null,
     input.weather ? `Current Local Weather: ${input.weather}` : null,
     input.gender ? `User Gender / Fit Preference: ${input.gender}` : null,
     input.stylePreferences?.length
@@ -411,10 +436,21 @@ export async function generateStylistChatReply(
             "How can I elevate this outfit?",
           ];
 
+    // Strip any leaked raw item IDs in parentheses or brackets from the conversational reply
+    let cleanReply = parsed.data.reply;
+    for (const id of validItemIds) {
+      const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escapedHyphenVariants = escapedId.replace(/-/g, "[-\\u2010-\\u2015]");
+      cleanReply = cleanReply.replace(
+        new RegExp(`\\s*[([\\{]${escapedHyphenVariants}[)\\]}]`, "gi"),
+        "",
+      );
+    }
+
     return {
       status: "ok",
       data: {
-        reply: parsed.data.reply,
+        reply: cleanReply.trim(),
         referenced_item_ids: [...new Set(sanitizedReferencedIds)].slice(0, 6),
         proposed_outfits: sanitizedOutfits.slice(0, 3),
         quick_replies: sanitizedQuickReplies,
