@@ -67,7 +67,14 @@ export function CalendarClient({
       ? initialDate
       : formatLocalDate(new Date());
   });
-  const [selectedSlot, setSelectedSlot] = useState<OutfitTimeOfDay>("MORNING");
+  const [selectedSlot, setSelectedSlot] = useState<OutfitTimeOfDay>(() => {
+    const startDate =
+      initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)
+        ? initialDate
+        : formatLocalDate(new Date());
+    const initialSlots = getDayPlansBySlot(initialPlans, startDate);
+    return initialSlots.ordered[0]?.timeOfDay ?? "MORNING";
+  });
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
     const d =
       initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)
@@ -537,7 +544,7 @@ export function CalendarClient({
                         }`}
                         className={`flex items-center justify-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-semibold tracking-tight ${
                           isWorn
-                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                            ? "border border-emerald-600/25 bg-emerald-600/10 text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-500/15 dark:text-emerald-300"
                             : isPlanned
                               ? "bg-accent-soft text-accent border border-accent/25"
                               : "bg-surface-muted/60 text-muted/60"
@@ -577,7 +584,7 @@ export function CalendarClient({
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               {OUTFIT_TIME_OF_DAY_SLOTS.map((slot) => {
                 const meta = TIME_OF_DAY_META[slot];
                 const slotPlan = selectedDaySlots[slot];
@@ -589,40 +596,52 @@ export function CalendarClient({
                     key={slot}
                     type="button"
                     onClick={() => setSelectedSlot(slot)}
-                    className={`flex flex-col items-start justify-between rounded-xl p-3 text-left transition-all border ${
+                    className={`min-w-0 overflow-hidden flex flex-col items-start justify-between rounded-xl p-2.5 sm:p-3.5 text-left transition-all border ${
                       isActive
-                        ? "border-accent bg-accent-soft/40 ring-2 ring-accent/20"
+                        ? "border-accent bg-accent-soft/35 ring-2 ring-accent/20 shadow-2xs"
                         : "border-border bg-surface-muted/30 hover:bg-surface-muted/70"
                     }`}
                   >
-                    <div className="flex items-center justify-between w-full gap-1">
-                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                        <SlotIcon slot={slot} className="h-3.5 w-3.5 text-accent" />
-                        {meta.label}
+                    <div className="flex items-center justify-between w-full gap-1.5">
+                      <span
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border ${
+                          isActive
+                            ? "border-accent/30 bg-surface text-accent"
+                            : "border-border/70 bg-surface/80 text-muted"
+                        }`}
+                      >
+                        <SlotIcon slot={slot} className="h-3.5 w-3.5" />
                       </span>
                       {slotPlan ? (
                         <span
-                          className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                          className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-tight border ${
                             isWorn
-                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                              : "bg-accent-soft text-accent"
+                              ? "border-emerald-600/25 bg-emerald-600/10 text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-500/15 dark:text-emerald-300"
+                              : "border-accent/25 bg-accent-soft text-accent"
                           }`}
                         >
                           {isWorn ? (
                             <>
-                              <Check className="h-2.5 w-2.5" />
-                              Worn
+                              <Check className="h-2.5 w-2.5 stroke-[2.5]" />
+                              <span>Worn</span>
                             </>
                           ) : (
-                            "Planned"
+                            <span>Planned</span>
                           )}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-muted">Open</span>
+                        <span className="shrink-0 rounded-full bg-surface-muted/80 px-2 py-0.5 text-[10px] font-medium text-muted">
+                          Open
+                        </span>
                       )}
                     </div>
-                    <div className="mt-1.5 w-full truncate text-[11px] text-muted">
-                      {slotPlan ? slotPlan.outfit.name : meta.timeHint}
+                    <div className="mt-2 w-full">
+                      <div className="truncate text-xs sm:text-[13px] font-semibold text-foreground">
+                        {meta.label}
+                      </div>
+                      <div className="mt-0.5 w-full truncate text-[11px] text-muted">
+                        {slotPlan ? slotPlan.outfit.name : meta.timeHint}
+                      </div>
                     </div>
                   </button>
                 );
@@ -632,37 +651,37 @@ export function CalendarClient({
 
           {/* Active Slot Detail Card */}
           {activeOutfit && activePlan ? (
-            <Card className="p-6 md:p-8 border-border bg-surface space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <div className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent">
-                      <SlotIcon slot={selectedSlot} className="h-3.5 w-3.5" />
+            <Card className="p-5 sm:p-6 md:p-8 border-border bg-surface space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-border pb-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-2.5">
+                    <div className="inline-flex items-center gap-1.5 rounded-full border border-accent/20 bg-accent-soft/70 px-3 py-1 text-[11px] font-semibold text-accent">
+                      <SlotIcon slot={selectedSlot} className="h-3.5 w-3.5 shrink-0" />
                       <span>
                         {activeSlotMeta.label} · {formattedSelectedDate}
                       </span>
                     </div>
                     {activePlan.status === "WORN" ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Logged as Worn
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-600/25 bg-emerald-600/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-500/15 dark:text-emerald-300">
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                        <span>Logged as Worn</span>
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-surface-muted border border-border px-2.5 py-0.5 text-xs font-medium text-muted">
-                        <Clock className="h-3 w-3" />
-                        Planned
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-muted border border-border px-2.5 py-1 text-[11px] font-medium text-muted">
+                        <Clock className="h-3 w-3 shrink-0" />
+                        <span>Planned</span>
                       </span>
                     )}
                   </div>
-                  <h3 className="font-serif text-2xl font-medium tracking-tight text-foreground">
+                  <h3 className="font-serif text-xl sm:text-2xl font-medium tracking-tight text-foreground">
                     {activeOutfit.name}
                   </h3>
                   {activeOutfit.styleDescription && (
-                    <p className="text-xs text-muted mt-0.5">{activeOutfit.styleDescription}</p>
+                    <p className="text-xs text-muted mt-1">{activeOutfit.styleDescription}</p>
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   {activePlan.status !== "WORN" && (
                     <Button
                       onClick={() => handleConfirmWearPlan(activePlan)}
@@ -692,9 +711,10 @@ export function CalendarClient({
                   <Button
                     onClick={() => handleRemovePlan(activePlan)}
                     disabled={busySlotAction !== null}
-                    variant="ghost"
+                    variant="outline"
                     aria-label="Remove outfit from slot"
-                    className="rounded-xl text-xs text-muted hover:text-danger"
+                    title="Remove outfit from slot"
+                    className="rounded-xl px-2.5 text-xs text-muted hover:border-danger/40 hover:bg-danger/10 hover:text-danger"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

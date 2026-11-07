@@ -45,6 +45,41 @@ export function normalizeOutfitTimeOfDay(val?: string | null): OutfitTimeOfDay {
   return "MORNING";
 }
 
+/**
+ * Infers an OutfitTimeOfDay slot from outfit metadata (occasion, name, styleDescription)
+ * when the database row was saved before the `time_of_day` column migration or via legacy RPC.
+ */
+export function inferTimeOfDayFromText(
+  ...texts: Array<string | null | undefined>
+): OutfitTimeOfDay | null {
+  for (const raw of texts) {
+    if (!raw) continue;
+    const t = raw.trim().toLowerCase();
+    if (
+      t === "evening" ||
+      t.startsWith("evening look") ||
+      t.startsWith("evening outfit logged")
+    ) {
+      return "EVENING";
+    }
+    if (
+      t === "afternoon" ||
+      t.startsWith("afternoon look") ||
+      t.startsWith("afternoon outfit logged")
+    ) {
+      return "AFTERNOON";
+    }
+    if (
+      t === "morning" ||
+      t.startsWith("morning look") ||
+      t.startsWith("morning outfit logged")
+    ) {
+      return "MORNING";
+    }
+  }
+  return null;
+}
+
 export function compareTimeOfDaySlots(
   a?: string | null,
   b?: string | null,

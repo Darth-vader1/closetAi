@@ -3,6 +3,7 @@ import {
   OUTFIT_TIME_OF_DAY_SLOTS,
   compareTimeOfDaySlots,
   getDayPlansBySlot,
+  inferTimeOfDayFromText,
   normalizeOutfitTimeOfDay,
   upsertCalendarSlotPlan,
   type CalendarSlotItemLike,
@@ -17,6 +18,24 @@ describe("calendar-slots multi-slot helpers", () => {
     expect(normalizeOutfitTimeOfDay("AFTERNOON")).toBe("AFTERNOON");
     expect(normalizeOutfitTimeOfDay(" evening ")).toBe("EVENING");
     expect(normalizeOutfitTimeOfDay("invalid")).toBe("MORNING");
+  });
+
+  it("infers time_of_day from calendar outfit metadata when DB column is legacy/defaulted", () => {
+    expect(
+      inferTimeOfDayFromText(
+        "Evening outfit logged on the Outfit Calendar.",
+        "Evening",
+        "Evening Look · Nov 7",
+      ),
+    ).toBe("EVENING");
+    expect(
+      inferTimeOfDayFromText(
+        "Afternoon outfit logged on the Outfit Calendar.",
+        "Afternoon",
+        "Afternoon Look · Nov 7",
+      ),
+    ).toBe("AFTERNOON");
+    expect(inferTimeOfDayFromText(null, "Work", "Smart Casual")).toBeNull();
   });
 
   it("orders slots strictly as MORNING -> AFTERNOON -> EVENING", () => {

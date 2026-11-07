@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   compareTimeOfDaySlots,
+  inferTimeOfDayFromText,
   normalizeOutfitTimeOfDay,
   type OutfitTimeOfDay,
 } from "@/lib/outfits/calendar-slots";
@@ -307,16 +308,30 @@ export async function listOutfitPlans(
 
   const planRows: PlannedOutfitRow[] =
     !error && data
-      ? (data as unknown as PlanRowRaw[]).map((row) => ({
-          id: row.id,
-          userId: row.user_id,
-          outfitId: row.outfit_id,
-          plannedFor: row.planned_for,
-          timeOfDay: normalizeOutfitTimeOfDay(row.time_of_day),
-          status: row.status,
-          wornAt: row.worn_at ?? null,
-          outfit: mapNestedOutfit(row.outfits, row.outfit_id, row.user_id),
-        }))
+      ? (data as unknown as PlanRowRaw[]).map((row) => {
+          const mappedOutfit = mapNestedOutfit(row.outfits, row.outfit_id, row.user_id);
+          const inferredSlot = inferTimeOfDayFromText(
+            mappedOutfit.styleDescription,
+            mappedOutfit.occasion,
+            mappedOutfit.name,
+          );
+          const rawSlot = row.time_of_day ? normalizeOutfitTimeOfDay(row.time_of_day) : null;
+          // If row had no explicit time_of_day (or defaulted to MORNING while outfit metadata explicitly says Afternoon/Evening calendar log), use inferredSlot
+          const effectiveSlot =
+            rawSlot && rawSlot !== "MORNING"
+              ? rawSlot
+              : (inferredSlot ?? rawSlot ?? "MORNING");
+          return {
+            id: row.id,
+            userId: row.user_id,
+            outfitId: row.outfit_id,
+            plannedFor: row.planned_for,
+            timeOfDay: effectiveSlot,
+            status: row.status,
+            wornAt: row.worn_at ?? null,
+            outfit: mappedOutfit,
+          };
+        })
       : [];
 
   // Also merge any worn outfits from outfit_history that aren't already in outfit_plans for that (date, slot)
@@ -366,8 +381,18 @@ export async function listOutfitPlans(
         if (!hRow.outfit_id || !hRow.outfits) continue;
         if (hRow.plan_id && existingPlanIds.has(hRow.plan_id)) continue;
 
-        let slot = normalizeOutfitTimeOfDay(hRow.time_of_day);
-        // If no explicit time_of_day column was set on legacy history rows and MORNING is taken, infer from worn_at UTC hour or pick next open slot
+        const mappedHistOutfit = mapNestedOutfit(hRow.outfits, hRow.outfit_id, hRow.user_id);
+        const inferredHistSlot = inferTimeOfDayFromText(
+          mappedHistOutfit.styleDescription,
+          mappedHistOutfit.occasion,
+          mappedHistOutfit.name,
+        );
+        const rawHistSlot = hRow.time_of_day ? normalizeOutfitTimeOfDay(hRow.time_of_day) : null;
+        let slot: OutfitTimeOfDay =
+          rawHistSlot && rawHistSlot !== "MORNING"
+            ? rawHistSlot
+            : (inferredHistSlot ?? rawHistSlot ?? "MORNING");
+        // If no explicit time_of_day column was set on legacy history rows and the slot is taken, infer from worn_at UTC hour or pick next open slot
         if (!hRow.time_of_day && existingKeys.has(`${hRow.worn_on}:${slot}`)) {
           const hour = new Date(hRow.worn_at).getHours();
           const candidate: OutfitTimeOfDay =
@@ -393,7 +418,7 @@ export async function listOutfitPlans(
           timeOfDay: slot,
           status: "WORN",
           wornAt: hRow.worn_at,
-          outfit: mapNestedOutfit(hRow.outfits, hRow.outfit_id, hRow.user_id),
+          outfit: mappedHistOutfit,
         });
       }
     }
