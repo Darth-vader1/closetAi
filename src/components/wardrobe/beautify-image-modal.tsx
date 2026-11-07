@@ -70,7 +70,6 @@ export function ItemBeautifyCard({
   secondaryColours,
   pattern,
   material,
-  style: _style,
   isFavourite,
   activeImagePath: initialActivePath,
   originalImagePath,
@@ -1139,7 +1138,19 @@ function BeautifyExistingItemModal({
         );
       }
     },
-    [itemId, originalImagePath, category, sourceUrl, wrinklePct],
+    [
+      itemId,
+      originalImagePath,
+      category,
+      subcategory,
+      itemName,
+      primaryColour,
+      secondaryColours,
+      pattern,
+      material,
+      sourceUrl,
+      wrinklePct,
+    ],
   );
 
   useEffect(() => {

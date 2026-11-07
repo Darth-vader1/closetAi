@@ -493,7 +493,14 @@ export function CalendarClient({
                   <div className="space-y-1.5 w-full">
                     {coverImage && (
                       <div className="relative aspect-[4/3] w-full rounded-lg overflow-hidden bg-surface-muted border border-border/50">
-                        <Image src={coverImage} alt="" fill sizes="100px" className="object-cover" />
+                        <Image
+                          src={coverImage}
+                          alt=""
+                          fill
+                          sizes="100px"
+                          unoptimized
+                          className="object-cover"
+                        />
                         {d.daySlots.wornCount > 0 && (
                           <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-white shadow-xs">
                             <Check className="h-2.5 w-2.5" />
@@ -714,6 +721,7 @@ export function CalendarClient({
                               alt={item.name}
                               fill
                               sizes="160px"
+                              unoptimized
                               className="object-contain"
                             />
                           ) : (
@@ -876,6 +884,7 @@ export function CalendarClient({
                               alt=""
                               fill
                               sizes="48px"
+                              unoptimized
                               className="object-cover"
                             />
                           )}
@@ -1161,6 +1170,7 @@ export function CalendarClient({
                                 alt={item.name}
                                 fill
                                 sizes="120px"
+                                unoptimized
                                 className="object-contain"
                               />
                             ) : (

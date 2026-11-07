@@ -29,7 +29,7 @@ export default async function CalendarPage({
     listAllWardrobeItems(supabase, user.id, 200).catch(() => []),
   ]);
 
-  // Batch sign images across all outfits in plans, library, and wardrobe items (thumbnail size for calendar cells)
+  // Batch sign images across all outfits in plans and library first, then wardrobe items
   const allOutfits = [...plans.map((p) => p.outfit), ...savedOutfits];
   const allPaths: string[] = [];
   for (const outfit of allOutfits) {
@@ -41,7 +41,9 @@ export default async function CalendarPage({
   for (const item of wardrobeItems) {
     if (item.imagePath) allPaths.push(item.imagePath);
   }
-  const urlMap = await signImageUrls(supabase, allPaths, "thumbnail");
+  // Use "original" so Supabase signs all paths in a single batch HTTP call (~150ms)
+  // rather than N individual /render/image/sign/ round-trips.
+  const urlMap = await signImageUrls(supabase, allPaths, "original");
   const imageUrlsObj: Record<string, string> = {};
   for (const [path, url] of urlMap.entries()) {
     imageUrlsObj[path] = url;

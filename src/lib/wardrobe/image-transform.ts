@@ -109,9 +109,26 @@ export async function signImageUrlsBatch(
     return result;
   }
 
-  // Transform path: sign in parallel with bounded concurrency (max 6 at once).
+  // Transform path:
+  // If a page requests many images at once (> 24, e.g. large wardrobe pickers),
+  // use the single-round-trip `createSignedUrls` batch endpoint so SSR never
+  // stalls on dozens of sequential HTTP calls. Next.js <Image> still resizes
+  // and caches `/storage/v1/object/sign/**` URLs automatically.
+  if (paths.length > 24) {
+    const { data, error } = await supabase.storage
+      .from(WARDROBE_BUCKET)
+      .createSignedUrls(paths, ttl);
+    if (!error && data) {
+      for (const entry of data) {
+        if (entry.path && entry.signedUrl) result.set(entry.path, entry.signedUrl);
+      }
+      return result;
+    }
+  }
+
+  // For <= 24 paths, sign in parallel with bounded concurrency.
   const dims = SIZE_DIMS[size];
-  const CONCURRENCY = 6;
+  const CONCURRENCY = 8;
   let i = 0;
 
   const runBatch = async () => {

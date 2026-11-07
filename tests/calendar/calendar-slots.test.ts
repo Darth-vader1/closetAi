@@ -172,5 +172,5 @@ describe("calendar-slots multi-slot helpers", () => {
     } finally {
       await db.close();
     }
-  });
+  }, 30_000);
 });

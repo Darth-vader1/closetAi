@@ -53,6 +53,7 @@ export function ItemImage({
         alt={alt}
         fill
         sizes={sizes}
+        unoptimized
         className="object-cover"
         loading={priority ? "eager" : "lazy"}
         priority={priority}

@@ -330,34 +330,36 @@ export async function wearOutfitTodayAction(
       .eq("user_id", user.id)
       .in("id", dbItemIds);
 
-    for (const item of currentItems ?? []) {
-      const nextStatus =
-        item.care_type === "WIPE_CLEAN" || item.care_type === "NO_WASH"
-          ? item.status
-          : "WORN";
+    await Promise.all(
+      (currentItems ?? []).map(async (item) => {
+        const nextStatus =
+          item.care_type === "WIPE_CLEAN" || item.care_type === "NO_WASH"
+            ? item.status
+            : "WORN";
 
-      const { error: updateErr } = await supabase
-        .from("wardrobe_items")
-        .update({
-          status: nextStatus,
-          wear_count: (item.wear_count ?? 0) + 1,
-          last_worn_at: nowIso,
-        })
-        .eq("id", item.id)
-        .eq("user_id", user.id);
+        const { error: updateErr } = await supabase
+          .from("wardrobe_items")
+          .update({
+            status: nextStatus,
+            wear_count: (item.wear_count ?? 0) + 1,
+            last_worn_at: nowIso,
+          })
+          .eq("id", item.id)
+          .eq("user_id", user.id);
 
-      if (updateErr) {
-        logger.error("stylist.wear_item_update_failed", { userId: user.id, itemId: item.id, error: updateErr });
-      } else {
-        await supabase.from("laundry_events").insert({
-          user_id: user.id,
-          item_id: item.id,
-          from_status: item.status,
-          to_status: nextStatus,
-          confirmed_washed: false,
-        });
-      }
-    }
+        if (updateErr) {
+          logger.error("stylist.wear_item_update_failed", { userId: user.id, itemId: item.id, error: updateErr });
+        } else {
+          await supabase.from("laundry_events").insert({
+            user_id: user.id,
+            item_id: item.id,
+            from_status: item.status,
+            to_status: nextStatus,
+            confirmed_washed: false,
+          });
+        }
+      }),
+    );
   }
 
   // 4. Upsert or mark outfit_plans slot as WORN
