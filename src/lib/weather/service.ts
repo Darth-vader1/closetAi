@@ -62,8 +62,6 @@ const KNOWN_PLACE_ALIASES: Record<string, { lat: number; lon: number; canonicalN
   toronto: { lat: 43.6532, lon: -79.3832, canonicalName: "Toronto" },
   accra: { lat: 5.6037, lon: -0.187, canonicalName: "Accra" },
   nairobi: { lat: -1.2921, lon: 36.8219, canonicalName: "Nairobi" },
-  dubai: { lat: 25.2048, lon: 55.2708, canonicalName: "Dubai" },
-  johannesburg: { lat: -26.2041, lon: 28.0473, canonicalName: "Johannesburg" },
 };
 
 /**
@@ -392,30 +390,13 @@ export async function geocodePlace(query: string): Promise<GeocodedPlace | null>
     if (match) return { lat: match.latitude, lon: match.longitude, name: label(match) };
   }
 
-  // Multi-word un-comma'd alias suffix fallback (e.g. "Oko Irese Kwara" -> resolves immediately via "Kwara")
-  const words = q.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    for (let len = Math.min(2, words.length - 1); len >= 1; len--) {
-      const tail = words.slice(-len).join(" ").toLowerCase();
-      const tailAlias = KNOWN_PLACE_ALIASES[tail];
-      if (tailAlias) {
-        const prefix = words.slice(0, -len).join(" ");
-        return {
-          lat: tailAlias.lat,
-          lon: tailAlias.lon,
-          name: prefix ? `${prefix}, ${tailAlias.canonicalName}` : tailAlias.canonicalName,
-        };
-      }
-    }
-  }
-
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&accept-language=en`,
       {
         headers: { "User-Agent": "ClosetAI/1.0 (packing planner; https://closet-ai-official.vercel.app)" },
         next: { revalidate: 86400 },
-        signal: AbortSignal.timeout(4500),
+        signal: AbortSignal.timeout(2500),
       },
     );
     if (res.ok) {
@@ -433,7 +414,21 @@ export async function geocodePlace(query: string): Promise<GeocodedPlace | null>
     // fall through
   }
 
+  // Multi-word un-comma'd alias suffix fallback (e.g. "Oko Irese Kwara" -> resolves via "Kwara" when Nominatim returns empty)
+  const words = q.split(/\s+/).filter(Boolean);
   if (words.length >= 2) {
+    for (let len = Math.min(2, words.length - 1); len >= 1; len--) {
+      const tail = words.slice(-len).join(" ").toLowerCase();
+      const tailAlias = KNOWN_PLACE_ALIASES[tail];
+      if (tailAlias) {
+        const prefix = words.slice(0, -len).join(" ");
+        return {
+          lat: tailAlias.lat,
+          lon: tailAlias.lon,
+          name: prefix ? `${prefix}, ${tailAlias.canonicalName}` : tailAlias.canonicalName,
+        };
+      }
+    }
     const lastWord = words[words.length - 1];
     if (lastWord.length >= 3) {
       const tailSearch = await openMeteoSearch(lastWord, 1);
