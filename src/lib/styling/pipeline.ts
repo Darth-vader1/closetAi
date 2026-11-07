@@ -356,7 +356,8 @@ export function runStylingPipeline(input: PipelineInput): PipelineResult {
     const isAnchored = constraints.anchorGroups.some((g) => g.includes(p.id));
     if (!constraints.allowRepeat && !isAnchored && p.item.lastWornAt) {
       const hours = (now - new Date(p.item.lastWornAt).getTime()) / 3_600_000;
-      if (hours < 24 && constraints.avoidRepeatDays !== null) return false;
+      const minRestHours = constraints.avoidRepeatDays !== null ? constraints.avoidRepeatDays * 24 : 24;
+      if (hours < minRestHours) return false;
     }
     return true;
   });

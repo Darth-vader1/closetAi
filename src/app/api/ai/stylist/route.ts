@@ -119,7 +119,11 @@ export async function POST(request: NextRequest) {
     
     // Check if garment was worn in the last 24 hours
     const now = Date.now();
+    const anchorIds = new Set(parsed.data.anchorItemIds ?? []);
     const cleanItems = allItems.filter((item) => {
+      // Anchored items are explicitly selected by the user to be styled
+      if (anchorIds.has(item.id)) return true;
+
       // Must be eligible (CLEAN, or WORN if rewear enabled)
       if (item.status !== "CLEAN" && (item.status !== "WORN" || !allowRewear)) {
         return false;
@@ -216,7 +220,7 @@ export async function POST(request: NextRequest) {
         allowRewearWorn: allowRewear,
         anchorItemIds: parsed.data.anchorItemIds,
         excludeItemIds: parsed.data.excludeItemIds,
-        wardrobeItems: allItems,
+        wardrobeItems: cleanItems,
         feedback: {
           likedItemIds,
           dislikedItemIds,
@@ -245,14 +249,14 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Map item IDs back to full wardrobe items with signed image URLs
-    const itemMap = new Map<string, WardrobeItem>(cleanItems.map((i) => [i.id, i]));
+    // Map item IDs back to full wardrobe items with signed image URLs (using allItems catalog so no picked item drops)
+    const itemMap = new Map<string, WardrobeItem>(allItems.map((i) => [i.id, i]));
     const neededImagePaths = new Set<string>();
 
     for (const outfit of result.data.outfits) {
       for (const id of outfit.item_ids) {
         const item = itemMap.get(id);
-        if (item) neededImagePaths.add(item.imagePath);
+        if (item?.imagePath) neededImagePaths.add(item.imagePath);
       }
     }
 
@@ -262,21 +266,50 @@ export async function POST(request: NextRequest) {
       imageUrlsObj[path] = url;
     }
 
-    const populatedOutfits = result.data.outfits.map((o) => {
-      const items = o.item_ids
-        .map((id) => itemMap.get(id))
-        .filter((item): item is WardrobeItem => Boolean(item));
+    const populatedOutfits = result.data.outfits
+      .map((o) => {
+        const items = o.item_ids
+          .map((id) => itemMap.get(id))
+          .filter((item): item is WardrobeItem => Boolean(item));
 
-      return {
-        name: o.name,
-        occasion: o.occasion,
-        styleDescription: o.style_description,
-        explanation: o.explanation,
-        stylingTip: o.styling_tip,
-        missingPieces: o.missing_pieces || [],
-        items,
-      };
-    });
+        return {
+          name: o.name,
+          occasion: o.occasion,
+          styleDescription: o.style_description,
+          explanation: o.explanation,
+          stylingTip: o.styling_tip,
+          missingPieces: o.missing_pieces || [],
+          items,
+        };
+      })
+      .filter((o) => {
+        const originalCandidate = result.data.outfits.find((orig) => orig.name === o.name);
+        const originalCount = originalCandidate?.item_ids.length ?? 0;
+        // Safety guard: drop any outfit where an item failed to resolve/populate
+        if (o.items.length !== originalCount) {
+          console.warn(`[Stylist] Dropped outfit "${o.name}" due to unpopulated items (${o.items.length}/${originalCount})`);
+          return false;
+        }
+        // Safety guard: minimum 2 items
+        if (o.items.length < 2) return false;
+        // Safety guard: must form a complete silhouette with lower-body or full-body piece
+        const hasBottomOrOnepiece = o.items.some((i) => {
+          const cat = i.category?.toUpperCase();
+          const sub = i.subcategory?.toUpperCase();
+          return (
+            cat === "BOTTOMS" ||
+            cat === "ONE_PIECE" ||
+            sub === "DRESS" ||
+            sub === "JUMPSUIT" ||
+            sub === "ROMPER"
+          );
+        });
+        if (!hasBottomOrOnepiece) {
+          console.warn(`[Stylist] Dropped outfit "${o.name}" because it lacks bottoms or a one-piece`);
+          return false;
+        }
+        return true;
+      });
 
     return json({
       status: "ok",

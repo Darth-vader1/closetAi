@@ -614,4 +614,32 @@ describe("Phase 10D & Phase 12: Technical Edge Cases (36 - 50) & Fact-Grounded E
     );
     expect(good.score).toBeGreaterThan(mediocre.score);
   });
+
+  it("Respects 24-hour rest window for recently worn items unless allowRepeat is true", () => {
+    const oneHourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
+    const wardrobeWithRecentWorn = BASE_WARDROBE.map((item) =>
+      item.id === "bot-joggers" ? { ...item, status: "WORN" as const, lastWornAt: oneHourAgo } : item,
+    );
+
+    // Prompt without repeat keyword -> bot-joggers should be rested
+    const resRested = runStylingPipeline({
+      allItems: wardrobeWithRecentWorn,
+      prompt: "Go for an athletic jog in the park",
+      occasion: "sport",
+      allowRewearWorn: true,
+    });
+    for (const outfit of resRested.outfits) {
+      expect(outfit.itemIds).not.toContain("bot-joggers");
+    }
+
+    // Prompt with explicit repeat instruction -> bot-joggers can be re-worn
+    const resAllowed = runStylingPipeline({
+      allItems: wardrobeWithRecentWorn,
+      prompt: "Rewear my track joggers from earlier today",
+      occasion: "sport",
+      allowRewearWorn: true,
+    });
+    const hasJoggers = resAllowed.outfits.some((o) => o.itemIds.includes("bot-joggers"));
+    expect(hasJoggers).toBe(true);
+  });
 });

@@ -614,7 +614,7 @@ export function CalendarClient({
                       </span>
                       {slotPlan ? (
                         <span
-                          className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-tight border ${
+                          className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 sm:px-2 py-0.5 text-[9.5px] sm:text-[10px] font-semibold tracking-tight border ${
                             isWorn
                               ? "border-emerald-600/25 bg-emerald-600/10 text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-500/15 dark:text-emerald-300"
                               : "border-accent/25 bg-accent-soft text-accent"
@@ -630,7 +630,7 @@ export function CalendarClient({
                           )}
                         </span>
                       ) : (
-                        <span className="shrink-0 rounded-full bg-surface-muted/80 px-2 py-0.5 text-[10px] font-medium text-muted">
+                        <span className="shrink-0 rounded-full bg-surface-muted/80 px-1.5 sm:px-2 py-0.5 text-[9.5px] sm:text-[10px] font-medium text-muted">
                           Open
                         </span>
                       )}
