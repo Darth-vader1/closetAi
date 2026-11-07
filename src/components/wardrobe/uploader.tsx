@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, CheckCircle2, CheckSquare, Crop, Globe, ImagePlus, Layers, Loader2, RefreshCw, RotateCcw, RotateCw, Sparkles, Trash2, UserCheck, Wand2, X } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { Camera, CheckCircle2, CheckSquare, ChevronDown, ChevronUp, Crop, Globe, ImagePlus, Layers, Loader2, RefreshCw, RotateCcw, RotateCw, Sparkles, Trash2, UserCheck, Wand2, X } from "lucide-react";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { saveStylistOutfitAction, wearOutfitTodayAction } from "@/app/(app)/stylist/actions";
 import { discardUploadAction, saveItemAction } from "@/app/(app)/wardrobe/actions";
@@ -22,12 +22,15 @@ import {
   StoreImportCard,
   type ImportedEntryPayload,
 } from "@/components/wardrobe/store-import-card";
+import { SwipeReviewDeck } from "@/components/wardrobe/swipe-review-deck";
 import {
   classifyClipboardPaste,
   isEditablePasteTarget,
 } from "@/lib/import/clipboard";
 import type { ExtractedProductMetadata } from "@/lib/import/extract-product";
+import { cn } from "@/lib/utils/cn";
 import { itemFieldsSchema, type ItemFields, type ItemFieldsInput } from "@/lib/validation/wardrobe";
+import { humanise } from "@/lib/wardrobe/categories";
 import type {
   AiEnhancementParams,
   BeautificationMode,
@@ -65,6 +68,7 @@ interface Entry {
   aiNote: string | null;
   error: string | null;
   savedId: string | null;
+  savedTitle?: string | null;
   originalPreviewUrl?: string;
   originalPath?: string | null;
   photoRoomCutoutDataUrl?: string | null;
@@ -192,6 +196,13 @@ export function WardrobeUploader({
   const [savingAll, setSavingAll] = useState(false);
   const [outfitBundle, setOutfitBundle] = useState<PendingOutfitBundle | null>(null);
   const outfitBundleRef = useRef<PendingOutfitBundle | null>(null);
+  const [activeDeckIndex, setActiveDeckIndex] = useState(0);
+  const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
+
+  const handleDeckIndexChange = useCallback((nextIndex: number) => {
+    setActiveDeckIndex(nextIndex);
+    setExpandedEntryId(null);
+  }, []);
 
   useEffect(() => {
     outfitBundleRef.current = outfitBundle;
@@ -512,6 +523,13 @@ export function WardrobeUploader({
         }
       }
     }
+    setOutfitBundle((prev) => {
+      if (!prev || !prev.entryIds.includes(id)) return prev;
+      const remaining = prev.entryIds.filter((eid) => eid !== id);
+      if (remaining.length < 2 && !prev.savedOutfitId) return null;
+      return { ...prev, entryIds: remaining };
+    });
+    setExpandedEntryId((prev) => (prev === id ? null : prev));
     setEntries((list) => list.filter((e) => e.id !== id));
   }, []);
 
@@ -622,7 +640,9 @@ export function WardrobeUploader({
           if (extractOptions.studioExtraction !== "crop-only" && !abortController.signal.aborted) {
             try {
               const targetMode = extractOptions.studioExtraction;
-              const timeoutSignal = AbortSignal.timeout(15000);
+              // Allow 55s for generative De-Body Flat-Lay (server FLUX budget is 45s) and 25s for Clean Cutout
+              const timeoutMs = targetMode === "catalog-flatlay" ? 55_000 : 25_000;
+              const timeoutSignal = AbortSignal.timeout(timeoutMs);
               const combinedSignal = AbortSignal.any
                 ? AbortSignal.any([abortController.signal, timeoutSignal])
                 : abortController.signal;
@@ -798,6 +818,8 @@ export function WardrobeUploader({
           next.splice(idx, 1, ...croppedEntries);
           return next;
         });
+        setActiveDeckIndex(0);
+        setExpandedEntryId(null);
 
         multiExtractAbortRef.current = null;
         controllers.current.delete(parentEntry.id);
@@ -853,7 +875,18 @@ export function WardrobeUploader({
       for (const e of readyEntries) {
         const submitter = formSubmittersRef.current.get(e.id);
         if (submitter) {
-          await submitter();
+          const ok = await submitter();
+          if (!ok) {
+            const unsavedAfter = entriesRef.current.filter(
+              (item) =>
+                !(item.multiDetectedItems && item.multiDetectedItems.length > 1) &&
+                item.stage !== "saved",
+            );
+            const failedIdx = unsavedAfter.findIndex((item) => item.id === e.id);
+            if (failedIdx >= 0) setActiveDeckIndex(failedIdx);
+            setExpandedEntryId(e.id);
+            break;
+          }
         }
       }
     } finally {
@@ -971,10 +1004,10 @@ export function WardrobeUploader({
       if (result.ok) {
         // Both originalImagePath and beautifiedImagePath are now referenced by the saved item,
         // so the user can reopen the item later and access both versions.
-        patch(id, { stage: "saved", savedId: result.id });
+        patch(id, { stage: "saved", savedId: result.id, savedTitle: values.name.trim() });
         // Synchronously reflect savedId on entriesRef so sequential batch saves see it immediately
         entriesRef.current = entriesRef.current.map((e) =>
-          e.id === id ? { ...e, stage: "saved", savedId: result.id } : e,
+          e.id === id ? { ...e, stage: "saved", savedId: result.id, savedTitle: values.name.trim() } : e,
         );
         await maybeFinalizeOutfitBundle(id, result.id);
         router.refresh();
@@ -1613,36 +1646,120 @@ export function WardrobeUploader({
         </Card>
       ) : null}
 
-      <ul className="space-y-4 pb-20 sm:pb-8" aria-label="Photos being added">
-        {entries.map((entry) => (
-          <li key={entry.id}>
-            <EntryCard
-              entry={entry}
-              aiAvailable={aiAvailable}
-              onRemove={removeEntry}
-              onRetry={retry}
-              onSave={save}
-              onBeautify={runBeautifyOnEntry}
-              onRotate={handleRotateEntry}
-              onOpenCropper={(e) => setCropperEntry(e)}
-              onAnalyse={(e) => {
-                if (!e.path) return;
-                const fresh = new AbortController();
-                controllers.current.set(e.id, fresh);
-                void runAnalysis(e.id, e.originalPath ?? e.path, fresh.signal);
-              }}
-              onScanMulti={handleScanMulti}
-              onImportMultiItems={importSelectedMultiItems}
-              onDismissMulti={handleDismissMulti}
-              onCancelMultiExtraction={cancelMultiExtraction}
-              registerSubmitter={registerSubmitter}
-              unregisterSubmitter={unregisterSubmitter}
-              registerValuesGetter={registerValuesGetter}
-              unregisterValuesGetter={unregisterValuesGetter}
-            />
-          </li>
+      {/* Interactive Multi-Item / OOTD Bounding-Box Selectors (pre-extraction) */}
+      {entries
+        .filter((e) => Boolean(e.multiDetectedItems && e.multiDetectedItems.length > 1))
+        .map((entry) => (
+          <EntryCard
+            key={entry.id}
+            entry={entry}
+            aiAvailable={aiAvailable}
+            isDetailsExpanded={expandedEntryId === entry.id}
+            onToggleDetails={() =>
+              setExpandedEntryId((prev) => (prev === entry.id ? null : entry.id))
+            }
+            onExpandDetails={() => setExpandedEntryId(entry.id)}
+            onRemove={removeEntry}
+            onRetry={retry}
+            onSave={save}
+            onBeautify={runBeautifyOnEntry}
+            onRotate={handleRotateEntry}
+            onOpenCropper={(e) => setCropperEntry(e)}
+            onAnalyse={(e) => {
+              if (!e.path) return;
+              const fresh = new AbortController();
+              controllers.current.set(e.id, fresh);
+              void runAnalysis(e.id, e.originalPath ?? e.path, fresh.signal);
+            }}
+            onScanMulti={handleScanMulti}
+            onImportMultiItems={importSelectedMultiItems}
+            onDismissMulti={handleDismissMulti}
+            onCancelMultiExtraction={cancelMultiExtraction}
+            registerSubmitter={registerSubmitter}
+            unregisterSubmitter={unregisterSubmitter}
+            registerValuesGetter={registerValuesGetter}
+            unregisterValuesGetter={unregisterValuesGetter}
+          />
         ))}
-      </ul>
+
+      {/* Tinder-Style Swipe Deck for Uploaded, Store-Imported & Extracted Garments */}
+      {(() => {
+        const garmentEntries = entries.filter(
+          (e) => !(e.multiDetectedItems && e.multiDetectedItems.length > 1),
+        );
+        const unsavedEntries = garmentEntries.filter((e) => e.stage !== "saved");
+        const savedEntries = garmentEntries.filter((e) => e.stage === "saved");
+        if (unsavedEntries.length === 0 && savedEntries.length === 0) return null;
+
+        const entryById = new Map(unsavedEntries.map((e) => [e.id, e]));
+        const resolveTitle = (e: Entry) =>
+          e.savedTitle?.trim() ||
+          e.suggestion?.name?.trim() ||
+          e.initialValues?.name?.trim() ||
+          e.file.name;
+
+        return (
+          <SwipeReviewDeck
+            items={unsavedEntries.map((e) => ({
+              id: e.id,
+              title: resolveTitle(e),
+              previewUrl: e.previewUrl,
+              busy:
+                e.stage === "preparing" ||
+                e.stage === "uploading" ||
+                e.stage === "analysing" ||
+                e.stage === "saving" ||
+                Boolean(e.processingCutout),
+              hasError: e.stage === "error" || Boolean(e.beautifyError),
+            }))}
+            activeIndex={activeDeckIndex}
+            onActiveIndexChange={handleDeckIndexChange}
+            savedItems={savedEntries.map((e) => ({
+              id: e.id,
+              title: resolveTitle(e),
+              previewUrl: e.previewUrl,
+              savedId: e.savedId,
+            }))}
+            renderCard={(id) => {
+              const entry = entryById.get(id);
+              if (!entry) return null;
+              return (
+                <EntryCard
+                  entry={entry}
+                  aiAvailable={aiAvailable}
+                  isDetailsExpanded={expandedEntryId === entry.id}
+                  onToggleDetails={() =>
+                    setExpandedEntryId((prev) =>
+                      prev === entry.id ? null : entry.id,
+                    )
+                  }
+                  onExpandDetails={() => setExpandedEntryId(entry.id)}
+                  onRemove={removeEntry}
+                  onRetry={retry}
+                  onSave={save}
+                  onBeautify={runBeautifyOnEntry}
+                  onRotate={handleRotateEntry}
+                  onOpenCropper={(e) => setCropperEntry(e)}
+                  onAnalyse={(e) => {
+                    if (!e.path) return;
+                    const fresh = new AbortController();
+                    controllers.current.set(e.id, fresh);
+                    void runAnalysis(e.id, e.originalPath ?? e.path, fresh.signal);
+                  }}
+                  onScanMulti={handleScanMulti}
+                  onImportMultiItems={importSelectedMultiItems}
+                  onDismissMulti={handleDismissMulti}
+                  onCancelMultiExtraction={cancelMultiExtraction}
+                  registerSubmitter={registerSubmitter}
+                  unregisterSubmitter={unregisterSubmitter}
+                  registerValuesGetter={registerValuesGetter}
+                  unregisterValuesGetter={unregisterValuesGetter}
+                />
+              );
+            }}
+          />
+        );
+      })()}
 
       {cropperEntry && (
         <ImageCropperModal
@@ -1663,6 +1780,9 @@ export function WardrobeUploader({
 function EntryCard({
   entry,
   aiAvailable,
+  isDetailsExpanded,
+  onToggleDetails,
+  onExpandDetails,
   onRemove,
   onRetry,
   onSave,
@@ -1681,6 +1801,9 @@ function EntryCard({
 }: {
   entry: Entry;
   aiAvailable: boolean;
+  isDetailsExpanded: boolean;
+  onToggleDetails: () => void;
+  onExpandDetails: () => void;
   onRemove: (id: string) => void;
   onRetry: (entry: Entry) => void;
   onSave: (id: string, values: ItemFields) => Promise<{ ok: boolean; error?: string; fieldErrors?: Record<string, string> }>;
@@ -1723,14 +1846,15 @@ function EntryCard({
   const label = { preparing: "Preparing photo…", uploading: "Uploading…", analysing: "Analysing with AI…" }[entry.stage as "preparing" | "uploading" | "analysing"];
 
   return (
-    <Card className="p-4 sm:p-6">
+    <Card className="p-4 sm:p-6 shadow-sm">
       <div className="flex flex-col gap-5 sm:flex-row">
-        <div className="relative w-full shrink-0 sm:w-52">
+        <div className="relative w-full shrink-0 sm:w-56">
           {/* eslint-disable-next-line @next/next/no-img-element -- local object URL preview, not optimisable */}
           <img
             src={entry.previewUrl}
             alt={`Preview of ${entry.file.name}`}
-            className="aspect-square w-full rounded-xl border border-border bg-white object-contain"
+            draggable={false}
+            className="aspect-square w-full rounded-xl border border-border bg-white object-contain select-none"
           />
           {entry.stage === "saved" ? (
             <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-success px-2.5 py-1 text-xs font-medium text-white">
@@ -1783,9 +1907,6 @@ function EntryCard({
                 </button>
               </div>
 
-              <p className="rounded-lg border border-border/70 bg-surface-muted/60 px-2 py-1 text-[10px] leading-snug text-muted">
-                <strong>Studio Processing:</strong> Automatically isolates garment, centers on white canvas, and balances lighting. Original photo is preserved.
-              </p>
               <div className="grid grid-cols-2 gap-1.5">
                 <Button
                   type="button"
@@ -1879,7 +2000,7 @@ function EntryCard({
           ) : null}
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 flex flex-col justify-between">
           {busy ? (
             <div role="status" aria-live="polite" className="flex h-full min-h-32 flex-col justify-center gap-3">
               <p className="flex items-center gap-2 font-medium">
@@ -1912,6 +2033,9 @@ function EntryCard({
             <ReviewForm
               entry={entry}
               aiAvailable={aiAvailable}
+              isDetailsExpanded={isDetailsExpanded}
+              onToggleDetails={onToggleDetails}
+              onExpandDetails={onExpandDetails}
               onSave={onSave}
               onRemove={onRemove}
               onAnalyse={onAnalyse}
@@ -1931,6 +2055,9 @@ function EntryCard({
 function ReviewForm({
   entry,
   aiAvailable,
+  isDetailsExpanded,
+  onToggleDetails,
+  onExpandDetails,
   onSave,
   onRemove,
   onAnalyse,
@@ -1942,6 +2069,9 @@ function ReviewForm({
 }: {
   entry: Entry;
   aiAvailable: boolean;
+  isDetailsExpanded: boolean;
+  onToggleDetails: () => void;
+  onExpandDetails: () => void;
   onSave: (id: string, values: ItemFields) => Promise<{ ok: boolean; error?: string; fieldErrors?: Record<string, string> }>;
   onRemove: (id: string) => void;
   onAnalyse: (entry: Entry) => void;
@@ -1958,6 +2088,8 @@ function ReviewForm({
       ? suggestionToValues(entry.suggestion, entry.initialValues)
       : (entry.initialValues ?? emptyItemValues()),
   });
+
+  const watchedValues = useWatch({ control: form.control });
 
   useEffect(() => {
     registerValuesGetter(entry.id, () => form.getValues());
@@ -1984,8 +2116,12 @@ function ReviewForm({
           const result = await onSave(entry.id, values);
           if (!result.ok) {
             setError(result.error ?? "Couldn't save this item.");
-            for (const [name, message] of Object.entries(result.fieldErrors ?? {})) {
+            const fieldEntries = Object.entries(result.fieldErrors ?? {});
+            for (const [name, message] of fieldEntries) {
               form.setError(name as keyof ItemFieldsInput, { message });
+            }
+            if (fieldEntries.length > 0) {
+              onExpandDetails();
             }
             ok = false;
           } else {
@@ -1993,6 +2129,7 @@ function ReviewForm({
           }
         },
         () => {
+          onExpandDetails();
           ok = false;
         },
       )();
@@ -2003,7 +2140,7 @@ function ReviewForm({
     return () => {
       unregisterSubmitter(entry.id);
     };
-  }, [entry.id, form, onSave, registerSubmitter, unregisterSubmitter]);
+  }, [entry.id, form, onExpandDetails, onSave, registerSubmitter, unregisterSubmitter]);
 
   const saved = entry.stage === "saved";
   const saving = entry.stage === "saving";
@@ -2011,7 +2148,7 @@ function ReviewForm({
   if (saved) {
     return (
       <div className="space-y-3">
-        <p className="font-medium">{form.getValues("name")}</p>
+        <p className="font-medium">{watchedValues.name || "Saved garment"}</p>
         <p className="text-sm text-muted">Added to your wardrobe as clean.</p>
         {entry.savedId ? (
           <Link href={`/wardrobe/${entry.savedId}`} className="text-sm font-medium text-accent underline underline-offset-4">
@@ -2022,68 +2159,198 @@ function ReviewForm({
     );
   }
 
-  const submit = form.handleSubmit(async (values) => {
-    setError(null);
-    const result = await onSave(entry.id, values);
-    if (!result.ok) {
-      setError(result.error ?? "Couldn't save this item.");
-      for (const [name, message] of Object.entries(result.fieldErrors ?? {})) form.setError(name as keyof ItemFieldsInput, { message });
-    }
-  });
+  const submit = form.handleSubmit(
+    async (values) => {
+      setError(null);
+      const result = await onSave(entry.id, values);
+      if (!result.ok) {
+        setError(result.error ?? "Couldn't save this item.");
+        const fieldEntries = Object.entries(result.fieldErrors ?? {});
+        for (const [name, message] of fieldEntries) {
+          form.setError(name as keyof ItemFieldsInput, { message });
+        }
+        if (fieldEntries.length > 0) {
+          onExpandDetails();
+        }
+      }
+    },
+    () => {
+      onExpandDetails();
+    },
+  );
+
+  const detailsRegionId = `entry-details-${entry.id}`;
+  const displayName = watchedValues.name?.trim() || "Untitled piece — tap Show more details";
+  const displayCategory = watchedValues.category ? humanise(watchedValues.category) : null;
+  const displayColour = watchedValues.primaryColour ? humanise(watchedValues.primaryColour) : null;
+  const displayStyle = watchedValues.style ? humanise(watchedValues.style) : null;
+  const displayBrand = watchedValues.brand?.trim() || entry.sourceBrand || null;
+  const uncertainCount = entry.suggestion?.uncertainFields.length ?? 0;
 
   return (
-    <form onSubmit={submit} className="space-y-5" noValidate aria-label={`Details for ${entry.file.name}`}>
-      {entry.sourceUrl ? (
-        <Alert tone="info" title="Imported from store">
-          Fields were pre-filled from the store page
-          {entry.sourceBrand ? ` (${entry.sourceBrand})` : ""}. Review and adjust any details below before saving.
-        </Alert>
-      ) : null}
-      {entry.isMock ? (
-        <Alert tone="warning" title="Development sample">
-          This came from the mock AI provider, not a real model. It doesn&apos;t look at your photo.
-        </Alert>
-      ) : null}
-      {entry.suggestion && !entry.isMock ? (
-        <Alert tone="info" title="AI suggestion">
-          Please check the details below before saving.{" "}
-          {entry.suggestion.uncertainFields.length > 0 ? "Fields it wasn't sure about are flagged." : null}
-        </Alert>
-      ) : null}
-      {entry.aiNote ? <Alert tone="info">{entry.aiNote}</Alert> : null}
-      {error ? <Alert tone="danger">{error}</Alert> : null}
+    <form onSubmit={submit} className="space-y-4" noValidate aria-label={`Details for ${entry.file.name}`}>
+      {/* Compact Card Summary Header (Always Visible) */}
+      <div className="space-y-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1.5">
+            <h3 className="font-serif text-lg sm:text-xl font-medium tracking-tight text-foreground break-words">
+              {displayName}
+            </h3>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {displayCategory && (
+                <span className="inline-flex items-center rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] font-semibold text-accent">
+                  {displayCategory}
+                </span>
+              )}
+              {displayColour && (
+                <span className="inline-flex items-center rounded-full border border-border bg-surface-muted/70 px-2.5 py-0.5 text-[11px] font-medium capitalize text-foreground">
+                  {displayColour}
+                </span>
+              )}
+              {displayStyle && (
+                <span className="inline-flex items-center rounded-full border border-border bg-surface px-2.5 py-0.5 text-[11px] font-medium capitalize text-muted">
+                  {displayStyle}
+                </span>
+              )}
+              {displayBrand && (
+                <span className="inline-flex items-center rounded-full border border-border bg-surface px-2.5 py-0.5 text-[11px] font-medium text-muted">
+                  {displayBrand}
+                </span>
+              )}
+              {uncertainCount > 0 && (
+                <span className="inline-flex items-center rounded-full bg-warning-soft px-2.5 py-0.5 text-[11px] font-medium text-warning">
+                  Check {uncertainCount} AI {uncertainCount === 1 ? "field" : "fields"}
+                </span>
+              )}
+            </div>
+          </div>
 
-      <ItemFieldsForm form={form} idPrefix={`item-${entry.id}`} highlight={entry.suggestion?.uncertainFields ?? []} />
-
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => onRemove(entry.id)}>
-            <Trash2 className="size-4" aria-hidden /> Remove photo
-          </Button>
-          {aiAvailable ? (
-            <>
-              <Button type="button" variant="outline" size="sm" disabled={saving || entry.analysing} loading={entry.analysing} onClick={() => onAnalyse(entry)}>
-                {!entry.analysing ? <Sparkles className="size-4" aria-hidden /> : null}
-                {entry.suggestion ? "Analyse again" : "Analyse with AI"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={saving || entry.analysing}
-                loading={entry.analysing}
-                onClick={() => onScanMulti(entry)}
-                title="Detect and extract multiple garments from an OOTD photo or order screenshot"
-              >
-                <UserCheck className="size-4 text-accent" aria-hidden />
-                Extract OOTD / Multi-Garments
-              </Button>
-            </>
-          ) : null}
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onRemove(entry.id)}
+            aria-label={`Remove ${displayName}`}
+            title="Remove this piece"
+            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-muted transition-colors hover:border-danger/40 hover:bg-danger-soft hover:text-danger disabled:opacity-40"
+          >
+            <Trash2 className="size-4" aria-hidden />
+          </button>
         </div>
-        <Button type="submit" loading={saving}>
+
+        <p className="text-xs text-muted leading-relaxed">
+          {entry.sourceUrl
+            ? `Imported from store${entry.sourceBrand ? ` (${entry.sourceBrand})` : ""}. Expand details to adjust attributes.`
+            : entry.suggestion && !entry.isMock
+              ? "AI pre-filled garment attributes from your photo. Save directly or expand details to edit."
+              : "Expand details below to review or edit garment attributes before saving."}
+        </p>
+
+        {entry.aiNote ? <Alert tone="info">{entry.aiNote}</Alert> : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
+      </div>
+
+      {/* Primary Action Bar: Show More Details Dropdown + Save to Wardrobe */}
+      <div className="flex flex-wrap items-center gap-2.5 pt-1">
+        <button
+          type="button"
+          onClick={onToggleDetails}
+          aria-expanded={isDetailsExpanded}
+          aria-controls={detailsRegionId}
+          className={cn(
+            "inline-flex min-h-11 flex-1 items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-left text-xs sm:text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+            isDetailsExpanded
+              ? "border-accent/40 bg-accent-soft/45 text-foreground"
+              : "border-border-strong bg-surface-muted/55 text-foreground hover:bg-surface-muted",
+          )}
+        >
+          <span>{isDetailsExpanded ? "Hide details" : "Show more details"}</span>
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-muted transition-transform duration-300",
+              isDetailsExpanded && "rotate-180 text-accent",
+            )}
+            aria-hidden
+          />
+        </button>
+
+        <Button type="submit" loading={saving} className="rounded-xl shrink-0">
           Save to wardrobe
         </Button>
+      </div>
+
+      {/* Smoothly Animated Expandable Details Dropdown */}
+      <div
+        id={detailsRegionId}
+        role="region"
+        aria-label={`Editable details for ${entry.file.name}`}
+        aria-hidden={!isDetailsExpanded}
+        inert={!isDetailsExpanded || undefined}
+        data-no-swipe="true"
+        data-details-expanded={isDetailsExpanded ? "true" : "false"}
+        className={cn(
+          "grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+          isDetailsExpanded
+            ? "mt-4 grid-rows-[1fr] opacity-100"
+            : "mt-0 grid-rows-[0fr] opacity-0 pointer-events-none",
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="space-y-5 border-t border-border pt-4">
+            {entry.sourceUrl ? (
+              <Alert tone="info" title="Imported from store">
+                Fields were pre-filled from the store page
+                {entry.sourceBrand ? ` (${entry.sourceBrand})` : ""}. Review and adjust any details below before saving.
+              </Alert>
+            ) : null}
+            {entry.isMock ? (
+              <Alert tone="warning" title="Development sample">
+                This came from the mock AI provider, not a real model. It doesn&apos;t look at your photo.
+              </Alert>
+            ) : null}
+            {entry.suggestion && !entry.isMock ? (
+              <Alert tone="info" title="AI suggestion">
+                Please check the details below before saving.{" "}
+                {entry.suggestion.uncertainFields.length > 0 ? "Fields it wasn't sure about are flagged." : null}
+              </Alert>
+            ) : null}
+
+            <ItemFieldsForm form={form} idPrefix={`item-${entry.id}`} highlight={entry.suggestion?.uncertainFields ?? []} />
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
+              <div className="flex flex-wrap gap-2">
+                {aiAvailable ? (
+                  <>
+                    <Button type="button" variant="outline" size="sm" disabled={saving || entry.analysing} loading={entry.analysing} onClick={() => onAnalyse(entry)}>
+                      {!entry.analysing ? <Sparkles className="size-4" aria-hidden /> : null}
+                      {entry.suggestion ? "Analyse again" : "Analyse with AI"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={saving || entry.analysing}
+                      loading={entry.analysing}
+                      onClick={() => onScanMulti(entry)}
+                      title="Detect and extract multiple garments from an OOTD photo or order screenshot"
+                    >
+                      <UserCheck className="size-4 text-accent" aria-hidden />
+                      Extract OOTD / Multi-Garments
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={onToggleDetails}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-muted hover:text-foreground"
+              >
+                <ChevronUp className="size-3.5" aria-hidden />
+                <span>Collapse details</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </form>
   );

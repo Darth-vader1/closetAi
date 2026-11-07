@@ -36,13 +36,23 @@ export async function POST(request: NextRequest) {
     const kind = sniffImage(bytes);
     if (!kind) return json({ error: "Only JPEG, PNG and WebP photos are supported." }, 415);
 
-    const path = `${user.id}/${crypto.randomUUID()}.${kind.extension}`;
     const supabase = await createClient();
-    const { error } = await supabase.storage.from(WARDROBE_BUCKET).upload(path, bytes, {
+    let path = `${user.id}/${crypto.randomUUID()}.${kind.extension}`;
+    let { error } = await supabase.storage.from(WARDROBE_BUCKET).upload(path, bytes, {
       contentType: kind.mimeType,
       upsert: false,
       cacheControl: "3600",
     });
+    if (error && /fetch failed|network|timeout|socket|502|503|504/i.test(error.message)) {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      path = `${user.id}/${crypto.randomUUID()}.${kind.extension}`;
+      const retryRes = await supabase.storage.from(WARDROBE_BUCKET).upload(path, bytes, {
+        contentType: kind.mimeType,
+        upsert: false,
+        cacheControl: "3600",
+      });
+      error = retryRes.error;
+    }
     if (error) {
       logger.error("wardrobe.upload_failed", { userId: user.id, errorMessage: error.message });
       return json({ error: "We couldn't store that photo. Please try again." }, 502);

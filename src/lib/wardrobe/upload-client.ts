@@ -52,8 +52,12 @@ export async function prepareImage(file: File): Promise<Blob> {
   }
 }
 
-/** Upload with real progress and cancellation. Resolves with the private storage path. */
-export function uploadPhoto(blob: Blob, opts: { onProgress: (fraction: number) => void; signal: AbortSignal }): Promise<string> {
+class RetryableUploadError extends UploadError {}
+
+function uploadPhotoOnce(
+  blob: Blob,
+  opts: { onProgress: (fraction: number) => void; signal: AbortSignal },
+): Promise<string> {
   return new Promise((resolve, reject) => {
     if (opts.signal.aborted) return reject(new DOMException("Aborted", "AbortError"));
 
@@ -78,11 +82,13 @@ export function uploadPhoto(blob: Blob, opts: { onProgress: (fraction: number) =
       }
       if (xhr.status >= 200 && xhr.status < 300 && body.path) return resolve(body.path);
       if (xhr.status === 401) return reject(new UploadError("Your session expired. Please sign in again."));
-      reject(new UploadError(body.error ?? "The upload failed. Please try again."));
+      const msg = body.error ?? "The upload failed. Please try again.";
+      if (xhr.status >= 500) return reject(new RetryableUploadError(msg));
+      reject(new UploadError(msg));
     };
     xhr.onerror = () => {
       cleanup();
-      reject(new UploadError("Network error. Check your connection and try again."));
+      reject(new RetryableUploadError("Network error. Check your connection and try again."));
     };
     xhr.onabort = () => {
       cleanup();
@@ -92,6 +98,39 @@ export function uploadPhoto(blob: Blob, opts: { onProgress: (fraction: number) =
     xhr.open("POST", "/api/wardrobe/upload");
     xhr.send(form);
   });
+}
+
+/** Upload with real progress, cancellation, and automatic retry on transient 5xx / network blips. */
+export async function uploadPhoto(
+  blob: Blob,
+  opts: { onProgress: (fraction: number) => void; signal: AbortSignal },
+): Promise<string> {
+  const maxAttempts = 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await uploadPhotoOnce(blob, opts);
+    } catch (err) {
+      if (opts.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+        throw err;
+      }
+      if (err instanceof RetryableUploadError && attempt < maxAttempts - 1) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            opts.signal.removeEventListener("abort", onCancelWait);
+            resolve();
+          }, 450 * (attempt + 1));
+          const onCancelWait = () => {
+            clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+          };
+          opts.signal.addEventListener("abort", onCancelWait, { once: true });
+        });
+        continue;
+      }
+      throw err instanceof RetryableUploadError ? new UploadError(err.message) : err;
+    }
+  }
+  throw new UploadError("The upload failed. Please try again.");
 }
 
 export type AnalyseResponse =

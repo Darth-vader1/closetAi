@@ -665,9 +665,20 @@ export async function runGarmentEnhancementService(
     }
   }
 
+  if (req.signal?.aborted) {
+    return {
+      status: "fallback",
+      provider: "local-studio",
+      model: "closetai-cv-v2",
+      cutoutDataUrl: null,
+      params: DEFAULT_ENHANCEMENT_PARAMS,
+      reason: "Client request was aborted.",
+    };
+  }
+
   if (!req.skipSegmentation) {
     // Tier 1: Try official Remove.bg if configured
-    const removeBgKey = getRemoveBgApiKey();
+    const removeBgKey = !req.signal?.aborted ? getRemoveBgApiKey() : null;
     if (removeBgKey) {
       const rbgResult = await segmentWithRemoveBg(
         req.bytes,
@@ -701,7 +712,7 @@ export async function runGarmentEnhancementService(
     }
 
     // Tier 2: Try ClearBackdrop if Remove.bg was unconfigured, failed, or produced hollow mask
-    if (!cutoutDataUrl) {
+    if (!cutoutDataUrl && !req.signal?.aborted) {
       const clearBackdropKey = getClearBackdropApiKey();
       if (clearBackdropKey) {
         const cbResult = await segmentWithClearBackdrop(
@@ -737,7 +748,7 @@ export async function runGarmentEnhancementService(
     }
 
     // Tier 3: Try PhotoRoom if previous tiers were unconfigured, failed, or produced hollow masks
-    if (!cutoutDataUrl) {
+    if (!cutoutDataUrl && !req.signal?.aborted) {
       const photoRoomKey = getPhotoRoomApiKey();
       if (photoRoomKey) {
         const segResult = await segmentWithPhotoRoom(
@@ -776,7 +787,7 @@ export async function runGarmentEnhancementService(
     }
 
     // Tier 4: Try ClipDrop (Jasper) if previous providers were missing, exhausted quota, or failed sanity
-    if (!cutoutDataUrl) {
+    if (!cutoutDataUrl && !req.signal?.aborted) {
       const clipDropKey = getClipDropApiKey();
       if (clipDropKey) {
         const cdResult = await segmentWithClipDrop(
