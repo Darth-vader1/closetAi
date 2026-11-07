@@ -9,6 +9,13 @@ import { z } from "zod";
 
 import { formatLocalDate } from "@/lib/utils/format";
 import { isOwnStoragePath } from "@/lib/security/origin";
+import {
+  OUTFIT_TIME_OF_DAY_SLOTS,
+  TIME_OF_DAY_META,
+  type OutfitTimeOfDay,
+} from "@/lib/outfits/calendar-slots";
+import type { OutfitWithItems, PlannedOutfitRow } from "@/lib/outfits/queries";
+import { isLaundryStatus } from "@/lib/wardrobe/status";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
@@ -79,29 +86,51 @@ export async function saveStylistOutfitAction(input: unknown): Promise<ActionRes
 const planOutfitSchema = z.object({
   outfitId: z.string().uuid(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Please provide a valid date (YYYY-MM-DD)."),
+  timeOfDay: z.enum(OUTFIT_TIME_OF_DAY_SLOTS).optional().default("MORNING"),
 });
 
-export async function planOutfitAction(input: unknown): Promise<ActionResult<{ planId: string }>> {
+export async function planOutfitAction(input: unknown): Promise<ActionResult<{ planId: string; timeOfDay: OutfitTimeOfDay }>> {
   const user = await requireUser();
   const parsed = planOutfitSchema.safeParse(input);
   if (!parsed.success) return fail("Invalid plan date or outfit.");
 
   const supabase = await createClient();
+  const timeOfDay = parsed.data.timeOfDay;
 
-  // Upsert plan for this date
-  const { data, error } = await supabase
+  // Upsert plan for this date + time_of_day slot
+  let { data, error } = await supabase
     .from("outfit_plans")
     .upsert(
       {
         user_id: user.id,
         outfit_id: parsed.data.outfitId,
         planned_for: parsed.data.date,
+        time_of_day: timeOfDay,
         status: "PLANNED",
       },
-      { onConflict: "user_id,planned_for" },
+      { onConflict: "user_id,planned_for,time_of_day" },
     )
     .select("id")
     .single();
+
+  // Backwards-compatible fallback if the time_of_day migration hasn't been applied on DB yet
+  if (error) {
+    const fallbackRes = await supabase
+      .from("outfit_plans")
+      .upsert(
+        {
+          user_id: user.id,
+          outfit_id: parsed.data.outfitId,
+          planned_for: parsed.data.date,
+          status: "PLANNED",
+        },
+        { onConflict: "user_id,planned_for" },
+      )
+      .select("id")
+      .single();
+    data = fallbackRes.data;
+    error = fallbackRes.error;
+  }
 
   if (error || !data) {
     logger.error("stylist.plan_failed", { userId: user.id, error });
@@ -110,7 +139,7 @@ export async function planOutfitAction(input: unknown): Promise<ActionResult<{ p
 
   revalidatePath("/calendar");
   revalidatePath("/stylist");
-  return { ok: true, planId: data.id as string };
+  return { ok: true, planId: data.id as string, timeOfDay };
 }
 
 const wearOutfitSchema = z.object({
@@ -121,34 +150,112 @@ const wearOutfitSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Please provide a valid date (YYYY-MM-DD).")
     .optional(),
+  timeOfDay: z.enum(OUTFIT_TIME_OF_DAY_SLOTS).optional().default("MORNING"),
 });
 
-export async function wearOutfitTodayAction(input: unknown): Promise<ActionResult> {
+export async function wearOutfitTodayAction(
+  input: unknown,
+): Promise<ActionResult<{ planId?: string; timeOfDay: OutfitTimeOfDay }>> {
   const user = await requireUser();
   const parsed = wearOutfitSchema.safeParse(input);
   if (!parsed.success) return fail("Invalid outfit.");
 
   const supabase = await createClient();
   const todayStr = parsed.data.date || formatLocalDate(new Date());
+  const timeOfDay = parsed.data.timeOfDay;
   const nowIso = new Date().toISOString();
 
-  // Prefer atomic database RPC if migration has been applied
-  const { error: wearRpcErr } = await supabase.rpc("wear_outfit", {
+  // Helper to ensure outfit_plans reflects the WORN slot for the calendar
+  const syncPlanSlotAsWorn = async (): Promise<string | undefined> => {
+    if (parsed.data.planId && !parsed.data.planId.startsWith("history-")) {
+      const { data: updatedById } = await supabase
+        .from("outfit_plans")
+        .update({
+          outfit_id: parsed.data.outfitId,
+          status: "WORN",
+          worn_at: nowIso,
+          time_of_day: timeOfDay,
+        })
+        .eq("id", parsed.data.planId)
+        .eq("user_id", user.id)
+        .select("id")
+        .maybeSingle();
+      if (updatedById?.id) return updatedById.id as string;
+    }
+
+    const { data: upsertedSlot, error: upsertErr } = await supabase
+      .from("outfit_plans")
+      .upsert(
+        {
+          user_id: user.id,
+          outfit_id: parsed.data.outfitId,
+          planned_for: todayStr,
+          time_of_day: timeOfDay,
+          status: "WORN",
+          worn_at: nowIso,
+        },
+        { onConflict: "user_id,planned_for,time_of_day" },
+      )
+      .select("id")
+      .maybeSingle();
+
+    if (!upsertErr && upsertedSlot?.id) {
+      return upsertedSlot.id as string;
+    }
+
+    const { data: legacyUpserted } = await supabase
+      .from("outfit_plans")
+      .upsert(
+        {
+          user_id: user.id,
+          outfit_id: parsed.data.outfitId,
+          planned_for: todayStr,
+          status: "WORN",
+          worn_at: nowIso,
+        },
+        { onConflict: "user_id,planned_for" },
+      )
+      .select("id")
+      .maybeSingle();
+
+    return legacyUpserted?.id as string | undefined;
+  };
+
+  // Prefer atomic database RPC if migration has been applied (try 4-param with p_time_of_day first, then 3-param)
+  let { error: wearRpcErr } = await supabase.rpc("wear_outfit", {
     p_outfit_id: parsed.data.outfitId,
     p_worn_on: todayStr,
-    p_plan_id: parsed.data.planId ?? null,
+    p_plan_id:
+      parsed.data.planId && !parsed.data.planId.startsWith("history-")
+        ? parsed.data.planId
+        : null,
+    p_time_of_day: timeOfDay,
   });
 
+  if (wearRpcErr) {
+    const legacyRpc = await supabase.rpc("wear_outfit", {
+      p_outfit_id: parsed.data.outfitId,
+      p_worn_on: todayStr,
+      p_plan_id:
+        parsed.data.planId && !parsed.data.planId.startsWith("history-")
+          ? parsed.data.planId
+          : null,
+    });
+    wearRpcErr = legacyRpc.error;
+  }
+
   if (!wearRpcErr) {
+    const planId = await syncPlanSlotAsWorn();
     revalidatePath("/wardrobe");
     revalidatePath("/laundry");
     revalidatePath("/calendar");
     revalidatePath("/stylist");
     revalidatePath("/dashboard");
-    return { ok: true };
+    return { ok: true, planId, timeOfDay };
   }
 
-  // Fallback when wear_outfit RPC is not yet present: always read garment IDs from outfit_items in DB (never trust client itemIds)
+  // Fallback when wear_outfit RPC is not yet present or returned a duplicate/missing-signature error:
+  // Always read garment IDs from outfit_items in DB (never trust client itemIds)
   const { data: outfitRow, error: outfitCheckErr } = await supabase
     .from("outfits")
     .select("id, outfit_items ( item_id )")
@@ -162,27 +269,49 @@ export async function wearOutfitTodayAction(input: unknown): Promise<ActionResul
   }
 
   const dbItemIds = ((outfitRow.outfit_items ?? []) as Array<{ item_id: string }>).map((r) => r.item_id);
+  const cleanPlanId =
+    parsed.data.planId && !parsed.data.planId.startsWith("history-")
+      ? parsed.data.planId
+      : null;
 
-  // 1. Record in outfit_history
-  const { data: hist, error: histErr } = await supabase
+  // 1. Record in outfit_history (try with time_of_day first, fallback without it, tolerate 23505 duplicate)
+  let { data: hist, error: histErr } = await supabase
     .from("outfit_history")
     .insert({
       user_id: user.id,
       outfit_id: parsed.data.outfitId,
-      plan_id: parsed.data.planId ?? null,
+      plan_id: cleanPlanId,
       worn_on: todayStr,
+      time_of_day: timeOfDay,
       worn_at: nowIso,
     })
     .select("id")
     .single();
 
-  if (histErr || !hist) {
+  if (histErr && String(histErr.message ?? "").toLowerCase().includes("time_of_day")) {
+    const fallbackHist = await supabase
+      .from("outfit_history")
+      .insert({
+        user_id: user.id,
+        outfit_id: parsed.data.outfitId,
+        plan_id: cleanPlanId,
+        worn_on: todayStr,
+        worn_at: nowIso,
+      })
+      .select("id")
+      .single();
+    hist = fallbackHist.data;
+    histErr = fallbackHist.error;
+  }
+
+  const isDuplicateHistory = histErr?.code === "23505";
+  if (histErr && !isDuplicateHistory) {
     logger.error("stylist.history_failed", { userId: user.id, error: histErr });
     return fail(GENERIC_ERROR);
   }
 
-  // 2. Record items in outfit_history_items
-  if (dbItemIds.length > 0) {
+  // 2. Record items in outfit_history_items & update wardrobe_items if this is a fresh history entry
+  if (hist?.id && dbItemIds.length > 0) {
     const historyItems = dbItemIds.map((itemId) => ({
       history_id: hist.id as string,
       item_id: itemId,
@@ -190,24 +319,27 @@ export async function wearOutfitTodayAction(input: unknown): Promise<ActionResul
     }));
 
     const { error: histItemsErr } = await supabase.from("outfit_history_items").insert(historyItems);
-    if (histItemsErr) {
+    if (histItemsErr && histItemsErr.code !== "23505") {
       logger.error("stylist.history_items_failed", { userId: user.id, error: histItemsErr });
-      await supabase.from("outfit_history").delete().eq("id", hist.id).eq("user_id", user.id);
-      return fail(GENERIC_ERROR);
     }
 
-    // 3. Fetch current wear_count for each item, mark status as WORN, increment wear_count, and set last_worn_at
+    // 3. Fetch current wear_count and care_type for each item, mark WASHABLE items as WORN, increment wear_count
     const { data: currentItems } = await supabase
       .from("wardrobe_items")
-      .select("id, wear_count, status")
+      .select("id, wear_count, status, care_type")
       .eq("user_id", user.id)
       .in("id", dbItemIds);
 
     for (const item of currentItems ?? []) {
+      const nextStatus =
+        item.care_type === "WIPE_CLEAN" || item.care_type === "NO_WASH"
+          ? item.status
+          : "WORN";
+
       const { error: updateErr } = await supabase
         .from("wardrobe_items")
         .update({
-          status: "WORN",
+          status: nextStatus,
           wear_count: (item.wear_count ?? 0) + 1,
           last_worn_at: nowIso,
         })
@@ -216,34 +348,20 @@ export async function wearOutfitTodayAction(input: unknown): Promise<ActionResul
 
       if (updateErr) {
         logger.error("stylist.wear_item_update_failed", { userId: user.id, itemId: item.id, error: updateErr });
-        return fail(GENERIC_ERROR);
+      } else {
+        await supabase.from("laundry_events").insert({
+          user_id: user.id,
+          item_id: item.id,
+          from_status: item.status,
+          to_status: nextStatus,
+          confirmed_washed: false,
+        });
       }
-
-      await supabase.from("laundry_events").insert({
-        user_id: user.id,
-        item_id: item.id,
-        from_status: item.status,
-        to_status: "WORN",
-        confirmed_washed: false,
-      });
     }
   }
 
-  // 4. Mark linked or same-day outfit_plans as WORN
-  if (parsed.data.planId) {
-    await supabase
-      .from("outfit_plans")
-      .update({ status: "WORN", worn_at: nowIso })
-      .eq("id", parsed.data.planId)
-      .eq("user_id", user.id);
-  } else {
-    await supabase
-      .from("outfit_plans")
-      .update({ status: "WORN", worn_at: nowIso })
-      .eq("user_id", user.id)
-      .eq("outfit_id", parsed.data.outfitId)
-      .eq("planned_for", todayStr);
-  }
+  // 4. Upsert or mark outfit_plans slot as WORN
+  const planId = await syncPlanSlotAsWorn();
 
   revalidatePath("/wardrobe");
   revalidatePath("/laundry");
@@ -251,6 +369,203 @@ export async function wearOutfitTodayAction(input: unknown): Promise<ActionResul
   revalidatePath("/stylist");
   revalidatePath("/dashboard");
 
+  return { ok: true, planId, timeOfDay };
+}
+
+const logCustomOutfitOnCalendarSchema = z.object({
+  name: z.string().trim().max(120).optional(),
+  itemIds: z.array(z.string().uuid()).min(1, "Select at least 1 garment.").max(10, "Select up to 10 garments."),
+  occasion: z.string().trim().max(60).nullable().optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Please provide a valid date (YYYY-MM-DD)."),
+  timeOfDay: z.enum(OUTFIT_TIME_OF_DAY_SLOTS).optional().default("MORNING"),
+  intent: z.enum(["WORN", "PLANNED"]).default("WORN"),
+});
+
+export async function logCustomOutfitOnCalendarAction(
+  input: unknown,
+): Promise<ActionResult<{ plan: PlannedOutfitRow }>> {
+  const user = await requireUser();
+  const parsed = logCustomOutfitOnCalendarSchema.safeParse(input);
+  if (!parsed.success) {
+    return fail(parsed.error.issues[0]?.message || "Invalid outfit selection.");
+  }
+
+  const { itemIds, occasion, date, timeOfDay, intent } = parsed.data;
+  const uniqueItemIds = Array.from(new Set(itemIds));
+  const supabase = await createClient();
+
+  // Verify garments belong to the authenticated user
+  const { data: wardrobeRows, error: itemsErr } = await supabase
+    .from("wardrobe_items")
+    .select(
+      "id, name, category, subcategory, primary_colour, secondary_colours, pattern, material, style, occasions, seasons, warmth_level, image_path, status, care_type, is_favourite, ai_analysed, wear_count, last_worn_at, last_washed_at, created_at",
+    )
+    .eq("user_id", user.id)
+    .in("id", uniqueItemIds);
+
+  if (itemsErr || !wardrobeRows || wardrobeRows.length !== uniqueItemIds.length) {
+    logger.error("calendar.custom_outfit_items_invalid", { userId: user.id, error: itemsErr });
+    return fail("One or more selected garments could not be found in your wardrobe.");
+  }
+
+  const slotLabel = TIME_OF_DAY_META[timeOfDay].label;
+  const resolvedName =
+    parsed.data.name && parsed.data.name.trim().length > 0
+      ? parsed.data.name.trim()
+      : `${slotLabel} Look · ${new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        })}`;
+
+  // 1. Create the manual outfit record
+  const { data: outfitRow, error: outfitErr } = await supabase
+    .from("outfits")
+    .insert({
+      user_id: user.id,
+      name: resolvedName,
+      occasion: occasion || slotLabel,
+      style_description: `${slotLabel} outfit logged on the Outfit Calendar.`,
+      source: "MANUAL",
+      is_favourite: false,
+    })
+    .select("id, created_at")
+    .single();
+
+  if (outfitErr || !outfitRow) {
+    logger.error("calendar.custom_outfit_create_failed", { userId: user.id, error: outfitErr });
+    return fail("Could not save custom outfit.");
+  }
+
+  const linkRows = uniqueItemIds.map((itemId, idx) => ({
+    outfit_id: outfitRow.id as string,
+    item_id: itemId,
+    user_id: user.id,
+    position: idx,
+  }));
+
+  const { error: linkErr } = await supabase.from("outfit_items").insert(linkRows);
+  if (linkErr) {
+    logger.error("calendar.custom_outfit_links_failed", { userId: user.id, error: linkErr });
+    await supabase.from("outfits").delete().eq("id", outfitRow.id).eq("user_id", user.id);
+    return fail("Could not attach garments to outfit.");
+  }
+
+  // 2. Plan or directly mark as worn for the selected date & time_of_day slot
+  let planId = `temp-${outfitRow.id as string}-${date}-${timeOfDay}`;
+  const nowIso = new Date().toISOString();
+
+  if (intent === "WORN") {
+    const wearRes = await wearOutfitTodayAction({
+      outfitId: outfitRow.id as string,
+      itemIds: uniqueItemIds,
+      date,
+      timeOfDay,
+    });
+    if (!wearRes.ok) {
+      return fail(wearRes.error);
+    }
+    if (wearRes.planId) {
+      planId = wearRes.planId;
+    }
+  } else {
+    const planRes = await planOutfitAction({
+      outfitId: outfitRow.id as string,
+      date,
+      timeOfDay,
+    });
+    if (!planRes.ok) {
+      return fail(planRes.error);
+    }
+    planId = planRes.planId;
+  }
+
+  const rowById = new Map(wardrobeRows.map((r) => [r.id as string, r]));
+  const orderedItems: OutfitWithItems["items"] = uniqueItemIds
+    .map((id) => rowById.get(id))
+    .filter((r): r is NonNullable<typeof r> => Boolean(r))
+    .map((item) => {
+      const careType =
+        item.care_type === "WASHABLE" || item.care_type === "WIPE_CLEAN" || item.care_type === "NO_WASH"
+          ? item.care_type
+          : "WASHABLE";
+      const currentStatus = isLaundryStatus(item.status) ? item.status : "CLEAN";
+      const nextStatus =
+        intent === "WORN" && careType === "WASHABLE" ? "WORN" : currentStatus;
+      return {
+        id: item.id as string,
+        name: item.name as string,
+        category: item.category as string,
+        subcategory: (item.subcategory as string | null) ?? null,
+        primaryColour: (item.primary_colour as string | null) ?? null,
+        secondaryColours: (item.secondary_colours as string[] | null) ?? [],
+        pattern: (item.pattern as string | null) ?? null,
+        material: (item.material as string | null) ?? null,
+        style: (item.style as string | null) ?? null,
+        occasions: (item.occasions as string[] | null) ?? [],
+        seasons: (item.seasons as string[] | null) ?? [],
+        warmthLevel: (item.warmth_level as number | null) ?? null,
+        imagePath: item.image_path as string,
+        status: nextStatus,
+        careType,
+        isFavourite: Boolean(item.is_favourite),
+        aiAnalysed: Boolean(item.ai_analysed),
+        wearCount: intent === "WORN" ? ((item.wear_count as number) ?? 0) + 1 : ((item.wear_count as number) ?? 0),
+        lastWornAt: intent === "WORN" ? nowIso : ((item.last_worn_at as string | null) ?? null),
+        lastWashedAt: (item.last_washed_at as string | null) ?? null,
+        createdAt: item.created_at as string,
+      };
+    });
+
+  const constructedOutfit: OutfitWithItems = {
+    id: outfitRow.id as string,
+    userId: user.id,
+    name: resolvedName,
+    occasion: occasion || slotLabel,
+    styleDescription: `${slotLabel} outfit logged on the Outfit Calendar.`,
+    explanation: null,
+    stylingTip: null,
+    photoPath: null,
+    source: "MANUAL",
+    isFavourite: false,
+    createdAt: outfitRow.created_at as string,
+    items: orderedItems,
+  };
+
+  const constructedPlan: PlannedOutfitRow = {
+    id: planId,
+    userId: user.id,
+    outfitId: outfitRow.id as string,
+    plannedFor: date,
+    timeOfDay,
+    status: intent,
+    wornAt: intent === "WORN" ? nowIso : null,
+    outfit: constructedOutfit,
+  };
+
+  return { ok: true, plan: constructedPlan };
+}
+
+const removeOutfitPlanSchema = z.object({
+  planId: z.string().min(1),
+});
+
+export async function removeOutfitPlanAction(input: unknown): Promise<ActionResult> {
+  const user = await requireUser();
+  const parsed = removeOutfitPlanSchema.safeParse(input);
+  if (!parsed.success) return fail("Invalid calendar entry.");
+
+  const supabase = await createClient();
+  const { planId } = parsed.data;
+
+  if (planId.startsWith("history-")) {
+    const historyId = planId.replace(/^history-/, "");
+    await supabase.from("outfit_history").delete().eq("id", historyId).eq("user_id", user.id);
+  } else {
+    await supabase.from("outfit_plans").delete().eq("id", planId).eq("user_id", user.id);
+  }
+
+  revalidatePath("/calendar");
+  revalidatePath("/dashboard");
   return { ok: true };
 }
 

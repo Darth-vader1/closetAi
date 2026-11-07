@@ -1,7 +1,14 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  compareTimeOfDaySlots,
+  normalizeOutfitTimeOfDay,
+  type OutfitTimeOfDay,
+} from "@/lib/outfits/calendar-slots";
 import { signImageUrls, type ImageSize, type WardrobeItem } from "@/lib/wardrobe/queries";
 import { isLaundryStatus } from "@/lib/wardrobe/status";
+
+export type { OutfitTimeOfDay } from "@/lib/outfits/calendar-slots";
 
 export interface OutfitWithItems {
   id: string;
@@ -131,7 +138,9 @@ export interface PlannedOutfitRow {
   userId: string;
   outfitId: string;
   plannedFor: string;
+  timeOfDay: OutfitTimeOfDay;
   status: "PLANNED" | "WORN" | "SKIPPED";
+  wornAt?: string | null;
   outfit: OutfitWithItems;
 }
 
@@ -139,9 +148,25 @@ export interface OutfitHistoryRow {
   id: string;
   outfitId: string | null;
   wornOn: string;
+  timeOfDay?: OutfitTimeOfDay;
   wornAt: string;
   outfit?: OutfitWithItems | null;
 }
+
+const PLAN_OUTFITS_NESTED_SELECT = `
+  outfits (
+    id, user_id, name, occasion, style_description, explanation, styling_tip, photo_path, source, is_favourite, created_at,
+    outfit_items (
+      position,
+      wardrobe_items (
+        id, name, category, subcategory, primary_colour, secondary_colours,
+        pattern, material, style, occasions, seasons, warmth_level,
+        image_path, status, care_type, is_favourite, ai_analysed, wear_count,
+        last_worn_at, last_washed_at, created_at
+      )
+    )
+  )
+`;
 
 export async function listOutfitPlans(
   supabase: SupabaseClient,
@@ -149,31 +174,30 @@ export async function listOutfitPlans(
   from?: string,
   to?: string,
 ): Promise<PlannedOutfitRow[]> {
-  let q = supabase
+  let qWithSlot = supabase
     .from("outfit_plans")
-    .select(`
-      id, user_id, outfit_id, planned_for, status,
-      outfits (
-        id, user_id, name, occasion, style_description, explanation, styling_tip, photo_path, source, is_favourite, created_at,
-        outfit_items (
-          position,
-          wardrobe_items (
-            id, name, category, subcategory, primary_colour, secondary_colours,
-            pattern, material, style, occasions, seasons, warmth_level,
-            image_path, status, care_type, is_favourite, ai_analysed, wear_count,
-            last_worn_at, last_washed_at, created_at
-          )
-        )
-      )
-    `)
+    .select(`id, user_id, outfit_id, planned_for, time_of_day, status, worn_at, ${PLAN_OUTFITS_NESTED_SELECT}`)
     .eq("user_id", userId)
     .order("planned_for", { ascending: true });
 
-  if (from) q = q.gte("planned_for", from);
-  if (to) q = q.lte("planned_for", to);
+  if (from) qWithSlot = qWithSlot.gte("planned_for", from);
+  if (to) qWithSlot = qWithSlot.lte("planned_for", to);
 
-  const { data, error } = await q;
-  if (error || !data) return [];
+  let { data, error } = await qWithSlot;
+
+  // Fallback if time_of_day column migration hasn't been applied on this database yet
+  if (error && String(error.message ?? "").toLowerCase().includes("time_of_day")) {
+    let qLegacy = supabase
+      .from("outfit_plans")
+      .select(`id, user_id, outfit_id, planned_for, status, worn_at, ${PLAN_OUTFITS_NESTED_SELECT}`)
+      .eq("user_id", userId)
+      .order("planned_for", { ascending: true });
+    if (from) qLegacy = qLegacy.gte("planned_for", from);
+    if (to) qLegacy = qLegacy.lte("planned_for", to);
+    const fallbackRes = await qLegacy;
+    data = fallbackRes.data as typeof data;
+    error = fallbackRes.error;
+  }
 
   type PlanOutfitItemLink = {
     position: number;
@@ -207,6 +231,7 @@ export async function listOutfitPlans(
     user_id: string;
     outfit_id: string;
     planned_for: string;
+    time_of_day?: string | null;
     status: PlannedOutfitRow["status"];
     worn_at?: string | null;
     outfits: {
@@ -225,8 +250,11 @@ export async function listOutfitPlans(
     } | null;
   };
 
-  return (data as unknown as PlanRowRaw[]).map((row) => {
-    const o = row.outfits;
+  const mapNestedOutfit = (
+    o: PlanRowRaw["outfits"],
+    fallbackOutfitId: string,
+    fallbackUserId: string,
+  ): OutfitWithItems => {
     const items = (o?.outfit_items ?? [])
       .slice()
       .sort((a, b) => a.position - b.position)
@@ -248,9 +276,10 @@ export async function listOutfitPlans(
           warmthLevel: item.warmth_level,
           imagePath: item.image_path,
           status: isLaundryStatus(item.status) ? item.status : "UNAVAILABLE",
-          careType: (careType === "WASHABLE" || careType === "WIPE_CLEAN" || careType === "NO_WASH") 
-            ? (careType as "WASHABLE" | "WIPE_CLEAN" | "NO_WASH")
-            : ("WASHABLE" as const),
+          careType:
+            careType === "WASHABLE" || careType === "WIPE_CLEAN" || careType === "NO_WASH"
+              ? (careType as "WASHABLE" | "WIPE_CLEAN" | "NO_WASH")
+              : ("WASHABLE" as const),
           isFavourite: item.is_favourite,
           aiAnalysed: item.ai_analysed,
           wearCount: item.wear_count,
@@ -261,27 +290,125 @@ export async function listOutfitPlans(
       });
 
     return {
-      id: row.id,
-      userId: row.user_id,
-      outfitId: row.outfit_id,
-      plannedFor: row.planned_for,
-      status: row.status,
-      outfit: {
-        id: o?.id ?? row.outfit_id,
-        userId: o?.user_id ?? row.user_id,
-        name: o?.name ?? "Saved Outfit",
-        occasion: o?.occasion ?? null,
-        styleDescription: o?.style_description ?? null,
-        explanation: o?.explanation ?? null,
-        stylingTip: o?.styling_tip ?? null,
-        photoPath: o?.photo_path ?? null,
-        source: o?.source ?? "MANUAL",
-        isFavourite: o?.is_favourite ?? false,
-        createdAt: o?.created_at ?? "",
-        items,
-      },
+      id: o?.id ?? fallbackOutfitId,
+      userId: o?.user_id ?? fallbackUserId,
+      name: o?.name ?? "Saved Outfit",
+      occasion: o?.occasion ?? null,
+      styleDescription: o?.style_description ?? null,
+      explanation: o?.explanation ?? null,
+      stylingTip: o?.styling_tip ?? null,
+      photoPath: o?.photo_path ?? null,
+      source: o?.source ?? "MANUAL",
+      isFavourite: o?.is_favourite ?? false,
+      createdAt: o?.created_at ?? "",
+      items,
     };
+  };
+
+  const planRows: PlannedOutfitRow[] =
+    !error && data
+      ? (data as unknown as PlanRowRaw[]).map((row) => ({
+          id: row.id,
+          userId: row.user_id,
+          outfitId: row.outfit_id,
+          plannedFor: row.planned_for,
+          timeOfDay: normalizeOutfitTimeOfDay(row.time_of_day),
+          status: row.status,
+          wornAt: row.worn_at ?? null,
+          outfit: mapNestedOutfit(row.outfits, row.outfit_id, row.user_id),
+        }))
+      : [];
+
+  // Also merge any worn outfits from outfit_history that aren't already in outfit_plans for that (date, slot)
+  try {
+    let hQuery = supabase
+      .from("outfit_history")
+      .select(`id, user_id, outfit_id, plan_id, worn_on, time_of_day, worn_at, ${PLAN_OUTFITS_NESTED_SELECT}`)
+      .eq("user_id", userId)
+      .not("outfit_id", "is", null)
+      .order("worn_on", { ascending: true });
+    if (from) hQuery = hQuery.gte("worn_on", from);
+    if (to) hQuery = hQuery.lte("worn_on", to);
+
+    let { data: hData, error: hError } = await hQuery;
+    if (hError && String(hError.message ?? "").toLowerCase().includes("time_of_day")) {
+      let hLegacy = supabase
+        .from("outfit_history")
+        .select(`id, user_id, outfit_id, plan_id, worn_on, worn_at, ${PLAN_OUTFITS_NESTED_SELECT}`)
+        .eq("user_id", userId)
+        .not("outfit_id", "is", null)
+        .order("worn_on", { ascending: true });
+      if (from) hLegacy = hLegacy.gte("worn_on", from);
+      if (to) hLegacy = hLegacy.lte("worn_on", to);
+      const hFallback = await hLegacy;
+      hData = hFallback.data as typeof hData;
+      hError = hFallback.error;
+    }
+
+    if (!hError && hData) {
+      type HistoryRowRaw = {
+        id: string;
+        user_id: string;
+        outfit_id: string | null;
+        plan_id?: string | null;
+        worn_on: string;
+        time_of_day?: string | null;
+        worn_at: string;
+        outfits: PlanRowRaw["outfits"];
+      };
+
+      const existingKeys = new Set(
+        planRows.map((p) => `${p.plannedFor}:${p.timeOfDay}`),
+      );
+      const existingPlanIds = new Set(planRows.map((p) => p.id));
+
+      for (const hRow of hData as unknown as HistoryRowRaw[]) {
+        if (!hRow.outfit_id || !hRow.outfits) continue;
+        if (hRow.plan_id && existingPlanIds.has(hRow.plan_id)) continue;
+
+        let slot = normalizeOutfitTimeOfDay(hRow.time_of_day);
+        // If no explicit time_of_day column was set on legacy history rows and MORNING is taken, infer from worn_at UTC hour or pick next open slot
+        if (!hRow.time_of_day && existingKeys.has(`${hRow.worn_on}:${slot}`)) {
+          const hour = new Date(hRow.worn_at).getHours();
+          const candidate: OutfitTimeOfDay =
+            hour >= 17 ? "EVENING" : hour >= 12 ? "AFTERNOON" : "MORNING";
+          if (!existingKeys.has(`${hRow.worn_on}:${candidate}`)) {
+            slot = candidate;
+          } else if (!existingKeys.has(`${hRow.worn_on}:AFTERNOON`)) {
+            slot = "AFTERNOON";
+          } else if (!existingKeys.has(`${hRow.worn_on}:EVENING`)) {
+            slot = "EVENING";
+          }
+        }
+
+        const key = `${hRow.worn_on}:${slot}`;
+        if (existingKeys.has(key)) continue;
+
+        existingKeys.add(key);
+        planRows.push({
+          id: hRow.plan_id || hRow.id,
+          userId: hRow.user_id,
+          outfitId: hRow.outfit_id,
+          plannedFor: hRow.worn_on,
+          timeOfDay: slot,
+          status: "WORN",
+          wornAt: hRow.worn_at,
+          outfit: mapNestedOutfit(hRow.outfits, hRow.outfit_id, hRow.user_id),
+        });
+      }
+    }
+  } catch {
+    // Non-fatal if outfit_history merge fails
+  }
+
+  planRows.sort((a, b) => {
+    if (a.plannedFor !== b.plannedFor) {
+      return a.plannedFor.localeCompare(b.plannedFor);
+    }
+    return compareTimeOfDaySlots(a.timeOfDay, b.timeOfDay);
   });
+
+  return planRows;
 }
 
 export async function signAllOutfitImages(

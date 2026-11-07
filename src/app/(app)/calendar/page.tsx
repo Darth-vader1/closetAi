@@ -3,12 +3,13 @@ import { PageHeader } from "@/components/layout/page-header";
 import { ContextualGuide } from "@/components/onboarding/contextual-guide";
 import { CalendarClient } from "@/components/calendar/calendar-client";
 import { requireUser } from "@/lib/auth/session";
-import { listOutfitPlans, listUserOutfits, signAllOutfitImages } from "@/lib/outfits/queries";
+import { listOutfitPlans, listUserOutfits } from "@/lib/outfits/queries";
+import { listAllWardrobeItems, signImageUrls } from "@/lib/wardrobe/queries";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: "Outfit Calendar · ClosetAI",
-  description: "Plan what to wear for the week ahead and track your confirmed outfits.",
+  description: "Plan what to wear for the week ahead and log Morning, Afternoon, and Evening outfits.",
 };
 
 export default async function CalendarPage({
@@ -21,15 +22,26 @@ export default async function CalendarPage({
   const resolvedParams = searchParams ? await searchParams : undefined;
   const initialDate = resolvedParams?.date;
 
-  // Fetch plans and saved outfits in parallel
-  const [plans, savedOutfits] = await Promise.all([
+  // Fetch plans, saved outfits, and wardrobe items in parallel
+  const [plans, savedOutfits, wardrobeItems] = await Promise.all([
     listOutfitPlans(supabase, user.id).catch(() => []),
     listUserOutfits(supabase, user.id).catch(() => []),
+    listAllWardrobeItems(supabase, user.id, 200).catch(() => []),
   ]);
 
-  // Batch sign images across all outfits in plans and library (thumbnail size for calendar cells)
+  // Batch sign images across all outfits in plans, library, and wardrobe items (thumbnail size for calendar cells)
   const allOutfits = [...plans.map((p) => p.outfit), ...savedOutfits];
-  const urlMap = await signAllOutfitImages(supabase, allOutfits, "thumbnail");
+  const allPaths: string[] = [];
+  for (const outfit of allOutfits) {
+    if (outfit.photoPath) allPaths.push(outfit.photoPath);
+    for (const item of outfit.items) {
+      if (item.imagePath) allPaths.push(item.imagePath);
+    }
+  }
+  for (const item of wardrobeItems) {
+    if (item.imagePath) allPaths.push(item.imagePath);
+  }
+  const urlMap = await signImageUrls(supabase, allPaths, "thumbnail");
   const imageUrlsObj: Record<string, string> = {};
   for (const [path, url] of urlMap.entries()) {
     imageUrlsObj[path] = url;
@@ -39,12 +51,13 @@ export default async function CalendarPage({
     <>
       <PageHeader
         title="Outfit Calendar"
-        description="Plan outfits for the week ahead, see what you wore previously, and confirm your daily look."
+        description="Plan outfits or log what you wore across Morning, Afternoon, and Evening slots."
       />
       <ContextualGuide section="calendar" />
       <CalendarClient
         initialPlans={plans}
         savedOutfits={savedOutfits}
+        wardrobeItems={wardrobeItems}
         imageUrls={imageUrlsObj}
         initialDate={initialDate}
       />

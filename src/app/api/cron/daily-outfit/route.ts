@@ -218,7 +218,7 @@ export async function GET(request: NextRequest) {
         const weatherSummary = weather ? `${weather.city}: ${weather.temperatureC}°C · ${weather.condition}` : null;
 
         // Check if user has an outfit planned for their local date in outfit_plans
-        const { data: plannedRow } = await adminClient
+        const { data: plannedRows } = await adminClient
           .from("outfit_plans")
           .select(`
             outfit_id,
@@ -232,7 +232,9 @@ export async function GET(request: NextRequest) {
           `)
           .eq("user_id", userId)
           .eq("planned_for", clock.localDate)
-          .maybeSingle();
+          .order("created_at", { ascending: true })
+          .limit(1);
+        const plannedRow = plannedRows?.[0] ?? null;
 
         let outfitName = "Effortless Everyday Look";
         let occasion = "Casual & Everyday";
