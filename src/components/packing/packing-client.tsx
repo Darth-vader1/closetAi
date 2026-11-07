@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SwipeableOutfitDeck } from "@/components/outfits/swipeable-outfit-deck";
+import { adaptPackingOutfit } from "@/lib/outfits/swipe-deck-logic";
 import { humanise } from "@/lib/wardrobe/categories";
 import {
   DAILY_PLAN_MAX_DAYS,
@@ -536,7 +538,10 @@ function PlanResult({
   checkedSuggestions: Record<string, boolean>;
   onToggleSuggestion: (key: string) => void;
 }) {
-  const itemsById = useMemo(() => new Map(result.capsuleItems.map((i) => [i.id, i])), [result.capsuleItems]);
+  const itemsById = useMemo(
+    () => new Map<string, PackingItem>(result.capsuleItems.map((i) => [i.id, i])),
+    [result.capsuleItems],
+  );
   const groupedSuggestions = useMemo(
     () =>
       SUGGESTION_CATEGORIES.map((cat) => ({ cat, items: result.suggestedItems.filter((s) => s.category === cat) })).filter(
@@ -547,6 +552,17 @@ function PlanResult({
   const { weather } = result;
   const packedCount = result.capsuleItems.filter((i) => packedIds[i.id]).length;
   const rotation = result.mode === "rotation";
+  const resolvedLocation = weather.resolvedName ?? result.location;
+  const packingDeckOutfits = useMemo(
+    () =>
+      result.outfits.map((plan) =>
+        adaptPackingOutfit(plan, itemsById, result.imageUrls, {
+          isRotation: rotation,
+          location: resolvedLocation,
+        }),
+      ),
+    [result.outfits, itemsById, result.imageUrls, rotation, resolvedLocation],
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in-50 duration-300">
@@ -693,35 +709,22 @@ function PlanResult({
           </h3>
           <p className="text-xs text-muted">
             {rotation
-              ? `Wear these ${result.outfits.length} looks, do laundry, then repeat — about ${result.repeats}× over your ${result.days}-day stay.`
-              : "How to remix your capsule for each day."}
+              ? `Swipe through these ${result.outfits.length} looks, do laundry, then repeat — about ${result.repeats}× over your ${result.days}-day stay.`
+              : "Swipe through each day's look and expand details to inspect pieces and styling tips."}
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {result.outfits.map((plan) => {
-            const dayItems = plan.item_ids.map((id) => itemsById.get(id)).filter(Boolean) as PackingItem[];
-            return (
-              <Card key={plan.day} className="p-5 border-border bg-surface space-y-3 shadow-2xs">
-                <div className="flex items-center gap-2 border-b border-border/60 pb-2 font-medium text-sm text-foreground">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-contrast font-bold text-xs">{plan.day}</span>
-                  <span>{plan.title}</span>
-                </div>
-                <div className="flex items-center gap-2 overflow-x-auto py-1">
-                  {dayItems.map((item) => {
-                    const img = result.imageUrls[item.image_path];
-                    return (
-                      <div key={item.id} className="relative size-14 shrink-0 rounded-lg border border-border bg-surface-muted overflow-hidden" title={item.name}>
-                        {img ? <Image src={img} alt={item.name} fill sizes="56px" className="object-cover" /> : <Shirt className="m-auto size-4 text-muted" />}
-                      </div>
-                    );
-                  })}
-                </div>
-                {plan.styling_tip && <p className="text-xs text-muted italic">💡 {plan.styling_tip}</p>}
-              </Card>
-            );
-          })}
-        </div>
+        <SwipeableOutfitDeck
+          outfits={packingDeckOutfits}
+          deckKey={`packing-${result.purpose}-${resolvedLocation}-${result.days}-${result.mode}`}
+          ariaLabel={
+            rotation
+              ? `${result.cycleDays}-day rotation outfits`
+              : "Day-by-day trip outfits"
+          }
+          emptyTitle="No daily outfits in this plan"
+          emptyDescription="Adjust your capsule preferences above to generate daily looks."
+        />
       </div>
 
       {/* Don't forget */}

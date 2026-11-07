@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -9,7 +9,6 @@ import {
   LayoutGrid,
   Calendar,
   Check,
-  BookmarkCheck,
   CheckCircle2,
   AlertCircle,
   Loader2,
@@ -23,6 +22,7 @@ import {
   Star,
   MessageSquare,
 } from "lucide-react";
+import { SwipeableOutfitDeck } from "@/components/outfits/swipeable-outfit-deck";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { OutfitStage3D } from "@/components/studio/outfit-stage-3d";
@@ -33,9 +33,9 @@ import {
   wearOutfitTodayAction,
   rateOutfitAction,
 } from "@/app/(app)/stylist/actions";
+import { adaptStylistOutfit } from "@/lib/outfits/swipe-deck-logic";
 import { BODY_BUILD_OPTIONS, type BodyBuildValue } from "@/lib/profile/options";
 import type { WardrobeItem } from "@/lib/wardrobe/queries";
-import { humanise } from "@/lib/wardrobe/categories";
 import type { WeatherForecast } from "@/lib/weather/service";
 import { formatLocalDate } from "@/lib/utils/format";
 
@@ -129,7 +129,8 @@ export function StylistClient({
   void overallAdvice;
   const [wardrobeGaps, setWardrobeGaps] = useState<Array<{ name: string; category: string; why_it_helps: string; pairs_with: string }>>([]);
   const [activeOutfitIndex, setActiveOutfitIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<"3d" | "grid" | "photo" | "flatlay">("3d");
+  const [generationId, setGenerationId] = useState(0);
+  const [viewMode, setViewMode] = useState<"collage" | "3d" | "photo" | "flatlay">("collage");
 
   // Interaction feedback states
   const [savedOutfits, setSavedOutfits] = useState<Record<number, string>>({}); // outfitIndex -> savedId
@@ -235,6 +236,8 @@ export function StylistClient({
     setLoading(true);
     setError(null);
     setSavedOutfits({});
+    setGeneratedPhotos({});
+    setRatings({});
     setWornIndex(null);
     setPlannedIndex(null);
 
@@ -259,6 +262,10 @@ export function StylistClient({
       setOverallAdvice(data.overallAdvice || null);
       setWardrobeGaps(data.wardrobeGaps || []);
       setActiveOutfitIndex(0);
+      setGenerationId((prev) => prev + 1);
+      if (viewMode === "photo") {
+        setViewMode("collage");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -411,6 +418,19 @@ export function StylistClient({
   };
 
   const activeOutfit = outfits[activeOutfitIndex];
+
+  const deckOutfits = useMemo(
+    () =>
+      outfits.map((outfit, idx) =>
+        adaptStylistOutfit(outfit, idx, imageUrls, {
+          isSaved: Boolean(savedOutfits[idx]),
+          isSaving: savingIndex === idx,
+          generatedPhotoUrl: generatedPhotos[idx] ?? null,
+          getPinterestUrl: getPinterestSearchUrl,
+        }),
+      ),
+    [outfits, imageUrls, savedOutfits, savingIndex, generatedPhotos],
+  );
 
   return (
     <div className="space-y-8">
@@ -749,384 +769,262 @@ export function StylistClient({
       )}
 
       {/* Recommendations Showcase */}
-      {outfits.length > 0 && activeOutfit && (
-        <div className="space-y-6">
-          {/* Header tabs for multiple looks */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {outfits.map((look, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => setActiveOutfitIndex(idx)}
-                  className={`rounded-xl px-4 py-2 text-sm font-medium transition-all shrink-0 border ${
-                    activeOutfitIndex === idx
-                      ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                      : "border-border/60 hover:bg-muted text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Look {idx + 1}: {look.name}
-                </button>
-              ))}
-            </div>
+      {(loading || outfits.length > 0) && (
+        <div className="space-y-8">
+          <SwipeableOutfitDeck
+            outfits={deckOutfits}
+            deckKey={`stylist-${stylistMode}-${generationId}`}
+            activeIndex={activeOutfitIndex}
+            onActiveIndexChange={setActiveOutfitIndex}
+            loading={loading}
+            loadingLabel="Assembling grounded outfit recommendations from your clean wardrobe…"
+            ariaLabel="AI Stylist outfit recommendations"
+            saveLabel="Save Outfit"
+            savedLabel="Saved to Outfits"
+            onSaveOutfit={(_card, idx) => {
+              void handleSaveOutfit(idx);
+            }}
+            headerControlsSlot={
+              activeOutfit ? (
+                <div className="flex flex-wrap items-center rounded-xl border border-border bg-surface-muted/60 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("collage")}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                      viewMode === "collage"
+                        ? "bg-surface text-foreground shadow-2xs"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    <span>Lookbook</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("3d")}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                      viewMode === "3d"
+                        ? "bg-surface text-foreground shadow-2xs"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    <span>3D Stage</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("flatlay")}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                      viewMode === "flatlay"
+                        ? "bg-surface text-foreground shadow-2xs"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-accent" />
+                    <span>Flatlay</span>
+                  </button>
+                  {generatedPhotos[activeOutfitIndex] && (
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("photo")}
+                      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                        viewMode === "photo"
+                          ? "bg-surface text-foreground shadow-2xs"
+                          : "text-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Camera className="h-3.5 w-3.5 text-accent" />
+                      <span>On-Model</span>
+                    </button>
+                  )}
+                </div>
+              ) : null
+            }
+            renderCustomPreview={(_card, idx) => {
+              const look = outfits[idx];
+              if (!look) return null;
 
-            {/* View Mode Toggle: 3D vs Grid */}
-            <div className="flex items-center rounded-lg border border-border/60 bg-muted/40 p-1 self-start sm:self-auto">
-              <button
-                type="button"
-                onClick={() => setViewMode("3d")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  viewMode === "3d" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Layers className="h-3.5 w-3.5" />
-                <span>3D Stage</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("flatlay")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  viewMode === "flatlay" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Sparkles className="h-3.5 w-3.5 text-accent" />
-                <span>Flatlay Studio</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("grid")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  viewMode === "grid" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-                <span>Grid</span>
-              </button>
-              {generatedPhotos[activeOutfitIndex] && (
-                <button
-                  type="button"
-                  onClick={() => setViewMode("photo")}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                    viewMode === "photo" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Camera className="h-3.5 w-3.5 text-accent" />
-                  <span>On-Model Photo</span>
-                </button>
-              )}
-            </div>
-          </div>
+              if (viewMode === "photo" && generatedPhotos[idx]) {
+                return (
+                  <div className="relative overflow-hidden rounded-2xl border border-border bg-black/95 shadow-sm">
+                    <div className="relative aspect-[3/4] w-full max-h-[520px]">
+                      <Image
+                        src={generatedPhotos[idx]}
+                        alt={`Editorial model wearing ${look.name}`}
+                        fill
+                        sizes="(max-width: 1024px) 92vw, 560px"
+                        className="object-contain"
+                      />
+                    </div>
+                    <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-surface/90 px-3 py-1 text-xs font-medium backdrop-blur-md">
+                      <Sparkles className="h-3.5 w-3.5 text-accent" />
+                      <span>AI Editorial Photoshoot · On-Model Look</span>
+                    </div>
+                  </div>
+                );
+              }
 
-          {/* Main Visual Stage & Details Panel */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Visual Stage (3D, Grid, or AI Model Photoshoot) */}
-            <div className="lg:col-span-7">
-              {viewMode === "photo" && generatedPhotos[activeOutfitIndex] ? (
-                <Card className="relative overflow-hidden rounded-2xl border-border bg-black/95 shadow-md">
-                  <div className="relative aspect-[3/4] w-full max-h-[580px]">
-                    <Image
-                      src={generatedPhotos[activeOutfitIndex]}
-                      alt={`Editorial model wearing ${activeOutfit.name}`}
-                      fill
-                      sizes="(max-width: 1024px) 100vw, 60vw"
-                      className="object-contain"
+              if (viewMode === "flatlay") {
+                return (
+                  <EditorialFlatlayCanvas
+                    items={look.items}
+                    imageUrls={imageUrls}
+                    outfitName={look.name}
+                  />
+                );
+              }
+
+              if (viewMode === "3d") {
+                return (
+                  <div data-no-swipe="true">
+                    <OutfitStage3D
+                      items={look.items}
+                      imageUrls={imageUrls}
+                      className="w-full shadow-sm"
                     />
                   </div>
-                  <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-background/80 px-3 py-1 text-xs font-medium backdrop-blur-md">
-                    <Sparkles className="h-3.5 w-3.5 text-accent" />
-                    <span>AI Editorial Photoshoot · On-Model Look</span>
-                  </div>
-                </Card>
-              ) : viewMode === "flatlay" ? (
-                <EditorialFlatlayCanvas
-                  items={activeOutfit.items}
-                  imageUrls={imageUrls}
-                  outfitName={activeOutfit.name}
-                />
-              ) : viewMode === "3d" ? (
-                <OutfitStage3D
-                  items={activeOutfit.items}
-                  imageUrls={imageUrls}
-                  className="w-full shadow-md"
-                />
-              ) : (
-                <Card className="p-6 border-border/70">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    {activeOutfit.items.map((item) => {
-                      const url = imageUrls[item.imagePath];
-                      return (
-                        <div key={item.id} className="group relative rounded-xl border border-border/50 bg-background/50 p-2 overflow-hidden">
-                          <div className="relative aspect-square w-full rounded-lg overflow-hidden bg-muted/40 mb-2">
-                            {url ? (
-                              <Image src={url} alt={item.name} fill sizes="(max-width: 640px) 50vw, 33vw" className="object-contain" />
-                            ) : (
-                              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">Photo</div>
-                            )}
-                          </div>
-                          <div className="text-xs font-medium truncate">{item.name}</div>
-                          <div className="text-[11px] text-muted-foreground capitalize">{humanise(item.category)}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              )}
-            </div>
+                );
+              }
 
-            {/* Look Details & Stylist Rationale */}
-            <div className="lg:col-span-5 space-y-6">
-              <div className="space-y-2">
-                <div className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                  {activeOutfit.occasion || "Recommended Look"}
-                </div>
-                <h3 className="font-serif text-2xl font-medium tracking-tight text-foreground">
-                  {activeOutfit.name}
-                </h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  {activeOutfit.styleDescription}
-                </p>
-              </div>
+              return null;
+            }}
+            renderExpandedActions={(_card, idx) => {
+              const look = outfits[idx];
+              if (!look) return null;
 
-              {/* Garments in this Look */}
-              <div className="space-y-2.5">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Assembled Pieces ({activeOutfit.items.length})
-                </h4>
-                <div className="divide-y divide-border/60 rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm overflow-hidden">
-                  {activeOutfit.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between p-3 text-xs">
-                      <div className="flex items-center gap-3">
-                        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted border border-border/40">
-                          {imageUrls[item.imagePath] && (
-                            <Image src={imageUrls[item.imagePath]} alt={item.name} fill sizes="40px" className="object-cover" />
-                          )}
-                        </div>
-                        <div>
-                          <div className="font-medium text-foreground">{item.name}</div>
-                          <div className="text-[11px] text-muted-foreground capitalize">
-                            {humanise(item.category)} {item.material ? `· ${item.material}` : ""}
-                          </div>
-                        </div>
-                      </div>
-                      {item.primaryColour && (
-                        <span className="capitalize text-[11px] text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">
-                          {item.primaryColour}
+              return (
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row flex-wrap gap-2.5">
+                    <Button
+                      type="button"
+                      onClick={() => handlePlanForTomorrow(idx)}
+                      disabled={plannedIndex === idx}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 rounded-xl"
+                    >
+                      {plannedIndex === idx ? (
+                        <>
+                          <Check className="h-4 w-4 text-emerald-600" />
+                          <span>Scheduled</span>
+                        </>
+                      ) : (
+                        <>
+                          <Calendar className="h-4 w-4" />
+                          <span>Plan Tomorrow</span>
+                        </>
+                      )}
+                    </Button>
+
+                    <Button
+                      type="button"
+                      onClick={() => handleGeneratePhotoshoot(idx)}
+                      disabled={generatingPhotoIndex === idx}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 rounded-xl border-accent/40 bg-accent-soft/40 hover:bg-accent-soft text-accent"
+                    >
+                      {generatingPhotoIndex === idx ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Generating Shoot…</span>
+                        </>
+                      ) : generatedPhotos[idx] ? (
+                        <>
+                          <Camera className="h-4 w-4" />
+                          <span>Reshoot Model Photo</span>
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="h-4 w-4" />
+                          <span>Generate AI Photo</span>
+                        </>
+                      )}
+                    </Button>
+
+                    <Button
+                      type="button"
+                      onClick={() => handleWearToday(idx)}
+                      disabled={wornIndex === idx}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 rounded-xl"
+                    >
+                      {wornIndex === idx ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          <span>Worn Today</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="h-4 w-4" />
+                          <span>Wear Today</span>
+                        </>
+                      )}
+                    </Button>
+
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(
+                        `✨ Check out this outfit I styled on ClosetAI!\n\n👗 *${look.name}*\n${look.styleDescription}\n\n• Items: ${look.items.map((i) => i.name).join(", ")}\n💡 Tip: ${look.stylingTip}\n\nWhat do you think?`,
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-9 items-center justify-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-3.5 py-1.5 text-xs font-medium transition-colors"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      <span>Share on WhatsApp</span>
+                      <ExternalLink className="h-3 w-3 opacity-60" />
+                    </a>
+
+                    <a
+                      href={getPinterestSearchUrl(
+                        `${look.name} ${look.items.map((i) => i.name).join(" ")} aesthetic outfit`,
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-9 items-center justify-center gap-2 rounded-xl border border-red-500/25 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 px-3.5 py-1.5 text-xs font-medium transition-colors"
+                    >
+                      <PinterestIcon className="h-3.5 w-3.5" />
+                      <span>Pinterest Moodboard</span>
+                      <ExternalLink className="h-3 w-3 opacity-60" />
+                    </a>
+                  </div>
+
+                  {/* 1-5 Star Rating & Learning Feedback */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-border/70 bg-surface-muted/50 p-3 text-xs">
+                    <div className="text-muted">
+                      <span>Rate look to fine-tune AI recommendations:</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => handleRateOutfit(idx, star)}
+                          className="p-1 transition-transform hover:scale-125 focus-visible:outline-2 focus-visible:outline-ring rounded"
+                          aria-label={`Rate ${look.name} ${star} star${star > 1 ? "s" : ""}`}
+                          title={`Rate ${star} star${star > 1 ? "s" : ""}`}
+                        >
+                          <Star
+                            className={`h-4 w-4 ${
+                              (ratings[idx] ?? 0) >= star
+                                ? "fill-amber-400 text-amber-500"
+                                : "text-muted hover:text-amber-400"
+                            }`}
+                          />
+                        </button>
+                      ))}
+                      {ratings[idx] && (
+                        <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold ml-1">
+                          {ratings[idx]}★ Saved!
                         </span>
                       )}
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Stylist Notes / Explanation */}
-              <div className="rounded-xl border border-border/70 bg-muted/30 p-4 space-y-2">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                  <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  <span>Why This Works</span>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {activeOutfit.explanation}
-                </p>
-              </div>
-
-              {/* Actionable Styling Tip (Using ClosetAI Warning Tokens for Razor Sharp Contrast) */}
-              <div className="rounded-xl border border-warning/40 bg-warning-soft/80 p-4 space-y-1.5 shadow-2xs">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-warning">
-                  <span>💡 Stylist Pro Tip</span>
-                </div>
-                <p className="text-xs font-medium text-foreground leading-relaxed">
-                  {activeOutfit.stylingTip}
-                </p>
-              </div>
-
-              {/* Missing Pieces / Items not in your wardrobe */}
-              {activeOutfit.missingPieces && activeOutfit.missingPieces.length > 0 && (
-                <div className="rounded-xl border border-border-strong bg-surface-muted/70 p-4 space-y-2.5 shadow-2xs">
-                  <div className="flex items-center justify-between text-xs font-bold text-foreground">
-                    <span>🛍️ Complete the Look (Items Not in Your Closet)</span>
-                    <span className="text-[10px] bg-accent-soft text-accent px-2 py-0.5 rounded-full font-semibold">
-                      Wishlist Ideas
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted">
-                    The stylist suggests adding these pieces to elevate this outfit:
-                  </p>
-                  <div className="space-y-2 pt-0.5">
-                    {activeOutfit.missingPieces.map((mp, idx) => (
-                      <div
-                        key={idx}
-                        className="rounded-lg bg-surface border border-border p-3 text-xs space-y-1.5 shadow-2xs"
-                      >
-                        <div className="flex items-center justify-between font-semibold text-foreground">
-                          <span>{mp.name}</span>
-                          <span className="text-[10px] uppercase tracking-wider text-muted bg-surface-muted px-1.5 py-0.5 rounded">
-                            {mp.category}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[11px] text-muted leading-normal">{mp.reason}</p>
-                          <a
-                            href={getPinterestSearchUrl(`${mp.name} ${mp.category} outfit aesthetic styling`)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-medium text-red-600 dark:text-red-400 hover:underline shrink-0"
-                          >
-                            <PinterestIcon className="h-3 w-3" />
-                            <span>Inspo</span>
-                            <ExternalLink className="h-2.5 w-2.5 opacity-60" />
-                          </a>
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 </div>
-              )}
-
-              {/* Primary Actions */}
-              <div className="pt-2 flex flex-col sm:flex-row flex-wrap gap-3">
-                <Button
-                  onClick={() => handleSaveOutfit(activeOutfitIndex)}
-                  disabled={Boolean(savedOutfits[activeOutfitIndex]) || savingIndex === activeOutfitIndex}
-                  variant={savedOutfits[activeOutfitIndex] ? "outline" : "primary"}
-                  className="flex-1 gap-2 rounded-xl min-w-[130px]"
-                >
-                  {savedOutfits[activeOutfitIndex] ? (
-                    <>
-                      <BookmarkCheck className="h-4 w-4 text-emerald-600" />
-                      Saved to Outfits
-                    </>
-                  ) : savingIndex === activeOutfitIndex ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <BookmarkCheck className="h-4 w-4" />
-                      Save Outfit
-                    </>
-                  )}
-                </Button>
-
-                <Button
-                  onClick={() => handlePlanForTomorrow(activeOutfitIndex)}
-                  disabled={plannedIndex === activeOutfitIndex}
-                  variant="outline"
-                  className="gap-2 rounded-xl"
-                >
-                  {plannedIndex === activeOutfitIndex ? (
-                    <>
-                      <Check className="h-4 w-4 text-emerald-600" />
-                      Scheduled
-                    </>
-                  ) : (
-                    <>
-                      <Calendar className="h-4 w-4" />
-                      Plan Tomorrow
-                    </>
-                  )}
-                </Button>
-
-                <Button
-                  onClick={() => handleGeneratePhotoshoot(activeOutfitIndex)}
-                  disabled={generatingPhotoIndex === activeOutfitIndex}
-                  variant="outline"
-                  className="gap-2 rounded-xl border-accent/40 bg-accent-soft/40 hover:bg-accent-soft text-accent"
-                >
-                  {generatingPhotoIndex === activeOutfitIndex ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Generating Shoot...
-                    </>
-                  ) : generatedPhotos[activeOutfitIndex] ? (
-                    <>
-                      <Camera className="h-4 w-4" />
-                      Reshoot Model Photo
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="h-4 w-4" />
-                      Generate AI Photo
-                    </>
-                  )}
-                </Button>
-
-                <Button
-                  onClick={() => handleWearToday(activeOutfitIndex)}
-                  disabled={wornIndex === activeOutfitIndex}
-                  variant="outline"
-                  className="gap-2 rounded-xl"
-                >
-                  {wornIndex === activeOutfitIndex ? (
-                    <>
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      Worn Today
-                    </>
-                  ) : (
-                    <>
-                      <Check className="h-4 w-4" />
-                      Wear Today
-                    </>
-                  )}
-                </Button>
-
-                <a
-                  href={`https://wa.me/?text=${encodeURIComponent(
-                    `✨ Check out this outfit I styled on ClosetAI!\n\n👗 *${activeOutfit.name}*\n${activeOutfit.styleDescription}\n\n• Items: ${activeOutfit.items.map((i) => i.name).join(", ")}\n💡 Tip: ${activeOutfit.stylingTip}\n\nWhat do you think?`
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-4 py-2 text-sm font-medium transition-colors"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  <span>Share on WhatsApp</span>
-                  <ExternalLink className="h-3 w-3 opacity-60" />
-                </a>
-
-                <a
-                  href={getPinterestSearchUrl(`${activeOutfit.name} ${activeOutfit.items.map((i) => i.name).join(" ")} aesthetic outfit`)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-500/25 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 px-4 py-2 text-sm font-medium transition-colors"
-                >
-                  <PinterestIcon className="h-4 w-4" />
-                  <span>Pinterest Moodboard</span>
-                  <ExternalLink className="h-3 w-3 opacity-60" />
-                </a>
-              </div>
-
-              {/* 1-5 Star Rating & Learning Feedback */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-border/70 bg-surface-muted/50 p-3 text-xs">
-                <div className="text-muted">
-                  <span>Rate look to fine-tune AI recommendations:</span>
-                </div>
-                <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => handleRateOutfit(activeOutfitIndex, star)}
-                      className="p-1 transition-transform hover:scale-125 focus:outline-hidden"
-                      title={`Rate ${star} star${star > 1 ? "s" : ""}`}
-                    >
-                      <Star
-                        className={`h-4 w-4 ${
-                          (ratings[activeOutfitIndex] ?? 0) >= star
-                            ? "fill-amber-400 text-amber-500"
-                            : "text-muted hover:text-amber-400"
-                        }`}
-                      />
-                    </button>
-                  ))}
-                  {ratings[activeOutfitIndex] && (
-                    <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold ml-1">
-                      {ratings[activeOutfitIndex]}★ Saved!
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+              );
+            }}
+          />
 
           {/* Wardrobe Investment Gaps / Recommended Additions to Expand Closet */}
           {wardrobeGaps.length > 0 && (

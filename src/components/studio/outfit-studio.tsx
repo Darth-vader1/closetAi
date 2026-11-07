@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Camera, Check, Heart, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { Camera, Check, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { deleteOutfitAction, saveOutfitAction, toggleOutfitFavouriteAction } from "@/app/(app)/studio/actions";
+import { SwipeableOutfitDeck } from "@/components/outfits/swipeable-outfit-deck";
 import { Button } from "@/components/ui/button";
 import { Alert, Card, EmptyState } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
 import { ItemImage } from "@/components/wardrobe/item-image";
+import { adaptSavedOutfit, adaptStudioSuggestion } from "@/lib/outfits/swipe-deck-logic";
 import { OCCASION_OPTIONS } from "@/lib/profile/options";
 import { categoryGroup, categoryLabel } from "@/lib/wardrobe/categories";
 import type { OutfitWithItems } from "@/lib/outfits/queries";
@@ -42,7 +44,9 @@ export function OutfitStudio({
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("flatlay");
   const [outfits, setOutfits] = useState<OutfitWithItems[]>(initialOutfits);
-  const [suggestions, setSuggestions] = useState<OutfitSuggestion[]>(initialSuggestions);
+  const [suggestions] = useState<OutfitSuggestion[]>(initialSuggestions);
+  const [savedSuggestionIndices, setSavedSuggestionIndices] = useState<Record<number, boolean>>({});
+  const [savingSuggestionIndex, setSavingSuggestionIndex] = useState<number | null>(null);
   const [currentPhotoUrls, setCurrentPhotoUrls] = useState<Record<string, string>>(photoUrls);
 
   // Flatlay State
@@ -167,34 +171,40 @@ export function OutfitStudio({
   };
 
   // Save an auto-suggested outfit
-  const handleSaveSuggestion = (s: OutfitSuggestion) => {
+  const handleSaveSuggestion = (s: OutfitSuggestion, idx: number) => {
+    if (savedSuggestionIndices[idx] || savingSuggestionIndex !== null) return;
+    setSavingSuggestionIndex(idx);
     startTransition(async () => {
-      const res = await saveOutfitAction({
-        name: s.name,
-        itemIds: s.items.map((i) => i.id),
-        occasion: s.occasion || null,
-        styleDescription: s.styleDescription,
-        stylingTip: s.stylingTip,
-        isFavourite: false,
-      });
-
-      if (res.ok) {
-        const newOutfit: OutfitWithItems = {
-          id: res.id,
-          userId: "",
+      try {
+        const res = await saveOutfitAction({
           name: s.name,
+          itemIds: s.items.map((i) => i.id),
           occasion: s.occasion || null,
           styleDescription: s.styleDescription,
-          explanation: null,
           stylingTip: s.stylingTip,
-          photoPath: null,
-          source: "ENGINE",
           isFavourite: false,
-          createdAt: new Date().toISOString(),
-          items: s.items,
-        };
-        setOutfits((prev) => [newOutfit, ...prev]);
-        setSuggestions((prev) => prev.filter((item) => item.name !== s.name));
+        });
+
+        if (res.ok) {
+          const newOutfit: OutfitWithItems = {
+            id: res.id,
+            userId: "",
+            name: s.name,
+            occasion: s.occasion || null,
+            styleDescription: s.styleDescription,
+            explanation: null,
+            stylingTip: s.stylingTip,
+            photoPath: null,
+            source: "ENGINE",
+            isFavourite: false,
+            createdAt: new Date().toISOString(),
+            items: s.items,
+          };
+          setOutfits((prev) => [newOutfit, ...prev]);
+          setSavedSuggestionIndices((prev) => ({ ...prev, [idx]: true }));
+        }
+      } finally {
+        setSavingSuggestionIndex(null);
       }
     });
   };
@@ -247,6 +257,25 @@ export function OutfitStudio({
     if (pickerFilter === "all") return true;
     return categoryGroup(item.category) === pickerFilter;
   });
+
+  const generatorDeckOutfits = useMemo(
+    () =>
+      suggestions.map((s, idx) =>
+        adaptStudioSuggestion(s, idx, itemImageUrls, {
+          isSaved: Boolean(savedSuggestionIndices[idx]),
+          isSaving: savingSuggestionIndex === idx,
+        }),
+      ),
+    [suggestions, itemImageUrls, savedSuggestionIndices, savingSuggestionIndex],
+  );
+
+  const savedDeckOutfits = useMemo(
+    () =>
+      outfits.map((outfit) =>
+        adaptSavedOutfit(outfit, itemImageUrls, currentPhotoUrls),
+      ),
+    [outfits, itemImageUrls, currentPhotoUrls],
+  );
 
   return (
     <div className="space-y-6">
@@ -582,56 +611,22 @@ export function OutfitStudio({
             </p>
           </div>
 
-          {suggestions.length === 0 ? (
-            <EmptyState title="No outfit ideas available yet" icon={Sparkles}>
-              You need at least one top, one bottom, and shoes in clean status for recommendations to generate.
-            </EmptyState>
-          ) : (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {suggestions.map((s, idx) => (
-                <Card key={idx} className="flex flex-col justify-between p-5">
-                  <div className="space-y-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h3 className="font-medium">{s.name}</h3>
-                        <p className="text-xs text-muted">{s.styleDescription}</p>
-                      </div>
-                      <span className="rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-semibold text-accent">
-                        {s.score} pts
-                      </span>
-                    </div>
-
-                    {/* Garments Preview Grid */}
-                    <div className="grid grid-cols-3 gap-2">
-                      {s.items.map((item) => (
-                        <div key={item.id} className="min-w-0 rounded-lg border border-border p-1">
-                          <ItemImage
-                            url={itemImageUrls[item.imagePath]}
-                            alt={item.name}
-                            className="aspect-square w-full rounded-md object-cover"
-                          />
-                          <p className="mt-1 truncate text-[11px] font-medium">{item.name}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    <p className="rounded-lg bg-surface-muted p-2.5 text-xs text-muted">
-                      💡 {s.stylingTip}
-                    </p>
-                  </div>
-
-                  <Button
-                    type="button"
-                    onClick={() => handleSaveSuggestion(s)}
-                    loading={isPending}
-                    className="mt-5 w-full"
-                  >
-                    Save to My Outfits
-                  </Button>
-                </Card>
-              ))}
-            </div>
-          )}
+          <SwipeableOutfitDeck
+            outfits={generatorDeckOutfits}
+            deckKey="studio-generator"
+            ariaLabel="Automatic outfit ideas"
+            saveLabel="Save to My Outfits"
+            savedLabel="Saved to Outfits"
+            onSaveOutfit={(_card, idx) => {
+              const s = suggestions[idx];
+              if (s) handleSaveSuggestion(s, idx);
+            }}
+            emptyState={
+              <EmptyState title="No outfit ideas available yet" icon={Sparkles}>
+                You need at least one top, one bottom, and shoes in clean status for recommendations to generate.
+              </EmptyState>
+            }
+          />
         </div>
       )}
 
@@ -648,98 +643,75 @@ export function OutfitStudio({
             </Button>
           </div>
 
-          {outfits.length === 0 ? (
-            <EmptyState
-              title="You haven't created any outfits yet"
-              icon={Sparkles}
-              action={<Button onClick={() => setTab("builder")}>Pair your first outfit</Button>}
-            >
-              Combine pieces from your wardrobe to plan your outfits ahead of time.
-            </EmptyState>
-          ) : (
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {outfits.map((outfit) => (
-                <Card key={outfit.id} className="flex flex-col justify-between overflow-hidden p-5">
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <h3 className="truncate font-medium">{outfit.name}</h3>
-                        {outfit.occasion && (
-                          <span className="text-xs capitalize text-muted">
-                            {outfit.occasion.replace("_", " ")}
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleFavourite(outfit.id, outfit.isFavourite)}
-                        className={`shrink-0 transition hover:scale-110 ${
-                          outfit.isFavourite ? "text-danger" : "text-muted hover:text-foreground"
-                        }`}
-                      >
-                        <Heart className="size-5" fill={outfit.isFavourite ? "currentColor" : "none"} />
-                      </button>
-                    </div>
-
-                    {/* Display Full-Body Picture if present, else Composite Grid */}
-                    {outfit.photoPath && currentPhotoUrls[outfit.photoPath] ? (
-                      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-border">
-                        <Image
-                          src={currentPhotoUrls[outfit.photoPath]}
-                          alt={outfit.name}
-                          fill
-                          className="object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        {outfit.items.map((item) => (
-                          <div key={item.id} className="min-w-0 rounded-lg border border-border p-1">
-                            <ItemImage
-                              url={itemImageUrls[item.imagePath]}
-                              alt={item.name}
-                              className="aspect-square w-full rounded-md object-cover"
-                            />
-                            <p className="mt-1 truncate text-[11px] font-medium">{item.name}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {outfit.stylingTip && (
-                      <p className="text-xs text-muted">💡 {outfit.stylingTip}</p>
-                    )}
+          <SwipeableOutfitDeck
+            outfits={savedDeckOutfits}
+            deckKey="studio-saved"
+            ariaLabel="Saved outfits lookbook"
+            onToggleFavourite={(_card, idx) => {
+              const outfit = outfits[idx];
+              if (outfit) handleToggleFavourite(outfit.id, outfit.isFavourite);
+            }}
+            renderPrimaryActions={(_card, idx) => {
+              const outfit = outfits[idx];
+              if (!outfit) return null;
+              return (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleOpenOutfitInFlatlay(outfit)}
+                  className="min-h-11 rounded-xl gap-1.5 px-3.5 text-xs shrink-0"
+                >
+                  <Sparkles className="size-3.5 text-accent" />
+                  <span>Flatlay Board</span>
+                </Button>
+              );
+            }}
+            renderExpandedActions={(_card, idx) => {
+              const outfit = outfits[idx];
+              if (!outfit) return null;
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-muted/40 p-3">
+                  <span className="text-xs text-muted">
+                    Created {new Date(outfit.createdAt).toLocaleDateString()}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenOutfitInFlatlay(outfit)}
+                      className="gap-1.5 rounded-xl text-xs"
+                    >
+                      <Sparkles className="size-3.5 text-accent" />
+                      <span>Open in Flatlay Studio</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDelete(outfit.id)}
+                      disabled={isPending}
+                      aria-label={`Delete ${outfit.name}`}
+                      className="gap-1.5 rounded-xl text-xs text-danger border-danger/30 hover:bg-danger-soft"
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                      <span>Delete Outfit</span>
+                    </Button>
                   </div>
-
-                  <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
-                    <span className="text-xs text-muted">
-                      {outfit.items.length} {outfit.items.length === 1 ? "garment" : "garments"}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleOpenOutfitInFlatlay(outfit)}
-                        className="h-7 text-[11px] gap-1 px-2.5"
-                      >
-                        <Sparkles className="size-3 text-accent" />
-                        <span>Flatlay Board</span>
-                      </Button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(outfit.id)}
-                        className="grid size-7 place-items-center rounded-lg text-muted hover:text-danger hover:bg-danger-soft transition"
-                        title="Delete outfit"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
+                </div>
+              );
+            }}
+            emptyState={
+              <EmptyState
+                title="You haven't created any outfits yet"
+                icon={Sparkles}
+                action={<Button onClick={() => setTab("builder")}>Pair your first outfit</Button>}
+              >
+                Combine pieces from your wardrobe to plan your outfits ahead of time.
+              </EmptyState>
+            }
+          />
         </div>
       )}
     </div>

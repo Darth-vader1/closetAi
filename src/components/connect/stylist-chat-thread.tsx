@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   ArrowLeft,
-  BookmarkCheck,
   Check,
   CloudSun,
   Layers,
@@ -20,6 +19,8 @@ import {
   X,
 } from "lucide-react";
 import { saveStylistOutfitAction } from "@/app/(app)/stylist/actions";
+import { SwipeableOutfitDeck } from "@/components/outfits/swipeable-outfit-deck";
+import { adaptChatProposedOutfit } from "@/lib/outfits/swipe-deck-logic";
 import type {
   SharedItemCardData,
   SharedOutfitCardData,
@@ -180,18 +181,32 @@ function ChatSharedOutfitCard({ outfit }: { outfit: SharedOutfitCardData }) {
   );
 }
 
-function ProposedOutfitCardView({
-  outfit,
+function MessageProposedOutfitsDeck({
+  messageId,
+  outfits,
 }: {
-  outfit: StylistProposedOutfitCard;
+  messageId: string;
+  outfits: StylistProposedOutfitCard[];
 }) {
-  const [saving, setSaving] = useState(false);
-  const [savedId, setSavedId] = useState<string | null>(null);
+  const [savingIdx, setSavingIdx] = useState<number | null>(null);
+  const [savedIds, setSavedIds] = useState<Record<number, string>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const handleSaveOutfit = async () => {
-    if (saving || savedId) return;
-    setSaving(true);
+  const deckOutfits = useMemo(
+    () =>
+      outfits.map((outfit, idx) =>
+        adaptChatProposedOutfit(outfit, messageId, idx, {
+          isSaved: Boolean(savedIds[idx]),
+          isSaving: savingIdx === idx,
+        }),
+      ),
+    [outfits, messageId, savedIds, savingIdx],
+  );
+
+  const handleSaveOutfit = async (index: number) => {
+    const outfit = outfits[index];
+    if (!outfit || savingIdx !== null || savedIds[index]) return;
+    setSavingIdx(index);
     setSaveError(null);
     const res = await saveStylistOutfitAction({
       name: outfit.name,
@@ -201,116 +216,29 @@ function ProposedOutfitCardView({
       explanation: outfit.explanation,
       stylingTip: outfit.stylingTip,
     });
-    setSaving(false);
+    setSavingIdx(null);
     if (res.ok) {
-      setSavedId(res.id);
+      setSavedIds((prev) => ({ ...prev, [index]: res.id }));
     } else {
       setSaveError(res.error);
     }
   };
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-accent/30 bg-surface p-3.5 text-foreground shadow-xs space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-2 py-0.5 text-[0.62rem] font-bold uppercase tracking-wider text-accent">
-              <Sparkles className="size-3" aria-hidden />
-              Stylist Look
-            </span>
-            {outfit.occasion && (
-              <span className="truncate text-[0.68rem] font-medium capitalize text-muted">
-                · {outfit.occasion}
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-sm font-semibold text-foreground">
-            {outfit.name}
-          </p>
-          {outfit.styleDescription && (
-            <p className="text-xs text-muted">{outfit.styleDescription}</p>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={handleSaveOutfit}
-          disabled={saving || Boolean(savedId)}
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors",
-            savedId
-              ? "bg-success-soft text-success border border-success/30"
-              : "bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-50",
-          )}
-        >
-          {saving ? (
-            <>
-              <Loader2 className="size-3.5 animate-spin" aria-hidden />
-              <span>Saving…</span>
-            </>
-          ) : savedId ? (
-            <>
-              <BookmarkCheck className="size-3.5" aria-hidden />
-              <span>Saved</span>
-            </>
-          ) : (
-            <>
-              <Plus className="size-3.5" aria-hidden />
-              <span>Save Outfit</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* Outfit pieces grid */}
-      <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2 sm:grid-cols-3">
-        {outfit.items.map((it) => (
-          <div
-            key={it.id}
-            className="flex items-center gap-2.5 rounded-xl border border-border bg-background p-2"
-          >
-            <div className="size-11 shrink-0 overflow-hidden rounded-lg border border-border bg-surface-muted">
-              {it.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={it.imageUrl}
-                  alt={it.name}
-                  className="size-full object-cover"
-                />
-              ) : (
-                <div className="grid size-full place-items-center text-muted">
-                  <Shirt className="size-4" aria-hidden />
-                </div>
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-foreground">
-                {it.name}
-              </p>
-              <p className="truncate text-[0.65rem] capitalize text-muted">
-                {it.category}
-                {it.primaryColour ? ` · ${it.primaryColour}` : ""}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {outfit.explanation && (
-        <p className="text-xs leading-relaxed text-foreground/90">
-          {outfit.explanation}
-        </p>
-      )}
-
-      {outfit.stylingTip && (
-        <div className="rounded-xl bg-accent-soft/35 px-3 py-2 text-[0.72rem] leading-snug text-foreground">
-          <Sparkles className="mr-1.5 inline size-3.5 text-accent" aria-hidden />
-          <span className="font-semibold">Styling tip:</span> {outfit.stylingTip}
-        </div>
-      )}
-
+    <div className="w-full max-w-lg space-y-2">
+      <SwipeableOutfitDeck
+        compact
+        outfits={deckOutfits}
+        deckKey={`chat-proposed-${messageId}`}
+        ariaLabel="Stylist proposed outfits"
+        saveLabel="Save Outfit"
+        savedLabel="Saved"
+        onSaveOutfit={(_card, index) => {
+          void handleSaveOutfit(index);
+        }}
+      />
       {saveError && (
-        <p className="text-xs text-danger" role="alert">
+        <p className="px-1 text-xs text-danger" role="alert">
           {saveError}
         </p>
       )}
@@ -836,14 +764,10 @@ export function StylistChatThread({
 
                         {/* AI-proposed Complete Outfits */}
                         {!isMine && msg.proposedOutfits.length > 0 && (
-                          <div className="w-full max-w-lg space-y-2.5">
-                            {msg.proposedOutfits.map((po, idx) => (
-                              <ProposedOutfitCardView
-                                key={`${msg.id}-outfit-${idx}`}
-                                outfit={po}
-                              />
-                            ))}
-                          </div>
+                          <MessageProposedOutfitsDeck
+                            messageId={msg.id}
+                            outfits={msg.proposedOutfits}
+                          />
                         )}
 
                         <span className="px-1 text-[0.65rem] text-muted">
