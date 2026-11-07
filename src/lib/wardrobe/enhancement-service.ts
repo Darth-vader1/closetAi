@@ -115,6 +115,47 @@ export const DEFAULT_ENHANCEMENT_PARAMS: Required<AiEnhancementParams> = {
   qualityNote: null,
 };
 
+const SEGMENTATION_KEY_COOLDOWN_MS = 15 * 60_000;
+
+function getSegmentationCooldownMap(): Map<string, number> {
+  const g = globalThis as typeof globalThis & {
+    __closetAiSegKeyCooldowns?: Map<string, number>;
+  };
+  if (!g.__closetAiSegKeyCooldowns) {
+    g.__closetAiSegKeyCooldowns = new Map<string, number>();
+  }
+  return g.__closetAiSegKeyCooldowns;
+}
+
+function isSegmentationKeyInCooldown(provider: string, apiKey: string): boolean {
+  const map = getSegmentationCooldownMap();
+  const keyId = `${provider}:${apiKey}`;
+  const until = map.get(keyId);
+  if (!until) return false;
+  if (Date.now() >= until) {
+    map.delete(keyId);
+    return false;
+  }
+  return true;
+}
+
+function markSegmentationKeyCooldownIfAuthOrQuota(
+  provider: string,
+  apiKey: string,
+  status?: number,
+): void {
+  if (status === 401 || status === 402 || status === 403) {
+    getSegmentationCooldownMap().set(
+      `${provider}:${apiKey}`,
+      Date.now() + SEGMENTATION_KEY_COOLDOWN_MS,
+    );
+  }
+}
+
+export function resetSegmentationCooldownsForTests(): void {
+  getSegmentationCooldownMap().clear();
+}
+
 /**
  * Calls PhotoRoom Image Editing API v2 (`https://image-api.photoroom.com/v2/edit`)
  * with fallback to `https://sdk.photoroom.com/v1/segment` to isolate the clothing
@@ -677,9 +718,9 @@ export async function runGarmentEnhancementService(
   }
 
   if (!req.skipSegmentation) {
-    // Tier 1: Try official Remove.bg if configured
+    // Tier 1: Try official Remove.bg if configured and not in auth/quota cooldown
     const removeBgKey = !req.signal?.aborted ? getRemoveBgApiKey() : null;
-    if (removeBgKey) {
+    if (removeBgKey && !isSegmentationKeyInCooldown("removebg", removeBgKey)) {
       const rbgResult = await segmentWithRemoveBg(
         req.bytes,
         req.mimeType,
@@ -706,15 +747,18 @@ export async function runGarmentEnhancementService(
           });
           fallbackReason = `Remove.bg produced an incomplete garment mask (${sanity.reason}); cascading down.`;
         }
-      } else if (!fallbackReason) {
-        fallbackReason = rbgResult.reason;
+      } else {
+        markSegmentationKeyCooldownIfAuthOrQuota("removebg", removeBgKey, rbgResult.status);
+        if (!fallbackReason) {
+          fallbackReason = rbgResult.reason;
+        }
       }
     }
 
     // Tier 2: Try ClearBackdrop if Remove.bg was unconfigured, failed, or produced hollow mask
     if (!cutoutDataUrl && !req.signal?.aborted) {
       const clearBackdropKey = getClearBackdropApiKey();
-      if (clearBackdropKey) {
+      if (clearBackdropKey && !isSegmentationKeyInCooldown("clearbackdrop", clearBackdropKey)) {
         const cbResult = await segmentWithClearBackdrop(
           req.bytes,
           req.mimeType,
@@ -741,8 +785,11 @@ export async function runGarmentEnhancementService(
             });
             fallbackReason = `ClearBackdrop produced an incomplete garment mask (${sanity.reason}); cascading down.`;
           }
-        } else if (!fallbackReason) {
-          fallbackReason = cbResult.reason;
+        } else {
+          markSegmentationKeyCooldownIfAuthOrQuota("clearbackdrop", clearBackdropKey, cbResult.status);
+          if (!fallbackReason) {
+            fallbackReason = cbResult.reason;
+          }
         }
       }
     }
@@ -750,7 +797,7 @@ export async function runGarmentEnhancementService(
     // Tier 3: Try PhotoRoom if previous tiers were unconfigured, failed, or produced hollow masks
     if (!cutoutDataUrl && !req.signal?.aborted) {
       const photoRoomKey = getPhotoRoomApiKey();
-      if (photoRoomKey) {
+      if (photoRoomKey && !isSegmentationKeyInCooldown("photoroom", photoRoomKey)) {
         const segResult = await segmentWithPhotoRoom(
           req.bytes,
           req.mimeType,
@@ -780,8 +827,11 @@ export async function runGarmentEnhancementService(
             });
             fallbackReason = `PhotoRoom produced an incomplete garment mask (${sanity.reason}); cascading down.`;
           }
-        } else if (!fallbackReason) {
-          fallbackReason = segResult.reason;
+        } else {
+          markSegmentationKeyCooldownIfAuthOrQuota("photoroom", photoRoomKey, segResult.status);
+          if (!fallbackReason) {
+            fallbackReason = segResult.reason;
+          }
         }
       }
     }
@@ -789,7 +839,7 @@ export async function runGarmentEnhancementService(
     // Tier 4: Try ClipDrop (Jasper) if previous providers were missing, exhausted quota, or failed sanity
     if (!cutoutDataUrl && !req.signal?.aborted) {
       const clipDropKey = getClipDropApiKey();
-      if (clipDropKey) {
+      if (clipDropKey && !isSegmentationKeyInCooldown("clipdrop", clipDropKey)) {
         const cdResult = await segmentWithClipDrop(
           req.bytes,
           req.mimeType,
@@ -816,8 +866,11 @@ export async function runGarmentEnhancementService(
             });
             fallbackReason = `ClipDrop produced an incomplete garment mask (${sanity.reason}); cascading down.`;
           }
-        } else if (!fallbackReason) {
-          fallbackReason = cdResult.reason;
+        } else {
+          markSegmentationKeyCooldownIfAuthOrQuota("clipdrop", clipDropKey, cdResult.status);
+          if (!fallbackReason) {
+            fallbackReason = cdResult.reason;
+          }
         }
       }
     }

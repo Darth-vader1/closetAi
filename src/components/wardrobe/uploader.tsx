@@ -107,6 +107,21 @@ interface PendingOutfitBundle {
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Failed to read blob as data URL."));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("FileReader error."));
+    reader.readAsDataURL(blob);
+  });
+}
+
 function suggestionToValues(
   s: ClothingSuggestion & { material?: string | null; careType?: string | null; brand?: string | null },
   baseValues?: ItemFieldsInput | null,
@@ -571,6 +586,8 @@ export function WardrobeUploader({
 
       try {
         const croppedEntries: Entry[] = [];
+        let beautifyQuotaReached = false;
+        let beautifyQuotaMessage: string | null = null;
 
         for (let idx = 0; idx < selected.length; idx++) {
           if (abortController.signal.aborted) break;
@@ -611,9 +628,11 @@ export function WardrobeUploader({
               current: idx + 1,
               total: selected.length,
               stageName:
-                extractOptions.studioExtraction !== "crop-only"
-                  ? "Studio flat-lay retouching…"
-                  : "Uploading photo…",
+                extractOptions.studioExtraction === "catalog-flatlay"
+                  ? "Generating de-body studio flat-lay…"
+                  : extractOptions.studioExtraction === "clean-cutout"
+                    ? "Removing background…"
+                    : "Uploading photo…",
               itemName,
               percent: Math.round(((idx + 0.35) / selected.length) * 100),
             },
@@ -635,53 +654,84 @@ export function WardrobeUploader({
           let beautifyProvider: string | null = null;
           let beautifyModel: string | null = null;
           let beautifyWarnings: string[] = [];
+          let entryAiNote: string | null = null;
           let isCutout = false;
 
           if (extractOptions.studioExtraction !== "crop-only" && !abortController.signal.aborted) {
             try {
               const targetMode = extractOptions.studioExtraction;
-              // Allow 55s for generative De-Body Flat-Lay (server FLUX budget is 45s) and 25s for Clean Cutout
-              const timeoutMs = targetMode === "catalog-flatlay" ? 55_000 : 25_000;
-              const timeoutSignal = AbortSignal.timeout(timeoutMs);
-              const combinedSignal = AbortSignal.any
-                ? AbortSignal.any([abortController.signal, timeoutSignal])
-                : abortController.signal;
 
-              const apiRes = await fetch("/api/ai/beautify", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  path: uploadedPath,
-                  mode: targetMode,
-                  category: item.suggestion.category ?? null,
-                  itemHints: {
-                    name: item.suggestion.name ?? null,
-                    subcategory: item.suggestion.subcategory ?? null,
-                    primaryColour: item.suggestion.primaryColour ?? null,
-                    secondaryColours: item.suggestion.secondaryColours ?? [],
-                    pattern: item.suggestion.pattern ?? null,
-                    visualDescription: item.visualDescription ?? null,
-                  },
-                }),
-                signal: combinedSignal,
-              }).catch((err) => {
-                console.warn("Studio beautify network error or timeout:", err);
-                return null;
-              });
+              if (!beautifyQuotaReached) {
+                // Allow 135s for generative De-Body Flat-Lay (server retry + fallback budget is ~125s) and 45s for Clean Cutout
+                const timeoutMs = targetMode === "catalog-flatlay" ? 135_000 : 45_000;
+                const timeoutSignal = AbortSignal.timeout(timeoutMs);
+                const combinedSignal = AbortSignal.any
+                  ? AbortSignal.any([abortController.signal, timeoutSignal])
+                  : abortController.signal;
 
-              if (abortController.signal.aborted) break;
+                const inlineImageDataUrl = await blobToDataUrl(preparedBlob).catch(
+                  () => null,
+                );
 
-              if (apiRes?.ok) {
-                const body = (await apiRes.json()) as {
-                  cutoutDataUrl?: string | null;
-                  provider?: string;
-                  model?: string;
-                };
-                if (body.cutoutDataUrl) {
-                  photoRoomCutoutDataUrl = body.cutoutDataUrl;
+                const apiRes = await fetch("/api/ai/beautify", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    ...(inlineImageDataUrl
+                      ? { imageDataUrl: inlineImageDataUrl }
+                      : { path: uploadedPath }),
+                    mode: targetMode,
+                    category: item.suggestion.category ?? null,
+                    itemHints: {
+                      name: item.suggestion.name ?? null,
+                      subcategory: item.suggestion.subcategory ?? null,
+                      primaryColour: item.suggestion.primaryColour ?? null,
+                      secondaryColours: item.suggestion.secondaryColours ?? [],
+                      pattern: item.suggestion.pattern ?? null,
+                      visualDescription: item.visualDescription ?? null,
+                    },
+                  }),
+                  signal: combinedSignal,
+                }).catch((err) => {
+                  console.warn("Studio beautify network error or timeout:", err);
+                  return null;
+                });
+
+                if (abortController.signal.aborted) break;
+
+                if (apiRes?.ok) {
+                  const body = (await apiRes.json()) as {
+                    cutoutDataUrl?: string | null;
+                    provider?: string;
+                    model?: string;
+                    reason?: string | null;
+                  };
+                  if (body.cutoutDataUrl) {
+                    photoRoomCutoutDataUrl = body.cutoutDataUrl;
+                  }
+                  beautifyProvider = body.provider ?? "local-studio";
+                  beautifyModel = body.model ?? "closetai-cv-v2";
+                  if (!body.cutoutDataUrl && body.reason) {
+                    entryAiNote = body.reason;
+                  }
+                } else if (apiRes?.status === 403) {
+                  const errBody = (await apiRes.json().catch(() => null)) as {
+                    error?: string;
+                    upgradeRequired?: boolean;
+                  } | null;
+                  if (errBody?.upgradeRequired) {
+                    beautifyQuotaReached = true;
+                    beautifyQuotaMessage =
+                      errBody.error ??
+                      "Monthly Studio Beautify limit reached; applied local studio cutout.";
+                  }
                 }
-                beautifyProvider = body.provider ?? "local-studio";
-                beautifyModel = body.model ?? "closetai-cv-v2";
+              }
+
+              if (beautifyQuotaReached && beautifyQuotaMessage) {
+                entryAiNote = beautifyQuotaMessage;
+                beautifyProvider = "local-studio";
+                beautifyModel = "closetai-cv-v2";
               }
 
               patch(parentEntry.id, {
@@ -763,7 +813,7 @@ export function WardrobeUploader({
             suggestionKey: 1,
             isMock: parentEntry.isMock,
             analysing: false,
-            aiNote: null,
+            aiNote: entryAiNote,
             error: null,
             savedId: null,
             initialValues,

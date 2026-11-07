@@ -1,5 +1,6 @@
 import { getAiProvider } from "@/lib/ai/service";
 import { logger } from "@/lib/logger";
+import { sniffImage } from "@/lib/security/image-sniff";
 
 export interface StudioGarmentHints {
   name?: string | null;
@@ -29,7 +30,19 @@ export interface GenerateStudioFlatLayResult {
   error?: string;
 }
 
-const agentIdByKeyV2 = new Map<string, string>();
+function getAgentCache(): Map<string, string> {
+  const g = globalThis as typeof globalThis & {
+    __closetAiFlatlayAgentCacheV3?: Map<string, string>;
+  };
+  if (!g.__closetAiFlatlayAgentCacheV3) {
+    g.__closetAiFlatlayAgentCacheV3 = new Map<string, string>();
+  }
+  return g.__closetAiFlatlayAgentCacheV3;
+}
+
+export function resetStudioFlatLayAgentCacheForTests(): void {
+  getAgentCache().clear();
+}
 
 export type GarmentFamily =
   | "footwear"
@@ -421,12 +434,13 @@ export async function craftCatalogPromptWithVision(
     options.hints,
   );
 
+  const trimmedVisualDesc = options.hints?.visualDescription?.trim() ?? "";
   const hasRichOotdVisualDesc =
     !options.forceVision &&
-    Boolean(
-      options.hints?.visualDescription &&
-        options.hints.visualDescription.trim().length >= 20,
-    );
+    (trimmedVisualDesc.length >= 12 ||
+      (trimmedVisualDesc.length > 0 &&
+        Boolean(options.hints?.name?.trim()) &&
+        Boolean(options.hints?.primaryColour?.trim())));
 
   if (hasRichOotdVisualDesc) {
     return { prompt: groundedFallback, providerName: "ootd-vision-grounded" };
@@ -501,6 +515,11 @@ export async function craftCatalogPromptWithVision(
         ? options.mimeType
         : "image/jpeg";
 
+    const visionTimeoutSignal = AbortSignal.timeout(15_000);
+    const visionSignal = signal
+      ? AbortSignal.any([signal, visionTimeoutSignal])
+      : visionTimeoutSignal;
+
     const raw = (await ai.provider.generateJson({
       task: "garment_enhancement",
       kind: "vision",
@@ -512,7 +531,7 @@ export async function craftCatalogPromptWithVision(
         mimeType: normalizedMime,
       },
       jsonSchema,
-      signal,
+      signal: visionSignal,
     })) as { flatlayPrompt?: string; itemType?: string };
 
     if (raw && typeof raw.flatlayPrompt === "string" && raw.flatlayPrompt.length > 25) {
@@ -547,72 +566,291 @@ function getMistralKeyPool(): string[] {
     .filter(Boolean);
 }
 
+function describeFetchError(err: unknown): { message: string; cause?: string } {
+  const message = err instanceof Error ? err.message : String(err);
+  if (err && typeof err === "object" && "cause" in err && err.cause) {
+    const c = err.cause;
+    const causeMsg =
+      c instanceof Error
+        ? `${c.name}: ${c.message}${"code" in c && c.code ? ` (${String(c.code)})` : ""}`
+        : String(c);
+    return { message, cause: causeMsg };
+  }
+  return { message };
+}
+
+export function extractMistralGeneratedImageRefs(convData: unknown): {
+  fileId: string | null;
+  imgUrl: string | null;
+} {
+  let fileId: string | null = null;
+  let imgUrl: string | null = null;
+
+  if (!convData || typeof convData !== "object") {
+    return { fileId, imgUrl };
+  }
+
+  const outputs = (convData as { outputs?: unknown }).outputs;
+  if (!Array.isArray(outputs)) {
+    return { fileId, imgUrl };
+  }
+
+  const urlRegex = /https:\/\/[^\s)"']+\.(?:jpg|jpeg|png|webp)[^\s)"']*/i;
+
+  for (const rawOut of outputs) {
+    if (!rawOut || typeof rawOut !== "object") continue;
+    const out = rawOut as Record<string, unknown>;
+
+    if (!fileId && typeof out.file_id === "string" && out.file_id.trim()) {
+      fileId = out.file_id.trim();
+    }
+
+    const info = out.info;
+    if (info && typeof info === "object") {
+      const infoRecord = info as Record<string, unknown>;
+      if (!fileId && typeof infoRecord.file_id === "string" && infoRecord.file_id.trim()) {
+        fileId = infoRecord.file_id.trim();
+      }
+      if (typeof infoRecord.result === "string") {
+        try {
+          const parsed = JSON.parse(infoRecord.result) as Record<string, unknown>;
+          if (!imgUrl && typeof parsed.url === "string" && parsed.url.startsWith("http")) {
+            imgUrl = parsed.url;
+          }
+          if (!fileId && typeof parsed.file_id === "string" && parsed.file_id.trim()) {
+            fileId = parsed.file_id.trim();
+          }
+        } catch {
+          const match = infoRecord.result.match(urlRegex);
+          if (!imgUrl && match) imgUrl = match[0];
+        }
+      }
+    }
+
+    if (!imgUrl && typeof out.url === "string" && out.url.startsWith("http")) {
+      imgUrl = out.url;
+    }
+
+    if (typeof out.content === "string") {
+      const match = out.content.match(urlRegex);
+      if (!imgUrl && match) {
+        imgUrl = match[0];
+      }
+    } else if (Array.isArray(out.content)) {
+      for (const chunk of out.content) {
+        if (!chunk || typeof chunk !== "object") continue;
+        const c = chunk as Record<string, unknown>;
+        if (!fileId && typeof c.file_id === "string" && c.file_id.trim()) {
+          fileId = c.file_id.trim();
+        }
+        if (!imgUrl && typeof c.url === "string" && c.url.startsWith("http")) {
+          imgUrl = c.url;
+        }
+        if (!imgUrl && typeof c.text === "string") {
+          const match = c.text.match(urlRegex);
+          if (match) imgUrl = match[0];
+        }
+      }
+    }
+  }
+
+  return { fileId, imgUrl };
+}
+
+async function downloadGeneratedMistralImage(params: {
+  fileId: string | null;
+  imgUrl: string | null;
+  mistralKey: string;
+  parentSignal?: AbortSignal;
+}): Promise<{ buffer: Buffer; mimeType: "image/jpeg" | "image/png" | "image/webp" } | null> {
+  const { fileId, imgUrl, mistralKey, parentSignal } = params;
+
+  const targets: Array<{
+    kind: "mistral_file" | "blob_url";
+    url: string;
+    headers?: Record<string, string>;
+  }> = [];
+
+  // Prefer the warm api.mistral.ai connection first when file_id is present,
+  // avoiding cold DNS/TLS handshakes to external blob storage hosts.
+  if (fileId) {
+    targets.push({
+      kind: "mistral_file",
+      url: `https://api.mistral.ai/v1/files/${encodeURIComponent(fileId)}/content`,
+      headers: { Authorization: `Bearer ${mistralKey}` },
+    });
+  }
+  if (imgUrl) {
+    targets.push({
+      kind: "blob_url",
+      url: imgUrl,
+    });
+  }
+
+  for (const target of targets) {
+    for (let dlAttempt = 0; dlAttempt < 2; dlAttempt++) {
+      if (parentSignal?.aborted) return null;
+      try {
+        const dlTimeout = AbortSignal.timeout(22_000);
+        const dlSignal = parentSignal
+          ? AbortSignal.any([parentSignal, dlTimeout])
+          : dlTimeout;
+
+        const res = await fetch(target.url, {
+          method: "GET",
+          ...(target.headers ? { headers: target.headers } : {}),
+          signal: dlSignal,
+        });
+
+        if (res.ok) {
+          const arrayBuf = await res.arrayBuffer();
+          const buffer = Buffer.from(arrayBuf);
+          if (buffer.length > 500) {
+            const sniffed = sniffImage(
+              new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength),
+            );
+            return {
+              buffer,
+              mimeType: sniffed?.mimeType ?? "image/jpeg",
+            };
+          }
+        } else if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+          // Non-retryable 4xx on this target; move to next target
+          break;
+        }
+      } catch (dlErr) {
+        const info = describeFetchError(dlErr);
+        logger.warn("studio_flatlay.image_download_retry", {
+          target: target.kind,
+          dlAttempt,
+          err: info.message,
+          ...(info.cause ? { cause: info.cause } : {}),
+        });
+      }
+
+      if (dlAttempt === 0 && !parentSignal?.aborted) {
+        await new Promise((r) => setTimeout(r, 450));
+      }
+    }
+  }
+
+  return null;
+}
+
+async function ensureMistralFlatLayAgent(
+  mistralKey: string,
+  parentSignal?: AbortSignal,
+): Promise<string | null> {
+  const agentCache = getAgentCache();
+  const cached = agentCache.get(mistralKey);
+  if (cached) return cached;
+
+  for (let agentAttempt = 0; agentAttempt < 2; agentAttempt++) {
+    if (parentSignal?.aborted) return null;
+    try {
+      const agentTimeout = AbortSignal.timeout(18_000);
+      const signal = parentSignal
+        ? AbortSignal.any([parentSignal, agentTimeout])
+        : agentTimeout;
+
+      const agentRes = await fetch("https://api.mistral.ai/v1/agents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${mistralKey}`,
+        },
+        body: JSON.stringify({
+          model: "mistral-medium-2505",
+          name: "ClosetAI OOTD Garment Flatlay Extractor v3",
+          description:
+            "Generates faithful standalone unworn e-commerce studio flat-lay photographs of clothing, scarves, footwear, and accessories.",
+          instructions:
+            "Invoke the image_generation tool immediately on the first turn to generate a photorealistic standalone unworn e-commerce studio catalog flat-lay photograph on a pure white (#FFFFFF) background. STRICTLY obey every color, contrast trim, fabric texture (e.g. grey cotton fleece sweatpants vs denim; perforated foam clogs vs leather slides; plaid check scarf with fringe vs stripes), and silhouette in the user prompt. Never invent human body parts, skin, neck, arms, legs, feet, hands, phones, or mannequins. For solid or unpatterned garments, keep the fabric completely clean, uniform, and pristine with ZERO artificial graphics, scratch/claw marks, bleach stains, or distressing. After image_generation completes, reply ONLY with 'OK' and no additional text.",
+          tools: [{ type: "image_generation" }],
+        }),
+        signal,
+      });
+
+      if (agentRes.ok) {
+        const agentData = (await agentRes.json()) as { id?: unknown };
+        if (typeof agentData?.id === "string" && agentData.id.trim()) {
+          const createdId = agentData.id.trim();
+          agentCache.set(mistralKey, createdId);
+          return createdId;
+        }
+      } else {
+        logger.warn("studio_flatlay.mistral_agent_failed", {
+          status: agentRes.status,
+          agentAttempt,
+        });
+        if (agentRes.status === 401 || agentRes.status === 403) {
+          return null;
+        }
+      }
+    } catch (err) {
+      const info = describeFetchError(err);
+      logger.warn("studio_flatlay.mistral_agent_exception", {
+        agentAttempt,
+        err: info.message,
+        ...(info.cause ? { cause: info.cause } : {}),
+      });
+    }
+
+    if (agentAttempt === 0 && !parentSignal?.aborted) {
+      await new Promise((r) => setTimeout(r, 600));
+    }
+  }
+
+  return null;
+}
+
 /**
  * Step 2: Render the commercial studio flat-lay via Mistral's Black Forest Labs FLUX 1.1 Pro Ultra agent.
  */
 async function renderWithMistralFlux(
   prompt: string,
   signal?: AbortSignal,
-): Promise<{ buffer: Buffer; mimeType: "image/jpeg" } | null> {
+): Promise<{
+  buffer: Buffer;
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+} | null> {
   const mistralKeys = getMistralKeyPool();
   if (mistralKeys.length === 0) return null;
 
-  const maxAttempts = Math.max(2, Math.min(mistralKeys.length + 1, 3));
+  const agentCache = getAgentCache();
+  const maxAttempts = Math.max(3, Math.min(mistralKeys.length + 1, 4));
+  const startedAt = Date.now();
+  const TOTAL_BUDGET_MS = 112_000;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (signal?.aborted) return null;
+
+    const elapsedMs = Date.now() - startedAt;
+    const remainingBudgetMs = TOTAL_BUDGET_MS - elapsedMs;
+    // Need at least 22s left in total budget to start a new FLUX conversation turn
+    if (attempt > 0 && remainingBudgetMs < 22_000) {
+      break;
+    }
+
     const mistralKey = mistralKeys[attempt % mistralKeys.length];
     try {
-      const timeoutSignal = AbortSignal.timeout(45_000);
-      const combined = signal
-        ? AbortSignal.any([signal, timeoutSignal])
-        : timeoutSignal;
-
-      let agentId = agentIdByKeyV2.get(mistralKey) ?? null;
-
+      const agentId = await ensureMistralFlatLayAgent(mistralKey, signal);
       if (!agentId) {
-        const agentRes = await fetch("https://api.mistral.ai/v1/agents", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${mistralKey}`,
-          },
-          body: JSON.stringify({
-            model: "mistral-medium-2505",
-            name: "ClosetAI OOTD Garment Flatlay Extractor v2",
-            description:
-              "Generates faithful standalone unworn e-commerce studio flat-lay photographs of clothing, scarves, footwear, and accessories.",
-            instructions:
-              "Always invoke the image_generation tool immediately to generate a photorealistic standalone unworn e-commerce studio catalog flat-lay photograph on a pure white (#FFFFFF) background. STRICTLY obey every color, contrast trim, fabric texture (e.g. grey cotton fleece sweatpants vs denim; perforated foam clogs vs leather slides; plaid check scarf with fringe vs stripes), and silhouette in the user prompt. Never invent human body parts, skin, neck, arms, legs, feet, hands, phones, or mannequins. For solid or unpatterned garments, keep the fabric completely clean, uniform, and pristine with ZERO artificial graphics, scratch/claw marks, bleach stains, or distressing.",
-            tools: [{ type: "image_generation" }],
-          }),
-          signal: combined,
-        });
-
-        if (agentRes.ok) {
-          const agentData = await agentRes.json();
-          if (typeof agentData?.id === "string") {
-            const createdId: string = agentData.id;
-            agentId = createdId;
-            agentIdByKeyV2.set(mistralKey, createdId);
-          }
-        } else {
-          logger.warn("studio_flatlay.mistral_agent_failed", {
-            status: agentRes.status,
-            attempt,
-          });
-          if (
-            (agentRes.status === 429 || agentRes.status >= 500) &&
-            attempt < maxAttempts - 1 &&
-            !combined.aborted
-          ) {
-            await new Promise((r) => setTimeout(r, 1400));
-            continue;
-          }
-          return null;
+        if (attempt < maxAttempts - 1 && !signal?.aborted) {
+          await new Promise((r) => setTimeout(r, 700));
+          continue;
         }
+        return null;
       }
 
-      if (!agentId) return null;
+      const convBudgetMs = Math.min(
+        68_000,
+        Math.max(25_000, TOTAL_BUDGET_MS - (Date.now() - startedAt)),
+      );
+      const convTimeoutSignal = AbortSignal.timeout(convBudgetMs);
+      const convSignal = signal
+        ? AbortSignal.any([signal, convTimeoutSignal])
+        : convTimeoutSignal;
 
       const convRes = await fetch("https://api.mistral.ai/v1/conversations", {
         method: "POST",
@@ -622,70 +860,86 @@ async function renderWithMistralFlux(
         },
         body: JSON.stringify({
           agent_id: agentId,
-          inputs: prompt,
+          inputs: `Call image_generation immediately to render this standalone unworn studio flat-lay photograph: ${prompt}`,
         }),
-        signal: combined,
+        signal: convSignal,
       });
 
       if (!convRes.ok) {
-        agentIdByKeyV2.delete(mistralKey);
+        // Only invalidate cached agent if the agent ID itself was rejected/deleted
+        if (
+          convRes.status === 400 ||
+          convRes.status === 401 ||
+          convRes.status === 404 ||
+          convRes.status === 422
+        ) {
+          agentCache.delete(mistralKey);
+        }
         logger.warn("studio_flatlay.mistral_conv_failed", {
           status: convRes.status,
           attempt,
         });
         if (
-          (convRes.status === 429 || convRes.status >= 500) &&
+          (convRes.status === 429 ||
+            convRes.status >= 500 ||
+            convRes.status === 404) &&
           attempt < maxAttempts - 1 &&
-          !combined.aborted
+          !signal?.aborted
         ) {
-          await new Promise((r) => setTimeout(r, 1500));
+          const retryAfterHeader = Number(convRes.headers.get("retry-after"));
+          const backoffMs =
+            convRes.status === 429
+              ? Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
+                ? Math.min(retryAfterHeader * 1000, 4500)
+                : 2000
+              : 1000;
+          await new Promise((r) => setTimeout(r, backoffMs));
           continue;
         }
         return null;
       }
 
       const convData = await convRes.json();
-      let imgUrl: string | null = null;
+      const { fileId, imgUrl } = extractMistralGeneratedImageRefs(convData);
 
-      for (const out of convData.outputs || []) {
-        if (out.info && typeof out.info.result === "string") {
-          try {
-            const parsed = JSON.parse(out.info.result) as Record<string, unknown>;
-            if (typeof parsed.url === "string" && parsed.url.startsWith("http")) {
-              imgUrl = parsed.url;
-              break;
-            }
-          } catch {
-            /* ignore parse error */
-          }
+      if (!fileId && !imgUrl) {
+        logger.warn("studio_flatlay.no_image_in_outputs", { attempt });
+        if (attempt < maxAttempts - 1 && !signal?.aborted) {
+          await new Promise((r) => setTimeout(r, 800));
+          continue;
         }
-        if (!imgUrl && typeof out.content === "string") {
-          const match = out.content.match(
-            /https:\/\/[^\s)]+\.(?:jpg|jpeg|png)[^\s)]*/i,
-          );
-          if (match) {
-            imgUrl = match[0];
-            break;
-          }
-        }
+        return null;
       }
 
-      if (imgUrl) {
-        const imgRes = await fetch(imgUrl, { signal: combined });
-        if (imgRes.ok) {
-          const arrayBuf = await imgRes.arrayBuffer();
-          const buffer = Buffer.from(arrayBuf);
-          if (buffer.length > 5000) {
-            return { buffer, mimeType: "image/jpeg" };
-          }
-        }
+      // Download generated image with its own isolated timeout & retry so a completed
+      // FLUX render is never discarded if the initial blob download socket stalls.
+      const downloaded = await downloadGeneratedMistralImage({
+        fileId,
+        imgUrl,
+        mistralKey,
+        parentSignal: signal,
+      });
+
+      if (downloaded) {
+        return downloaded;
       }
+
+      logger.warn("studio_flatlay.image_download_exhausted", {
+        attempt,
+        hasFileId: Boolean(fileId),
+        hasImgUrl: Boolean(imgUrl),
+      });
     } catch (err) {
+      const info = describeFetchError(err);
       logger.warn("studio_flatlay.render_failed", {
         attempt,
-        err: err instanceof Error ? err.message : String(err),
+        err: info.message,
+        ...(info.cause ? { cause: info.cause } : {}),
       });
       if (signal?.aborted) return null;
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 900));
+      }
     }
   }
 
