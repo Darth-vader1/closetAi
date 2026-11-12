@@ -1,4 +1,5 @@
 import zlib from "node:zlib";
+import { categoryGroup, type CategoryGroup } from "@/lib/wardrobe/categories";
 
 function paethPredictor(a: number, b: number, c: number): number {
   const p = a + b - c;
@@ -21,13 +22,67 @@ export interface CutoutSanityResult {
   leftFlankCoverage: number;
   rightFlankCoverage: number;
   zone3Coverage: number;
+  borderCoverage: number;
   reason: string | null;
+}
+
+/** Smallest cutout we accept; anything smaller cannot be a usable garment photo. */
+export const MIN_CUTOUT_DIMENSION = 32;
+/** Remove.bg `size=auto` tops out at 25 MP; cap slightly above to bound memory (~104 MB RGBA). */
+export const MAX_CUTOUT_PIXELS = 26_000_000;
+/** Overall alpha coverage at/above this means the background was never removed. */
+const MAX_COVERAGE = 0.985;
+/** Share of the 1px frame border that is opaque at/above this means the backdrop is still there. */
+const MAX_BORDER_COVERAGE = 0.95;
+/** Alpha above this counts as garment. */
+const OPAQUE_ALPHA = 48;
+
+const MAJOR_GARMENT_GROUPS: ReadonlySet<CategoryGroup> = new Set([
+  "top",
+  "bottom",
+  "fullbody",
+  "outerwear",
+  "traditional",
+]);
+
+/** Category slugs are lowercase-hyphenated; tolerate labels like "Hoodies" or "Polo Shirts". */
+export function isMajorGarmentCategory(category?: string | null): boolean {
+  if (!category) return false;
+  const slug = category.trim().toLowerCase().replace(/\s+/g, "-");
+  return MAJOR_GARMENT_GROUPS.has(categoryGroup(slug));
+}
+
+function reject(
+  reason: string,
+  width = 0,
+  height = 0,
+  stats?: Partial<CutoutSanityResult>,
+): CutoutSanityResult {
+  return {
+    valid: false,
+    width,
+    height,
+    totalPixels: width * height,
+    opaquePixels: 0,
+    coverage: 0,
+    centerCoverage: 0,
+    leftFlankCoverage: 0,
+    rightFlankCoverage: 0,
+    zone3Coverage: 0,
+    borderCoverage: 0,
+    ...stats,
+    reason,
+  };
 }
 
 /**
  * Validates the alpha channel of a neural cutout PNG.
- * Rejects corrupt, hollow, or severely amputated masks where the neural model
- * mistakenly deleted the garment torso, belly, or one entire flank/sleeve.
+ *
+ * Rejects (so the waterfall cascades to the next provider / local studio):
+ * - corrupt, oversized, tiny, interlaced or otherwise unverifiable PNGs;
+ * - images with no alpha channel or with the backdrop still present;
+ * - hollow or severely amputated masks where the model deleted the garment
+ *   torso, belly, or one entire flank/sleeve (major garment categories).
  */
 export function validateCutoutAlphaSanity(
   pngBytes: Uint8Array | Buffer,
@@ -47,27 +102,18 @@ export function validateCutoutAlphaSanity(
     buf[6] !== 0x1a ||
     buf[7] !== 0x0a
   ) {
-    return {
-      valid: false,
-      width: 0,
-      height: 0,
-      totalPixels: 0,
-      opaquePixels: 0,
-      coverage: 0,
-      centerCoverage: 0,
-      leftFlankCoverage: 0,
-      rightFlankCoverage: 0,
-      zone3Coverage: 0,
-      reason: "Invalid PNG signature",
-    };
+    return reject("Invalid PNG signature");
   }
 
+  // 2. Walk chunks
   let offset = 8;
   let width = 0;
   let height = 0;
   let bitDepth = 0;
   let colorType = 0;
   let interlace = 0;
+  let sawIhdr = false;
+  let paletteAlpha: Buffer | null = null;
   const idatParts: Buffer[] = [];
 
   while (offset + 8 <= buf.length) {
@@ -81,12 +127,15 @@ export function validateCutoutAlphaSanity(
     const chunkData = buf.subarray(chunkDataStart, chunkDataEnd);
     offset += 12 + length;
 
-    if (type === "IHDR") {
+    if (type === "IHDR" && chunkData.length >= 13) {
+      sawIhdr = true;
       width = chunkData.readUInt32BE(0);
       height = chunkData.readUInt32BE(4);
       bitDepth = chunkData[8];
       colorType = chunkData[9];
       interlace = chunkData[12];
+    } else if (type === "tRNS") {
+      paletteAlpha = chunkData;
     } else if (type === "IDAT") {
       idatParts.push(chunkData);
     } else if (type === "IEND") {
@@ -94,77 +143,78 @@ export function validateCutoutAlphaSanity(
     }
   }
 
-  // Allow tiny test images (e.g. 1x1 mock PNGs in unit tests)
-  if (width < 32 || height < 32) {
-    return {
-      valid: true,
-      width,
-      height,
-      totalPixels: width * height,
-      opaquePixels: width * height,
-      coverage: 1,
-      centerCoverage: 1,
-      leftFlankCoverage: 1,
-      rightFlankCoverage: 1,
-      zone3Coverage: 1,
-      reason: null,
-    };
+  if (!sawIhdr || idatParts.length === 0) {
+    return reject("PNG is missing IHDR or IDAT data", width, height);
   }
 
-  // Neural background removal APIs return 8-bit RGBA (colorType 6)
-  if (colorType !== 6 || bitDepth !== 8 || interlace !== 0) {
-    return {
-      valid: true,
+  // 3. Dimension bounds (no tiny-image bypass: a real cutout is never < 32px)
+  if (width < MIN_CUTOUT_DIMENSION || height < MIN_CUTOUT_DIMENSION) {
+    return reject(`Cutout too small (${width}x${height})`, width, height);
+  }
+  if (width * height > MAX_CUTOUT_PIXELS) {
+    return reject(
+      `Cutout too large to verify (${width}x${height} exceeds ${MAX_CUTOUT_PIXELS} px)`,
       width,
       height,
-      totalPixels: width * height,
-      opaquePixels: width * height,
-      coverage: 1,
-      centerCoverage: 1,
-      leftFlankCoverage: 1,
-      rightFlankCoverage: 1,
-      zone3Coverage: 1,
-      reason: null,
-    };
+    );
   }
 
-  let decompressed: Buffer;
-  try {
-    decompressed = zlib.inflateSync(Buffer.concat(idatParts));
-  } catch (err) {
-    return {
-      valid: false,
+  // 4. Resolve pixel layout and where the alpha lives
+  let bpp: number; // bytes per pixel (filter unit)
+  let alphaOf: (row: Buffer, x: number) => number;
+
+  if (interlace !== 0) {
+    return reject("Interlaced PNG cutouts are not supported", width, height);
+  }
+
+  if (colorType === 6 && (bitDepth === 8 || bitDepth === 16)) {
+    // RGBA
+    bpp = bitDepth === 8 ? 4 : 8;
+    alphaOf = bitDepth === 8 ? (r, x) => r[x * 4 + 3] : (r, x) => r[x * 8 + 6];
+  } else if (colorType === 4 && (bitDepth === 8 || bitDepth === 16)) {
+    // Grayscale + alpha
+    bpp = bitDepth === 8 ? 2 : 4;
+    alphaOf = bitDepth === 8 ? (r, x) => r[x * 2 + 1] : (r, x) => r[x * 4 + 2];
+  } else if (colorType === 3 && bitDepth === 8) {
+    // Palette: transparency only exists via tRNS
+    if (!paletteAlpha || paletteAlpha.length === 0) {
+      return reject("Cutout has no transparency (palette PNG without tRNS)", width, height);
+    }
+    const trns = paletteAlpha;
+    bpp = 1;
+    alphaOf = (r, x) => {
+      const idx = r[x];
+      return idx < trns.length ? trns[idx] : 255;
+    };
+  } else if (colorType === 0 || colorType === 2) {
+    return reject("Cutout has no alpha channel (background was not removed)", width, height);
+  } else {
+    return reject(
+      `Unsupported PNG layout (colorType ${colorType}, bitDepth ${bitDepth})`,
       width,
       height,
-      totalPixels: width * height,
-      opaquePixels: 0,
-      coverage: 0,
-      centerCoverage: 0,
-      leftFlankCoverage: 0,
-      rightFlankCoverage: 0,
-      zone3Coverage: 0,
-      reason: `Corrupted PNG IDAT chunk: ${err instanceof Error ? err.message : String(err)}`,
-    };
+    );
   }
 
-  const bpp = 4; // RGBA
   const rowBytes = width * bpp;
   const expectedLength = height * (1 + rowBytes);
 
-  if (decompressed.length < expectedLength) {
-    return {
-      valid: false,
+  // 5. Inflate with a hard output cap (guards against decompression bombs)
+  let decompressed: Buffer;
+  try {
+    decompressed = zlib.inflateSync(Buffer.concat(idatParts), {
+      maxOutputLength: expectedLength + 1024,
+    });
+  } catch (err) {
+    return reject(
+      `Corrupted PNG IDAT chunk: ${err instanceof Error ? err.message : String(err)}`,
       width,
       height,
-      totalPixels: width * height,
-      opaquePixels: 0,
-      coverage: 0,
-      centerCoverage: 0,
-      leftFlankCoverage: 0,
-      rightFlankCoverage: 0,
-      zone3Coverage: 0,
-      reason: "Decompressed PNG data truncated",
-    };
+    );
+  }
+
+  if (decompressed.length < expectedLength) {
+    return reject("Decompressed PNG data truncated", width, height);
   }
 
   let opaquePixels = 0;
@@ -176,6 +226,8 @@ export function validateCutoutAlphaSanity(
   let rightFlankTotal = 0;
   let zone3Opaque = 0;
   let zone3Total = 0;
+  let borderOpaque = 0;
+  let borderTotal = 0;
 
   // Center core box: x in [25%, 75%], y in [28%, 72%]
   const minCx = Math.floor(width * 0.25);
@@ -223,13 +275,18 @@ export function validateCutoutAlphaSanity(
 
     const inYFlank = y >= minCy && y <= maxCy;
     const inYZ3 = y >= minZ3y && y <= maxZ3y;
+    const isBorderRow = y === 0 || y === height - 1;
 
     for (let x = 0; x < width; x++) {
-      const alpha = currRow[x * bpp + 3];
-      const isOpaque = alpha > 48;
+      const isOpaque = alphaOf(currRow, x) > OPAQUE_ALPHA;
 
       if (isOpaque) {
         opaquePixels++;
+      }
+
+      if (isBorderRow || x === 0 || x === width - 1) {
+        borderTotal++;
+        if (isOpaque) borderOpaque++;
       }
 
       if (x >= minCx && x <= maxCx && y >= minCy && y <= maxCy) {
@@ -259,78 +316,70 @@ export function validateCutoutAlphaSanity(
   }
 
   const totalPixels = width * height;
-  const coverage = totalPixels > 0 ? opaquePixels / totalPixels : 0;
-  const centerCoverage = centerTotal > 0 ? centerOpaque / centerTotal : 0;
-  const leftFlankCoverage = leftFlankTotal > 0 ? leftFlankOpaque / leftFlankTotal : 0;
-  const rightFlankCoverage = rightFlankTotal > 0 ? rightFlankOpaque / rightFlankTotal : 0;
-  const zone3Coverage = zone3Total > 0 ? zone3Opaque / zone3Total : 0;
+  const stats = {
+    totalPixels,
+    opaquePixels,
+    coverage: totalPixels > 0 ? opaquePixels / totalPixels : 0,
+    centerCoverage: centerTotal > 0 ? centerOpaque / centerTotal : 0,
+    leftFlankCoverage: leftFlankTotal > 0 ? leftFlankOpaque / leftFlankTotal : 0,
+    rightFlankCoverage: rightFlankTotal > 0 ? rightFlankOpaque / rightFlankTotal : 0,
+    zone3Coverage: zone3Total > 0 ? zone3Opaque / zone3Total : 0,
+    borderCoverage: borderTotal > 0 ? borderOpaque / borderTotal : 0,
+  };
+  const pct = (v: number) => (v * 100).toFixed(1);
 
-  const catLower = (category ?? "").toLowerCase();
-  const isMajorGarment =
-    catLower.includes("hoodie") ||
-    catLower.includes("jacket") ||
-    catLower.includes("coat") ||
-    catLower.includes("sweater") ||
-    catLower.includes("shirt") ||
-    catLower.includes("top") ||
-    catLower.includes("dress") ||
-    catLower.includes("trouser") ||
-    catLower.includes("pant") ||
-    catLower.includes("jean");
+  // Rule 0: Background never removed (fully opaque, or the frame edge is still backdrop)
+  if (stats.coverage >= MAX_COVERAGE) {
+    return reject(
+      `Background not removed (coverage ${pct(stats.coverage)}%)`,
+      width,
+      height,
+      stats,
+    );
+  }
+  if (stats.borderCoverage >= MAX_BORDER_COVERAGE) {
+    return reject(
+      `Background not removed (frame border ${pct(stats.borderCoverage)}% opaque)`,
+      width,
+      height,
+      stats,
+    );
+  }
+
+  const isMajorGarment = isMajorGarmentCategory(category);
 
   // Rule 1: Absolute minimum coverage (even accessories cover >= 4%, garments cover >= 18%)
   const minCoverage = isMajorGarment ? 0.18 : 0.04;
-  if (coverage < minCoverage) {
-    return {
-      valid: false,
+  if (stats.coverage < minCoverage) {
+    return reject(
+      `Overall coverage too low (${pct(stats.coverage)}% < ${pct(minCoverage)}%)`,
       width,
       height,
-      totalPixels,
-      opaquePixels,
-      coverage,
-      centerCoverage,
-      leftFlankCoverage,
-      rightFlankCoverage,
-      zone3Coverage,
-      reason: `Overall coverage too low (${(coverage * 100).toFixed(1)}% < ${(minCoverage * 100).toFixed(1)}%)`,
-    };
+      stats,
+    );
   }
 
   // Rule 2: Hollow torso / midsection in major garments
-  if (isMajorGarment && zone3Coverage < 0.12) {
-    return {
-      valid: false,
+  if (isMajorGarment && stats.zone3Coverage < 0.12) {
+    return reject(
+      `Hollow garment body/torso detected (mid-section coverage ${pct(stats.zone3Coverage)}% < 12%)`,
       width,
       height,
-      totalPixels,
-      opaquePixels,
-      coverage,
-      centerCoverage,
-      leftFlankCoverage,
-      rightFlankCoverage,
-      zone3Coverage,
-      reason: `Hollow garment body/torso detected (mid-section coverage ${(zone3Coverage * 100).toFixed(1)}% < 12%)`,
-    };
+      stats,
+    );
   }
 
   // Rule 3: Extreme left/right flank amputation (one sleeve/side erased)
   if (isMajorGarment) {
-    const maxFlank = Math.max(leftFlankCoverage, rightFlankCoverage);
-    const minFlank = Math.min(leftFlankCoverage, rightFlankCoverage);
+    const maxFlank = Math.max(stats.leftFlankCoverage, stats.rightFlankCoverage);
+    const minFlank = Math.min(stats.leftFlankCoverage, stats.rightFlankCoverage);
     if (maxFlank > 0.20 && minFlank < 0.035) {
-      return {
-        valid: false,
+      return reject(
+        `Severely amputated side/sleeve detected (left: ${pct(stats.leftFlankCoverage)}%, right: ${pct(stats.rightFlankCoverage)}%)`,
         width,
         height,
-        totalPixels,
-        opaquePixels,
-        coverage,
-        centerCoverage,
-        leftFlankCoverage,
-        rightFlankCoverage,
-        zone3Coverage,
-        reason: `Severely amputated side/sleeve detected (left: ${(leftFlankCoverage * 100).toFixed(1)}%, right: ${(rightFlankCoverage * 100).toFixed(1)}%)`,
-      };
+        stats,
+      );
     }
   }
 
@@ -338,13 +387,7 @@ export function validateCutoutAlphaSanity(
     valid: true,
     width,
     height,
-    totalPixels,
-    opaquePixels,
-    coverage,
-    centerCoverage,
-    leftFlankCoverage,
-    rightFlankCoverage,
-    zone3Coverage,
+    ...stats,
     reason: null,
   };
 }

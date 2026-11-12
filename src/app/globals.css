@@ -120,3 +120,16 @@ h3 {
     animation-iteration-count: 1 !important;
   }
 }
+
+/*
+ * iOS Safari zooms the page when a focused text field is below 16px. Keep every
+ * text-entry control at >=16px on phone widths. Unlayered on purpose so it wins
+ * over Tailwind's layered `text-xs` / `text-sm` utilities.
+ */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

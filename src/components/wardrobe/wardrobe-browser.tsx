@@ -82,7 +82,7 @@ export function WardrobeBrowser({
         <div
           role="navigation"
           aria-label="Quick category filter"
-          className="flex flex-wrap items-center gap-1.5"
+          className="-mx-4 flex snap-x items-center gap-1.5 overflow-x-auto overscroll-x-contain px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0 [&>*]:shrink-0 [&>*]:snap-start"
         >
           <Link
             href={categoryFilterHref(query, null)}

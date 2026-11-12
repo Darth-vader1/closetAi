@@ -117,7 +117,7 @@ export function FlatlayToolbar({
         </div>
 
         {/* Global Action Buttons */}
-        <div className="flex items-center gap-1.5 ml-auto">
+        <div className="flex w-full flex-wrap items-center gap-1.5 sm:ml-auto sm:w-auto sm:justify-end">
           <Button
             type="button"
             variant="outline"
@@ -175,7 +175,8 @@ export function FlatlayToolbar({
             className="gap-1.5 text-xs"
           >
             <Plus className="size-3.5 text-accent" />
-            <span>Add Garments ({itemCount})</span>
+            <span className="sm:hidden">Add ({itemCount})</span>
+            <span className="hidden sm:inline">Add Garments ({itemCount})</span>
           </Button>
 
           <Button
@@ -199,7 +200,8 @@ export function FlatlayToolbar({
             className="gap-1.5 text-xs"
           >
             <Download className="size-3.5" />
-            <span>Export PNG</span>
+            <span className="sm:hidden">Export</span>
+            <span className="hidden sm:inline">Export PNG</span>
           </Button>
         </div>
       </div>

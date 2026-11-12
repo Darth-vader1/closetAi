@@ -542,6 +542,7 @@ export function SettingsClient({
                 <div className="flex-1 max-w-xs">
                   <Input
                     type="tel"
+                    autoComplete="tel"
                     value={whatsappPhone}
                     onChange={(e) => setWhatsappPhone(e.target.value)}
                     placeholder="+234 801 234 5678"

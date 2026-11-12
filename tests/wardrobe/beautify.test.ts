@@ -1,3 +1,4 @@
+import zlib from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   applyConservativeGarmentEnhancement,
@@ -43,6 +44,55 @@ function drawRect(
     }
   }
 }
+
+function createRgbaPng(
+  width: number,
+  height: number,
+  isOpaquePixel: (x: number, y: number) => boolean,
+  options: { colorType?: number } = {},
+): Uint8Array {
+  const colorType = options.colorType ?? 6;
+  const bpp = colorType === 2 ? 3 : 4;
+  const rowBytes = width * bpp;
+  const raw = Buffer.alloc(height * (1 + rowBytes));
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * (1 + rowBytes);
+    raw[rowOffset] = 0;
+    for (let x = 0; x < width; x++) {
+      const px = rowOffset + 1 + x * bpp;
+      raw[px] = 30;
+      raw[px + 1] = 30;
+      raw[px + 2] = 30;
+      if (bpp === 4) raw[px + 3] = isOpaquePixel(x, y) ? 255 : 0;
+    }
+  }
+  const idat = zlib.deflateSync(raw);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = colorType;
+
+  const makeChunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length, 0);
+    return Buffer.concat([len, Buffer.from(type, "ascii"), data, Buffer.alloc(4)]);
+  };
+
+  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  return new Uint8Array(
+    Buffer.concat([
+      sig,
+      makeChunk("IHDR", ihdr),
+      makeChunk("IDAT", idat),
+      makeChunk("IEND", Buffer.alloc(0)),
+    ]),
+  );
+}
+
+/** Healthy 64x64 garment cutout: solid body with a transparent margin. */
+const healthyCutoutPng = () =>
+  createRgbaPng(64, 64, (x, y) => x >= 8 && x <= 56 && y >= 10 && y <= 58);
 
 describe("Product Studio Garment Beautification Engine (Phase 6 Comprehensive Suite)", () => {
   it("1. White shirt on white/near-white background: preserves white shirt interior, collar, and sleeves without clipping", () => {
@@ -722,7 +772,7 @@ describe("Product Studio Garment Beautification Engine (Phase 6 Comprehensive Su
         const urlStr = String(input);
         calls.push(urlStr);
         if (urlStr.includes("clearbackdrop.com")) {
-          return new Response(tinyPngBytes, {
+          return new Response(Buffer.from(healthyCutoutPng()) as unknown as BodyInit, {
             status: 200,
             headers: { "Content-Type": "image/png" },
           });
@@ -856,60 +906,9 @@ describe("Product Studio Garment Beautification Engine (Phase 6 Comprehensive Su
   });
 
   it("22. Hollow cutout rejection: rejects hollow neural cutouts and cascades to next provider", async () => {
-    const zlib = await import("node:zlib");
     const { runGarmentEnhancementService } = await import(
       "@/lib/wardrobe/enhancement-service"
     );
-
-    function createRgbaPng(
-      width: number,
-      height: number,
-      isOpaquePixel: (x: number, y: number) => boolean,
-    ): Uint8Array {
-      const rowBytes = width * 4;
-      const raw = Buffer.alloc(height * (1 + rowBytes));
-      for (let y = 0; y < height; y++) {
-        const rowOffset = y * (1 + rowBytes);
-        raw[rowOffset] = 0;
-        for (let x = 0; x < width; x++) {
-          const px = rowOffset + 1 + x * 4;
-          const opaque = isOpaquePixel(x, y);
-          raw[px] = 30;
-          raw[px + 1] = 30;
-          raw[px + 2] = 30;
-          raw[px + 3] = opaque ? 255 : 0;
-        }
-      }
-      const idat = zlib.deflateSync(raw);
-      const ihdr = Buffer.alloc(13);
-      ihdr.writeUInt32BE(width, 0);
-      ihdr.writeUInt32BE(height, 4);
-      ihdr[8] = 8;
-      ihdr[9] = 6;
-
-      const makeChunk = (type: string, data: Buffer) => {
-        const len = Buffer.alloc(4);
-        len.writeUInt32BE(data.length, 0);
-        return Buffer.concat([
-          len,
-          Buffer.from(type, "ascii"),
-          data,
-          Buffer.alloc(4),
-        ]);
-      };
-
-      const sig = Buffer.from([
-        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-      ]);
-      return new Uint8Array(
-        Buffer.concat([
-          sig,
-          makeChunk("IHDR", ihdr),
-          makeChunk("IDAT", idat),
-          makeChunk("IEND", Buffer.alloc(0)),
-        ]),
-      );
-    }
 
     // Hollow 64x64 PNG: only top 5 rows have pixels (~7% coverage, hollow midsection)
     const hollowPng = createRgbaPng(64, 64, (x, y) => y < 5);
